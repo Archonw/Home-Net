@@ -1,6 +1,6 @@
 # Netzwerkmonitor – Plan
 
-Stand: 28.10.2026 · Status: Entwurf, offene Fragen siehe Abschnitt 8
+Stand: 28.10.2026 · Status: Entwurf, Entscheidungen für Jans Setup in Abschnitt 9
 
 ## 1. Ziel
 
@@ -138,3 +138,42 @@ Schritte 1–4 sind routerunabhängig und können sofort beginnen.
 3. **Wie willst du entscheiden?** Web-Oberfläche/PWA am Handy, Telegram-Bot, native App?
 4. **Was bedeutet „sperren“ für dich?** Nur kein Internet (einfach, FritzBox-tauglich) oder komplett aus dem Netz (braucht WLAN-Sperre/VLAN)?
 5. **Bevorzugte Programmiersprache**, falls du selbst mitentwickeln willst?
+
+## 9. Entscheidungen für Jans Setup (28.10.2026)
+
+Antworten: **FritzBox 6690 Cable, kein Mesh**, Dienst auf **Unraid oder Home Assistant**, „Sperren“ heißt **komplett aus dem Netz**.
+
+### 9.1 Plattform: Unraid (Docker)
+
+- Der Dienst läuft als Docker-Container auf Unraid mit `--network=host` und den Rechten `NET_RAW`/`NET_ADMIN`. Nur so sieht er ARP-/DHCP-Pakete im LAN und kann bei Bedarf selbst ARP-Pakete senden. Im Standard-Bridge-Netz von Docker ginge das nicht.
+- Home Assistant wäre auch möglich (Add-on mit `host_network`), ist aber für Rohpaket-Zugriff und eigene Entwicklung umständlicher. HA wird stattdessen **später optional angebunden** (MQTT bzw. Webhook), z. B. für Benachrichtigungen über die HA-Companion-App.
+- Für Unraid gibt es dann ein Community-Applications-Template; Daten liegen unter `/mnt/user/appdata/networkmonitor`.
+
+### 9.2 Sperren mit der FritzBox 6690 – was geht
+
+Die offizielle FritzBox-Schnittstelle (TR-064) kann ein Gerät nur **vom Internet** trennen (`X_AVM-DE_HostFilter` → `DisallowWANAccessByIP`). Ein Sperren im lokalen Netz bietet sie nicht. Deshalb kombinieren wir:
+
+| Ebene | Mechanismus | Wirkung | Status |
+|---|---|---|---|
+| **WLAN** | FritzBox-Einstellung „WLAN-Zugang auf die bekannten WLAN-Geräte beschränken“ (MAC-Filter) | Unbekannte Geräte kommen gar nicht erst ins WLAN, auch mit Passwort. Das ist die echte Vorab-Freigabe. | in der FritzBox-Oberfläche vorhanden; ob sich die Liste per TR-064 pflegen lässt, ist **nicht bestätigt** → Prototyp prüft das, sonst über die Weboberfläche (`data.lua`, inoffiziell) oder manueller Klick nach Benachrichtigung |
+| **Internet** | TR-064 `DisallowWANAccessByIP` | Gerät kommt nicht mehr ins Internet | offiziell, zuverlässig |
+| **LAN (Kabel) + Restschutz** | ARP-Block vom Unraid-Server aus | Gerät erreicht im LAN weder Router noch andere Geräte (IPv4) | Notlösung, siehe 4.3; IPv6 zusätzlich per NDP |
+
+Ablauf für ein neues WLAN-Gerät bei aktivem MAC-Filter:
+
+1. Gerät versucht sich anzumelden, die FritzBox lehnt ab und schreibt die MAC ins Ereignisprotokoll.
+2. Der Dienst liest das Protokoll per TR-064 (`DeviceInfo`/`GetDeviceLog`) und meldet „Neues Gerät möchte ins WLAN“. Ob der Eintrag bei der 6690 genau so erscheint, prüfen wir im Prototyp.
+3. Jan tippt „Erlauben“ → Dienst trägt die MAC in die Liste bekannter Geräte ein (bzw. sagt Jan, wo er klicken muss, falls das nicht automatisierbar ist).
+4. „Sperren“ eines bereits bekannten Geräts → MAC aus der Liste entfernen, Internet sperren, ARP-Block aktivieren.
+
+Neue **Kabel**-Geräte erkennt der Sniffer sofort; sie werden per Internet-Sperre + ARP-Block in Quarantäne gehalten, bis Jan sie freigibt.
+
+Wichtig vor dem Einschalten des MAC-Filters: Bei allen eigenen Handys/Laptops die private (zufällige) WLAN-Adresse fürs Heimnetz abschalten, sonst sperren sie sich nach einem Wechsel selbst aus. Der MAC-Filter schützt nicht gegen jemanden, der gezielt eine erlaubte MAC fälscht – als Schutz gegen „Gast kennt das WLAN-Passwort“ reicht er aber.
+
+### 9.3 Angepasste Reihenfolge
+
+1. Grundgerüst als Docker-Container für Unraid.
+2. FritzBox-Anbindung (TR-064): Hostliste, Ereignisprotokoll, Internet-Sperre – und **Test, ob der WLAN-MAC-Filter per Schnittstelle pflegbar ist**.
+3. ARP/DHCP-Sniffer + ARP-Scan.
+4. Web-UI + Push (ntfy oder Telegram), später HA-Anbindung.
+5. ARP-Block für Kabel-Geräte.
