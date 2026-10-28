@@ -1,0 +1,145 @@
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+from networkmonitor.api import create_app
+from networkmonitor.config import Settings
+from networkmonitor.fritzbox import Host
+from networkmonitor.monitor import Monitor
+from networkmonitor.store import Status, Store, is_random_mac, normalize_mac
+
+
+class FakeRouter:
+    def __init__(self, hosts: list[Host]) -> None:
+        self.hosts = hosts
+        self.blocked: set[str] = set()
+        self.calls: list[tuple[str, bool]] = []
+
+    def list_hosts(self) -> list[Host]:
+        return list(self.hosts)
+
+    def get_internet_access(self, ip: str) -> bool:
+        return ip not in self.blocked
+
+    def set_internet_access(self, ip: str, allowed: bool) -> None:
+        self.calls.append((ip, allowed))
+        if allowed:
+            self.blocked.discard(ip)
+        else:
+            self.blocked.add(ip)
+
+    def read_device_log(self) -> list[str]:
+        return []
+
+
+PHONE = Host("aa:bb:cc:00:00:01", "192.168.178.20", "handy", "802.11", True)
+LAPTOP = Host("AA-BB-CC-00-00-02", "192.168.178.21", "laptop", "Ethernet", True)
+STRANGER = Host("de:ad:be:ef:00:03", "192.168.178.99", "fremd", "802.11", True)
+
+
+def make(settings: Settings | None = None, hosts=None):
+    router = FakeRouter(hosts or [PHONE, LAPTOP])
+    store = Store(":memory:")
+    monitor = Monitor(router, store, settings or Settings(db_path=":memory:"))
+    return router, store, monitor
+
+
+def test_normalize_and_random_mac():
+    assert normalize_mac("aa-bb-cc-dd-ee-ff") == "AA:BB:CC:DD:EE:FF"
+    assert normalize_mac("aabbccddeeff") == "AA:BB:CC:DD:EE:FF"
+    assert is_random_mac("DE:AD:BE:EF:00:03")  # 0xDE hat Bit 1 gesetzt
+    assert not is_random_mac("AC:BB:CC:00:00:01")
+
+
+def test_initial_scan_trusts_existing_devices():
+    router, store, monitor = make()
+    result = monitor.poll_once()
+    assert result.new_devices == []
+    assert {d.status for d in store.list()} == {Status.ALLOWED}
+    assert router.calls == []
+
+
+def test_new_device_after_initial_scan_is_reported():
+    router, store, monitor = make()
+    monitor.poll_once()
+    router.hosts.append(STRANGER)
+    result = monitor.poll_once()
+    assert [d.mac for d in result.new_devices] == ["DE:AD:BE:EF:00:03"]
+    assert store.get(STRANGER.mac).status == Status.UNKNOWN
+    # ohne Quarantäne bleibt das Internet an
+    assert router.calls == []
+    # zweite Abfrage meldet es nicht erneut
+    assert monitor.poll_once().new_devices == []
+
+
+def test_quarantine_blocks_unknown_until_allowed():
+    router, store, monitor = make(Settings(db_path=":memory:", quarantine_unknown=True))
+    monitor.poll_once()
+    router.hosts.append(STRANGER)
+    monitor.poll_once()
+    assert STRANGER.ip in router.blocked
+    monitor.set_status(STRANGER.mac, Status.ALLOWED)
+    assert STRANGER.ip not in router.blocked
+
+
+def test_block_and_reapply_after_ip_change():
+    router, store, monitor = make()
+    monitor.poll_once()
+    monitor.set_status(PHONE.mac, Status.BLOCKED)
+    assert PHONE.ip in router.blocked
+    router.hosts[0] = Host(PHONE.mac, "192.168.178.40", "handy", "802.11", True)
+    monitor.poll_once()
+    assert "192.168.178.40" in router.blocked
+
+
+def test_router_error_for_one_device_does_not_stop_poll():
+    router, store, monitor = make()
+    monitor.poll_once()
+    monitor.set_status(PHONE.mac, Status.BLOCKED)
+
+    def boom(ip, allowed):
+        raise RuntimeError("TR-064 kaputt")
+
+    router.set_internet_access = boom
+    router.hosts[0] = Host(PHONE.mac, "192.168.178.41", "handy", "802.11", True)
+    router.hosts.append(STRANGER)
+    result = monitor.poll_once()
+    assert len(result.errors) == 1
+    assert store.get(STRANGER.mac) is not None
+
+
+@pytest.fixture
+def client():
+    router = FakeRouter([PHONE, LAPTOP])
+    store = Store(":memory:")
+    settings = Settings(db_path=":memory:", ui_password="geheim")
+    app = create_app(settings, router=router, store=store, start_poller=False)
+    app.state.monitor.poll_once()
+    router.hosts.append(STRANGER)
+    app.state.monitor.poll_once()
+    with TestClient(app) as c:
+        yield c, router
+
+
+def test_api_requires_login(client):
+    c, _ = client
+    assert c.get("/api/devices").status_code == 401
+    assert c.get("/api/devices", auth=("admin", "falsch")).status_code == 401
+    assert c.get("/health").status_code == 200
+
+
+def test_api_lists_and_blocks(client):
+    c, router = client
+    devices = c.get("/api/devices", auth=("admin", "geheim")).json()
+    assert devices[0]["mac"] == "DE:AD:BE:EF:00:03"  # Unbekannte zuerst
+    r = c.post("/api/devices/DE:AD:BE:EF:00:03/block", auth=("admin", "geheim"))
+    assert r.status_code == 200 and r.json()["status"] == "blocked"
+    assert STRANGER.ip in router.blocked
+    r = c.patch(
+        "/api/devices/DE:AD:BE:EF:00:03", json={"name": "Nachbar"}, auth=("admin", "geheim")
+    )
+    assert r.json()["name"] == "Nachbar"
+    missing = c.post("/api/devices/00:00:00:00:00:00/allow", auth=("admin", "geheim"))
+    assert missing.status_code == 404
+    assert c.get("/", auth=("admin", "geheim")).status_code == 200

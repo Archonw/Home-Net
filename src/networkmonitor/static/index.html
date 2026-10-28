@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Netzwerkmonitor</title>
+<style>
+  :root { --bg:#fff; --fg:#1d1d1f; --muted:#6e6e73; --line:#e5e5ea; --ok:#1a7f37; --bad:#c62828; --warn:#b26a00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --muted:#999; --line:#333; } }
+  body { margin:0; padding:16px; font:15px/1.4 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  h1 { font-size:20px; margin:0 0 4px; }
+  #status { color:var(--muted); margin-bottom:16px; font-size:13px; }
+  .dev { border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px; }
+  .dev.unknown { border-color:var(--warn); }
+  .top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; flex-wrap:wrap; }
+  .name { font-weight:600; }
+  .meta { color:var(--muted); font-size:13px; }
+  .badge { font-size:12px; padding:2px 8px; border-radius:99px; border:1px solid currentColor; }
+  .allowed { color:var(--ok); } .blocked { color:var(--bad); } .unknown .badge { color:var(--warn); }
+  .actions { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+  button { font:inherit; padding:6px 12px; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--fg); cursor:pointer; }
+  button.allow { border-color:var(--ok); color:var(--ok); } button.block { border-color:var(--bad); color:var(--bad); }
+</style>
+</head>
+<body>
+<h1>Netzwerkmonitor</h1>
+<div id="status">Lade …</div>
+<div id="list"></div>
+<script>
+const LABEL = { unknown: "unbekannt", allowed: "erlaubt", blocked: "gesperrt" };
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+}
+
+async function load() {
+  const [devices, health] = await Promise.all([api("/api/devices"), api("/health")]);
+  document.getElementById("status").textContent =
+    `${devices.length} Geräte · ${devices.filter(d => d.online).length} online` +
+    (health.last_poll ? ` · letzte Abfrage ${new Date(health.last_poll).toLocaleTimeString()}` : "") +
+    (health.error ? ` · Fehler: ${health.error}` : "");
+  document.getElementById("list").innerHTML = devices.map(d => `
+    <div class="dev ${d.status}">
+      <div class="top">
+        <span class="name">${esc(d.name || d.hostname || d.mac)}</span>
+        <span class="badge ${d.status}">${LABEL[d.status]}</span>
+      </div>
+      <div class="meta">${esc(d.mac)} · ${esc(d.ip || "keine IP")} · ${esc(d.interface || "?")} ·
+        ${d.online ? "online" : "offline"}${d.random_mac ? " · zufällige MAC" : ""}</div>
+      <div class="actions">
+        ${d.status !== "allowed" ? `<button class="allow" data-mac="${esc(d.mac)}" data-act="allow">Erlauben</button>` : ""}
+        ${d.status !== "blocked" ? `<button class="block" data-mac="${esc(d.mac)}" data-act="block">Sperren</button>` : ""}
+        <button data-mac="${esc(d.mac)}" data-act="rename">Umbenennen</button>
+      </div>
+    </div>`).join("");
+}
+
+document.addEventListener("click", async e => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const mac = encodeURIComponent(b.dataset.mac);
+  try {
+    if (b.dataset.act === "rename") {
+      const name = prompt("Name für das Gerät:");
+      if (name === null) return;
+      await api(`/api/devices/${mac}`, { method: "PATCH", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ name }) });
+    } else {
+      await api(`/api/devices/${mac}/${b.dataset.act}`, { method: "POST" });
+    }
+    await load();
+  } catch (err) { alert(err.message); }
+});
+
+load().catch(err => document.getElementById("status").textContent = "Fehler: " + err.message);
+setInterval(() => load().catch(() => {}), 15000);
+</script>
+</body>
+</html>
