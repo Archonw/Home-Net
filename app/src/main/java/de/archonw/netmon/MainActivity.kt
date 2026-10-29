@@ -15,8 +15,12 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -96,12 +100,14 @@ class MainActivity : FragmentActivity() {
         if (!unlocked) authenticate()
     }
 
+    @OptIn(ExperimentalLayoutApi::class)
     @Composable
     private fun Content(p: Palette) {
         BackHandler(enabled = screen != Screen.List && settings.isConfigured) {
             screen = Screen.List
         }
-        Column(Modifier.fillMaxSize().background(p.bg)) {
+        // Bei offener Tastatur schrumpft der Inhalt, damit sich alle Felder darüber scrollen lassen
+        Column(Modifier.fillMaxSize().background(p.bg).imePadding()) {
             Box(Modifier.weight(1f)) {
                 when (val s = screen) {
                     Screen.Setup -> SettingsScreen(
@@ -140,7 +146,7 @@ class MainActivity : FragmentActivity() {
                     )
                 }
             }
-            if (settings.isConfigured) {
+            if (settings.isConfigured && !WindowInsets.isImeVisible) {
                 NavBar(
                     style = appStyle,
                     settingsActive = screen == Screen.Setup,
