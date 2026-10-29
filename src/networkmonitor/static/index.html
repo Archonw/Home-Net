@@ -25,6 +25,7 @@
 <body>
 <h1>Netzwerkmonitor <a href="settings" style="font-size:14px;font-weight:400;color:var(--muted);float:right">Einstellungen</a></h1>
 <div id="status">Lade …</div>
+<div style="margin:-8px 0 16px"><button id="remove-offline">Offline-Geräte entfernen</button></div>
 <div id="list"></div>
 <script>
 const LABEL = { unknown: "unbekannt", allowed: "erlaubt", blocked: "gesperrt" };
@@ -70,6 +71,15 @@ document.addEventListener("click", async e => {
     } else {
       await api(`/api/devices/${mac}/${b.dataset.act}`, { method: "POST" });
     }
+    await load();
+  } catch (err) { alert(err.message); }
+});
+
+document.getElementById("remove-offline").addEventListener("click", async () => {
+  if (!confirm("Alle Geräte, die gerade offline sind, aus der Liste entfernen?\n\nGesperrte Geräte bleiben. Die anderen gelten beim nächsten Verbinden als neu und müssen wieder bestätigt werden.")) return;
+  try {
+    const r = await api("/api/devices/remove-offline", { method: "POST" });
+    alert(`${r.removed} Geräte entfernt.`);
     await load();
   } catch (err) { alert(err.message); }
 });

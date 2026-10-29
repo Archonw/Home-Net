@@ -196,6 +196,11 @@ def create_app(
             raise HTTPException(404, "Gerät nicht gefunden")
         return asdict(device)
 
+    @app.post("/api/devices/remove-offline", dependencies=[Depends(require_login)])
+    def remove_offline() -> dict:
+        removed = store.remove_offline()
+        return {"removed": len(removed)}
+
     @app.post("/api/devices/{mac}/allow", dependencies=[Depends(require_login)])
     def allow(mac: str) -> dict:
         return _set(mac, Status.ALLOWED)

@@ -176,3 +176,39 @@ def test_new_devices_trigger_notifiers():
     result = app.state.monitor.poll_once()
     app.state.notify_new(result.new_devices)
     assert sent == ["DE:AD:BE:EF:00:03"]
+
+
+def test_remove_offline_keeps_blocked_and_reports_on_return():
+    router, store, monitor = make()
+    monitor.poll_once()
+    router.hosts.append(STRANGER)
+    monitor.poll_once()
+    monitor.set_status(STRANGER.mac, Status.BLOCKED)
+    # alle drei gehen offline, die FritzBox listet sie weiter als inaktiv
+    router.hosts = [Host(h.mac, h.ip, h.hostname, h.interface, False) for h in router.hosts]
+    monitor.poll_once()
+
+    removed = store.remove_offline()
+    assert {d.mac for d in removed} == {normalize_mac(PHONE.mac), normalize_mac(LAPTOP.mac)}
+    assert [d.mac for d in store.list()] == [normalize_mac(STRANGER.mac)]
+
+    # inaktive Einträge der FritzBox legen nichts neu an
+    assert monitor.poll_once().new_devices == []
+    assert len(store.list()) == 1
+
+    # kommt das Handy wieder online, gilt es als neu und muss bestätigt werden
+    router.hosts[0] = PHONE
+    result = monitor.poll_once()
+    assert [d.mac for d in result.new_devices] == [normalize_mac(PHONE.mac)]
+    assert store.get(PHONE.mac).status == Status.UNKNOWN
+
+
+def test_remove_offline_endpoint():
+    router, store, monitor = make()
+    monitor.poll_once()
+    router.hosts = [PHONE, Host(LAPTOP.mac, LAPTOP.ip, "laptop", "Ethernet", False)]
+    monitor.poll_once()
+    app = create_app(Settings(db_path=":memory:"), router=router, store=store, start_poller=False)
+    client = TestClient(app)
+    assert client.post("/api/devices/remove-offline").json() == {"removed": 1}
+    assert [d["mac"] for d in client.get("/api/devices").json()] == [normalize_mac(PHONE.mac)]

@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -180,6 +181,9 @@ fun ListScreen(api: Api, settings: Settings, onOpen: (String) -> Unit, onSetting
     var onlineFilter by remember { mutableStateOf(settings.onlineFilter) }
     var statusFilter by remember { mutableStateOf(settings.statusFilter) }
     var sortMenu by remember { mutableStateOf(false) }
+    var confirmRemove by remember { mutableStateOf(false) }
+    var info by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(reload) {
         error = null
@@ -188,6 +192,36 @@ fun ListScreen(api: Api, settings: Settings, onOpen: (String) -> Unit, onSetting
         } catch (e: ApiException) {
             error = e.message
         }
+    }
+
+    if (confirmRemove) {
+        val count = devices.orEmpty().count { !it.online && it.status != "blocked" }
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text("Offline-Geräte entfernen?") },
+            text = {
+                Text(
+                    "$count Geräte, die gerade offline sind, werden aus der Liste gelöscht. " +
+                        "Kommen sie wieder ins Netz, gelten sie als neu und du musst sie erneut bestätigen.\n\n" +
+                        "Gesperrte Geräte bleiben in der Liste, damit ihre Sperre erhalten bleibt."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemove = false
+                    scope.launch {
+                        try {
+                            val n = api.removeOffline()
+                            info = "$n Geräte entfernt."
+                            reload++
+                        } catch (e: ApiException) {
+                            error = e.message
+                        }
+                    }
+                }) { Text("Entfernen") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Abbrechen") } },
+        )
     }
 
     Scaffold { pad ->
@@ -202,6 +236,7 @@ fun ListScreen(api: Api, settings: Settings, onOpen: (String) -> Unit, onSetting
                 TextButton(onClick = onSettings) { Text("Einstellungen") }
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp)) }
+            info?.let { Text(it, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
             val all = devices
             if (all == null && error == null) {
                 Loading()
@@ -215,19 +250,25 @@ fun ListScreen(api: Api, settings: Settings, onOpen: (String) -> Unit, onSetting
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                 )
-                Box(Modifier.padding(horizontal = 12.dp)) {
-                    TextButton(onClick = { sortMenu = true }) { Text("Sortieren: ${sort.label} ▾") }
-                    DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                        SortOrder.entries.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text((if (option == sort) "✓ " else "") + option.label) },
-                                onClick = {
-                                    sort = option
-                                    settings.sortOrder = option
-                                    sortMenu = false
-                                },
-                            )
+                Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box {
+                        TextButton(onClick = { sortMenu = true }) { Text("Sortieren: ${sort.label} ▾") }
+                        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                            SortOrder.entries.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text((if (option == sort) "✓ " else "") + option.label) },
+                                    onClick = {
+                                        sort = option
+                                        settings.sortOrder = option
+                                        sortMenu = false
+                                    },
+                                )
+                            }
                         }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (all.any { !it.online && it.status != "blocked" }) {
+                        TextButton(onClick = { confirmRemove = true }) { Text("Offline entfernen") }
                     }
                 }
                 ChipRow(OnlineFilter.entries, onlineFilter, { it.label }) {
