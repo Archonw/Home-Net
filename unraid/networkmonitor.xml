@@ -18,11 +18,14 @@
   <Config Name="Abfrageintervall (s)" Target="POLL_INTERVAL" Default="30" Type="Variable" Display="advanced" Required="false">30</Config>
   <Config Name="Erste Geräte vertrauen" Target="TRUST_INITIAL_DEVICES" Default="true" Type="Variable" Display="advanced" Required="false">true</Config>
   <Config Name="Unbekannte sofort ohne Internet" Target="QUARANTINE_UNKNOWN" Default="false" Type="Variable" Display="advanced" Required="false">false</Config>
-  <Config Name="Benachrichtigung" Target="NOTIFY" Default="" Type="Variable" Display="always" Required="false" Description="telegram, homeassistant oder telegram,homeassistant"></Config>
+  <Config Name="Benachrichtigung" Target="NOTIFY" Default="" Type="Variable" Display="always" Required="false" Description="ntfy, telegram, homeassistant – mehrere mit Komma"></Config>
   <Config Name="Adresse der Weboberfläche" Target="PUBLIC_URL" Default="http://192.168.178.207:8085/" Type="Variable" Display="advanced" Required="false">http://192.168.178.207:8085/</Config>
   <Config Name="Telegram Bot-Token" Target="TELEGRAM_BOT_TOKEN" Default="" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
   <Config Name="Telegram Chat-ID" Target="TELEGRAM_CHAT_ID" Default="" Type="Variable" Display="advanced" Required="false"></Config>
   <Config Name="Home Assistant URL" Target="HA_URL" Default="http://homeassistant.local:8123" Type="Variable" Display="advanced" Required="false"></Config>
   <Config Name="Home Assistant Token" Target="HA_TOKEN" Default="" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
   <Config Name="Home Assistant notify-Dienst" Target="HA_NOTIFY_SERVICE" Default="" Type="Variable" Display="advanced" Required="false" Description="z. B. mobile_app_jans_handy"></Config>
+  <Config Name="ntfy-Server" Target="NTFY_URL" Default="http://192.168.178.207:8090" Type="Variable" Display="advanced" Required="false"></Config>
+  <Config Name="ntfy-Thema" Target="NTFY_TOPIC" Default="netzwerkmonitor" Type="Variable" Display="advanced" Required="false"></Config>
+  <Config Name="ntfy-Token" Target="NTFY_TOKEN" Default="" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
 </Container>

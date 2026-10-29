@@ -153,6 +153,36 @@ class HomeAssistantNotifier:
         )
 
 
+APP_LINK = "netmon://device/{mac}"
+
+
+class NtfyNotifier:
+    """Veröffentlicht über einen ntfy-Server. Antippen öffnet das Gerät in der Android-App."""
+
+    def __init__(self, url: str, topic: str, token: str = "", post=_post_json) -> None:
+        self.url = url.rstrip("/")
+        self.topic = topic
+        self.token = token
+        self._post = post
+
+    def new_device(self, device: Device) -> None:
+        link = APP_LINK.format(mac=device.mac)
+        self._post(
+            self.url,
+            {
+                "topic": self.topic,
+                "title": "Neues Gerät im Netz",
+                "message": describe(device).split("\n", 1)[1],
+                "tags": ["warning"],
+                "priority": 4,
+                "click": link,
+                "actions": [{"action": "view", "label": "Prüfen", "url": link}],
+            },
+            headers={"Authorization": f"Bearer {self.token}"} if self.token else None,
+            timeout=10,
+        )
+
+
 def build_notifiers(settings: Settings) -> list[Notifier]:
     notifiers: list[Notifier] = []
     for name in settings.notify:
@@ -177,6 +207,13 @@ def build_notifiers(settings: Settings) -> list[Notifier]:
                 )
             else:
                 log.warning("NOTIFY=homeassistant, aber HA_URL/HA_TOKEN/HA_NOTIFY_SERVICE fehlen")
+        elif name == "ntfy":
+            if settings.ntfy_url and settings.ntfy_topic:
+                notifiers.append(
+                    NtfyNotifier(settings.ntfy_url, settings.ntfy_topic, settings.ntfy_token)
+                )
+            else:
+                log.warning("NOTIFY=ntfy, aber NTFY_URL/NTFY_TOPIC fehlen")
         else:
             log.warning("Unbekannter Benachrichtigungskanal: %s", name)
     return notifiers

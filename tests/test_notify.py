@@ -108,3 +108,23 @@ def test_build_notifiers_selects_by_setting():
     ]
     # fehlende Zugangsdaten → Kanal wird übersprungen statt abzustürzen
     assert build_notifiers(Settings(notify=("telegram",))) == []
+
+
+def test_ntfy_links_into_app():
+    from networkmonitor.notify import NtfyNotifier
+
+    _, device = make_device()
+    post = FakePost()
+    NtfyNotifier("http://192.168.178.207:8090/", "netzwerk", "tk_x", post=post).new_device(device)
+    url, payload, headers = post.calls[0]
+    assert url == "http://192.168.178.207:8090"
+    assert payload["topic"] == "netzwerk"
+    assert payload["click"] == "netmon://device/DE:AD:BE:EF:00:03"
+    assert payload["actions"][0]["url"] == "netmon://device/DE:AD:BE:EF:00:03"
+    assert headers == {"Authorization": "Bearer tk_x"}
+    assert "192.168.178.99" in payload["message"]
+    assert build_notifiers(Settings(notify=("ntfy",))) == []
+    assert [
+        type(n).__name__
+        for n in build_notifiers(Settings(notify=("ntfy",), ntfy_url="http://n", ntfy_topic="t"))
+    ] == ["NtfyNotifier"]

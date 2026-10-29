@@ -40,7 +40,7 @@ Zeigt Modell und FritzOS-Version, ob Hostliste und Internet-Sperre funktionieren
 
 ## 4. Benachrichtigungen
 
-In der `.env` mit `NOTIFY` wählen: `telegram`, `homeassistant` oder beides (`telegram,homeassistant`). Leer = aus. Danach den Container neu starten.
+In der `.env` mit `NOTIFY` wählen: `ntfy`, `telegram`, `homeassistant` oder mehrere mit Komma (z. B. `ntfy,homeassistant`). Leer = aus. Danach den Container neu starten.
 
 **Telegram** (mit Buttons „Erlauben“/„Sperren“ direkt in der Nachricht):
 1. In Telegram mit `@BotFather` einen Bot anlegen (`/newbot`), Token in `TELEGRAM_BOT_TOKEN` eintragen.
@@ -54,7 +54,23 @@ Nur Klicks aus diesem Chat werden ausgeführt.
 2. `HA_URL` auf die Adresse von Home Assistant setzen.
 3. `HA_NOTIFY_SERVICE` auf den notify-Dienst der Companion-App setzen (Entwicklerwerkzeuge → Aktionen, `notify.mobile_app_…`).
 
+**ntfy + Android-App** (Fingerabdruck, dann nur das eine Gerät mit „Erlauben“/„Sperren“):
+1. ntfy-Server auf Unraid starten, z. B. Port 8090:
+   `docker run -d --name ntfy --restart unless-stopped -p 8090:80 -v /mnt/user/appdata/ntfy:/var/cache/ntfy binwiederhier/ntfy serve --cache-file /var/cache/ntfy/cache.db`
+2. In der `.env`: `NOTIFY=ntfy` (oder zusätzlich zu anderen), `NTFY_URL=http://192.168.178.207:8090`, `NTFY_TOPIC=netzwerkmonitor`.
+3. Auf dem Handy die **ntfy-App** installieren (Play Store oder F-Droid), Standardserver auf `http://192.168.178.207:8090` setzen und das Thema `netzwerkmonitor` abonnieren.
+4. Die **Netzwerkmonitor-App** installieren (siehe unten). Antippen der ntfy-Nachricht öffnet sie über `netmon://device/<MAC>`.
+
 Test: `docker exec networkmonitor networkmonitor-notify-test` schickt eine Testnachricht an alle eingestellten Kanäle.
+
+## 5. Android-App
+
+Der Quellcode liegt in `android/`. GitHub Actions baut bei jedem Push die APK; nach einem Merge auf `main` liegt sie unter **Releases** als `netzwerkmonitor.apk`.
+
+- APK aufs Handy laden und installieren („Installation aus unbekannten Quellen“ für den Browser erlauben). Updates werden einfach drüber installiert.
+- Beim ersten Start: Adresse des Monitors (`http://192.168.178.207:8085`) und das `UI_PASSWORD` eintragen. Beides wird verschlüsselt auf dem Handy gespeichert.
+- Jeder Start, jede Benachrichtigung und jede Rückkehr nach mehr als einer Minute verlangt Fingerabdruck (oder Geräte-PIN).
+- Die App ist mit einem festen Schlüssel aus dem Repo signiert (`android/app/netmon.keystore`), damit Updates ohne Neuinstallation klappen. Sie ist nur für die eigene Installation gedacht.
 
 ## Entwicklung
 

@@ -30,6 +30,9 @@ class Settings:
     ha_url: str = ""
     ha_token: str = ""
     ha_notify_service: str = ""
+    ntfy_url: str = ""
+    ntfy_topic: str = ""
+    ntfy_token: str = ""
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -50,4 +53,7 @@ class Settings:
             ha_url=env.get("HA_URL", ""),
             ha_token=env.get("HA_TOKEN", ""),
             ha_notify_service=env.get("HA_NOTIFY_SERVICE", ""),
+            ntfy_url=env.get("NTFY_URL", ""),
+            ntfy_topic=env.get("NTFY_TOPIC", ""),
+            ntfy_token=env.get("NTFY_TOKEN", ""),
         )
