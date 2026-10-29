@@ -33,7 +33,8 @@ def test_telegram_sends_buttons():
     url, payload, _ = post.calls[0]
     assert url == "https://api.telegram.org/botTOKEN/sendMessage"
     assert payload["chat_id"] == "42"
-    assert "fremd" in payload["text"] and "192.168.178.207:8085" in payload["text"]
+    assert "fremd" in payload["text"]
+    assert "http://192.168.178.207:8085/device/DE:AD:BE:EF:00:03" in payload["text"]
     buttons = payload["reply_markup"]["inline_keyboard"][0]
     assert [b["callback_data"] for b in buttons] == [
         "allow:DE:AD:BE:EF:00:03",
@@ -85,7 +86,8 @@ def test_home_assistant_notify():
     assert url == "http://ha:8123/api/services/notify/mobile_app_jan"
     assert headers == {"Authorization": "Bearer HATOKEN"}
     assert payload["title"] == "Neues Gerät im Netz"
-    assert payload["data"]["actions"][0]["uri"] == "http://nm/"
+    assert payload["data"]["actions"][0]["uri"] == "http://nm/device/DE:AD:BE:EF:00:03"
+    assert payload["data"]["clickAction"] == "http://nm/device/DE:AD:BE:EF:00:03"
 
 
 def test_build_notifiers_selects_by_setting():

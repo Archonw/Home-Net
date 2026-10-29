@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gerät – Netzwerkmonitor</title>
+<style>
+  :root { --bg:#fff; --card:#f5f5f7; --fg:#1d1d1f; --muted:#6e6e73; --ok:#1a7f37; --bad:#c62828; --warn:#b26a00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --card:#1c1c1e; --fg:#eee; --muted:#999; } }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:16px; font:16px/1.4 system-ui, sans-serif; background:var(--bg); color:var(--fg);
+         min-height:100vh; display:flex; flex-direction:column; max-width:520px; margin-inline:auto; }
+  .badge { display:inline-block; font-size:13px; padding:3px 10px; border-radius:99px; border:1px solid currentColor; }
+  .unknown { color:var(--warn); } .allowed { color:var(--ok); } .blocked { color:var(--bad); }
+  h1 { font-size:24px; margin:12px 0 4px; word-break:break-word; }
+  .sub { color:var(--muted); margin-bottom:20px; }
+  dl { background:var(--card); border-radius:14px; padding:4px 16px; margin:0 0 24px; }
+  dl div { display:flex; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid rgba(127,127,127,.2); }
+  dl div:last-child { border-bottom:0; }
+  dt { color:var(--muted); } dd { margin:0; text-align:right; font-variant-numeric:tabular-nums; word-break:break-all; }
+  .hint { font-size:14px; color:var(--warn); margin:-12px 0 20px; }
+  .actions { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:auto; }
+  button { font:inherit; font-size:18px; font-weight:600; padding:18px; border-radius:14px; border:0; color:#fff; cursor:pointer; }
+  button:disabled { opacity:.4; }
+  .allow { background:var(--ok); } .block { background:var(--bad); }
+  #msg { text-align:center; min-height:24px; margin:12px 0; }
+  a { color:var(--muted); text-align:center; display:block; margin-top:16px; }
+</style>
+</head>
+<body>
+<div><span id="badge" class="badge">…</span></div>
+<h1 id="name">Lade …</h1>
+<div class="sub" id="sub"></div>
+<dl id="info"></dl>
+<div class="hint" id="hint" hidden>Zufällige (private) MAC-Adresse: Das kann auch ein bekanntes Handy mit neuer Adresse sein.</div>
+<div id="msg"></div>
+<div class="actions">
+  <button class="allow" id="allow">Erlauben</button>
+  <button class="block" id="block">Sperren</button>
+</div>
+<a href="../">Alle Geräte</a>
+<script>
+const LABEL = { unknown: "unbekannt", allowed: "erlaubt", blocked: "gesperrt" };
+const IFACE = { "802.11": "WLAN", "Ethernet": "LAN-Kabel" };
+const mac = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop());
+const fmt = ts => ts ? new Date(ts).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "–";
+const $ = id => document.getElementById(id);
+
+function render(d) {
+  $("badge").textContent = LABEL[d.status];
+  $("badge").className = "badge " + d.status;
+  $("name").textContent = d.name || d.hostname || "Unbekanntes Gerät";
+  $("sub").textContent = d.online ? "gerade online" : "offline";
+  const rows = [
+    ["Gerätename", d.hostname || "–"],
+    ["IP-Adresse", d.ip || "–"],
+    ["MAC-Adresse", d.mac],
+    ["Verbindung", IFACE[d.interface] || d.interface || "–"],
+    ["Zuerst gesehen", fmt(d.first_seen)],
+    ["Zuletzt gesehen", fmt(d.last_seen)],
+  ];
+  $("info").innerHTML = "";
+  for (const [k, v] of rows) {
+    const div = document.createElement("div");
+    const dt = document.createElement("dt"); dt.textContent = k;
+    const dd = document.createElement("dd"); dd.textContent = v;
+    div.append(dt, dd); $("info").append(div);
+  }
+  $("hint").hidden = !d.random_mac;
+  $("allow").disabled = d.status === "allowed";
+  $("block").disabled = d.status === "blocked";
+}
+
+async function call(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+}
+
+async function act(action) {
+  $("msg").textContent = "…";
+  try {
+    const d = await call(`../api/devices/${encodeURIComponent(mac)}/${action}`, { method: "POST" });
+    render(d);
+    $("msg").textContent = action === "allow" ? "Gerät ist erlaubt." : "Gerät ist gesperrt.";
+  } catch (e) { $("msg").textContent = "Fehler: " + e.message; }
+}
+
+$("allow").onclick = () => act("allow");
+$("block").onclick = () => act("block");
+call(`../api/devices/${encodeURIComponent(mac)}`).then(render)
+  .catch(e => { $("name").textContent = "Gerät nicht gefunden"; $("msg").textContent = e.message; });
+</script>
+</body>
+</html>

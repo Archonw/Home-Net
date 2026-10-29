@@ -37,6 +37,11 @@ def describe(device: Device) -> str:
     return "\n".join(lines)
 
 
+def device_url(public_url: str, mac: str) -> str:
+    """Direktlink auf die Seite eines einzelnen Geräts."""
+    return f"{public_url.rstrip('/')}/device/{mac}"
+
+
 class Notifier(Protocol):
     def new_device(self, device: Device) -> None: ...
 
@@ -58,12 +63,13 @@ class TelegramNotifier:
                 {"text": "⛔ Sperren", "callback_data": f"block:{device.mac}"},
             ]
         ]
-        if self.public_url.startswith("https://"):
+        link = device_url(self.public_url, device.mac)
+        if link.startswith("https://"):
             # Telegram akzeptiert URL-Buttons nur mit öffentlich gültigen Adressen
-            keyboard.append([{"text": "Öffnen", "url": self.public_url}])
+            keyboard.append([{"text": "Öffnen", "url": link}])
         text = describe(device)
-        if not self.public_url.startswith("https://"):
-            text += f"\n\n{self.public_url}"
+        if not link.startswith("https://"):
+            text += f"\n\n{link}"
         self._post(
             f"{self.api}/sendMessage",
             {
@@ -130,15 +136,16 @@ class HomeAssistantNotifier:
         self._post = post
 
     def new_device(self, device: Device) -> None:
+        link = device_url(self.public_url, device.mac)
         self._post(
             f"{self.url}/api/services/notify/{self.service}",
             {
                 "title": "Neues Gerät im Netz",
                 "message": describe(device).split("\n", 1)[1],
                 "data": {
-                    "url": self.public_url,
-                    "clickAction": self.public_url,
-                    "actions": [{"action": "URI", "title": "Öffnen", "uri": self.public_url}],
+                    "url": link,
+                    "clickAction": link,
+                    "actions": [{"action": "URI", "title": "Öffnen", "uri": link}],
                 },
             },
             headers={"Authorization": f"Bearer {self.token}"},
