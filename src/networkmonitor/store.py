@@ -189,6 +189,22 @@ class Store:
         assert device is not None
         return device, existing is None
 
+    def remove_offline(self) -> list[Device]:
+        """Löscht alle Geräte, die gerade offline sind – außer gesperrten.
+
+        Gesperrte bleiben, damit ihre Sperre beim Wiederauftauchen weiter gilt.
+        """
+        with self._lock, self._db:
+            rows = self._db.execute(
+                "SELECT * FROM device WHERE online = 0 AND status != ?", (Status.BLOCKED.value,)
+            ).fetchall()
+            removed = [self._row_to_device(r) for r in rows]
+            now = _now()
+            for device in removed:
+                self._db.execute("DELETE FROM device WHERE mac = ?", (device.mac,))
+                self._add_event(device.mac, "removed", device.name or device.hostname, now)
+        return removed
+
     def set_status(self, mac: str, status: Status) -> Device | None:
         mac = normalize_mac(mac)
         with self._lock, self._db:

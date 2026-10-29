@@ -34,6 +34,9 @@ class Monitor:
         )
 
         for host in self.router.list_hosts():
+            if not first_scan and not host.active and self.store.get(host.mac) is None:
+                # alte, inaktive FritzBox-Einträge nicht neu anlegen
+                continue
             device, is_new = self.store.record_sighting(
                 host.mac,
                 ip=host.ip,

@@ -71,6 +71,7 @@ Der Quellcode liegt in `android/`. GitHub Actions baut bei jedem Push die APK; n
 
 - APK aufs Handy laden und installieren („Installation aus unbekannten Quellen“ für den Browser erlauben). Updates werden einfach drüber installiert.
 - Beim ersten Start: Adresse des Monitors (`http://192.168.178.207:8085`) und das `UI_PASSWORD` eintragen. Beides wird verschlüsselt auf dem Handy gespeichert.
+- „Offline entfernen“ (App) bzw. „Offline-Geräte entfernen“ (Weboberfläche) löscht alle Geräte, die gerade offline sind, aus dem Monitor. Kommen sie wieder ins Netz, gelten sie als neu und müssen erneut bestätigt werden. Gesperrte Geräte bleiben stehen, damit ihre Sperre erhalten bleibt. Die Einträge in der FritzBox selbst ändern sich dadurch nicht.
 - Jeder Start, jede Benachrichtigung und jede Rückkehr nach mehr als einer Minute verlangt Fingerabdruck (oder Geräte-PIN).
 - Die App ist mit einem festen Schlüssel aus dem Repo signiert (`android/app/netmon.keystore`), damit Updates ohne Neuinstallation klappen. Sie ist nur für die eigene Installation gedacht.
 
