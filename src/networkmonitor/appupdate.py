@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -84,20 +85,37 @@ def _github(url: str, token: str, accept: str) -> urllib.request.Request:
 
 
 def fetch_latest_release(repo: str, token: str = "", timeout: float = 30) -> tuple[str, str]:
-    """Version und Download-Adresse der APK aus dem neuesten GitHub-Release."""
+    """Version und Download-Adresse der APK aus dem Release mit der höchsten Nummer.
+
+    Nicht ``releases/latest``: GitHub sortiert dort nach Datum des Commits, nicht nach Nummer.
+    """
     req = _github(
-        f"https://api.github.com/repos/{repo}/releases/latest", token, "application/vnd.github+json"
+        f"https://api.github.com/repos/{repo}/releases?per_page=50",
+        token,
+        "application/vnd.github+json",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        release = json.load(resp)
-    tag = release.get("tag_name", "")
-    match = RELEASE_TAG.match(tag)
-    if not match:
-        raise ValueError(f"Unbekanntes Release {tag!r}")
-    asset = next((a for a in release.get("assets", []) if a.get("name") == RELEASE_ASSET), None)
-    if asset is None:
-        raise ValueError(f"Release {tag} enthält keine {RELEASE_ASSET}")
-    return f"0.1.{match.group(1)}", asset["url"]
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            releases = json.load(resp)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            hint = "Token gespeichert?" if not token else "Hat das Token Zugriff darauf?"
+            raise ValueError(f"Repository {repo} nicht gefunden. {hint}") from exc
+        if exc.code == 401:
+            raise ValueError("Token ungültig oder abgelaufen") from exc
+        raise
+    candidates = []
+    for release in releases:
+        match = RELEASE_TAG.match(release.get("tag_name", ""))
+        if not match or release.get("draft") or release.get("prerelease"):
+            continue
+        asset = next((a for a in release.get("assets", []) if a.get("name") == RELEASE_ASSET), None)
+        if asset is not None:
+            candidates.append((int(match.group(1)), asset["url"]))
+    if not candidates:
+        raise ValueError(f"Kein Release mit {RELEASE_ASSET} gefunden")
+    number, url = max(candidates)
+    return f"0.1.{number}", url
 
 
 def download(url: str, token: str = "", timeout: float = 120) -> bytes:

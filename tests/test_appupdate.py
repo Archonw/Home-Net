@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 
 import pytest
 from fastapi.testclient import TestClient
@@ -95,34 +96,41 @@ class FakeResponse:
         return iter([self.body])
 
 
-def fake_github(monkeypatch, tag: str, requests: list):
-    release = {
-        "tag_name": tag,
-        "assets": [{"name": "netzwerkmonitor.apk", "url": "https://api.github.com/asset/1"}],
-    }
+def fake_github(monkeypatch, requests: list):
+    def release(number: int, **extra) -> dict:
+        return {
+            "tag_name": f"app-{number}",
+            "assets": [
+                {"name": "netzwerkmonitor.apk", "url": f"https://api.github.com/asset/{number}"}
+            ],
+            **extra,
+        }
+
+    # Reihenfolge wie bei GitHub: nicht nach Nummer sortiert
+    releases = [release(8), release(12), release(13, prerelease=True), release(10)]
 
     def urlopen(req, timeout):
         requests.append(req)
-        if req.full_url.endswith("/releases/latest"):
-            return FakeResponse(json.dumps(release).encode())
+        if "/releases?" in req.full_url:
+            return FakeResponse(json.dumps(releases).encode())
         return FakeResponse(APK)
 
     monkeypatch.setattr(appupdate.urllib.request, "urlopen", urlopen)
 
 
-def test_update_from_github_loads_newer_release(tmp_path, monkeypatch):
+def test_update_from_github_loads_highest_release(tmp_path, monkeypatch):
     requests: list = []
-    fake_github(monkeypatch, "app-12", requests)
+    fake_github(monkeypatch, requests)
     folder = AppFolder(tmp_path)
     folder.save("0.1.11", APK)
     assert (
         update_from_github(folder, "Archonw/Networkmonitor", "tok") == "Neue Version 0.1.12 geladen"
     )
     assert folder.latest().version == "0.1.12"
-    assert (
-        requests[0].full_url
-        == "https://api.github.com/repos/Archonw/Networkmonitor/releases/latest"
+    assert requests[0].full_url.startswith(
+        "https://api.github.com/repos/Archonw/Networkmonitor/releases?"
     )
+    assert requests[1].full_url == "https://api.github.com/asset/12"
     # Token nur an GitHub selbst, nicht an die Weiterleitung zum Download
     assert requests[1].unredirected_hdrs["Authorization"] == "Bearer tok"
     assert "Authorization" not in requests[1].headers
@@ -130,3 +138,12 @@ def test_update_from_github_loads_newer_release(tmp_path, monkeypatch):
     requests.clear()
     assert update_from_github(folder, "Archonw/Networkmonitor", "tok") == "Aktuell: 0.1.12"
     assert len(requests) == 1
+
+
+def test_missing_repo_explains_token(tmp_path, monkeypatch):
+    def urlopen(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(appupdate.urllib.request, "urlopen", urlopen)
+    with pytest.raises(ValueError, match="Token gespeichert"):
+        update_from_github(AppFolder(tmp_path), "Archonw/Networkmonitor")
