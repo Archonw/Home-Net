@@ -412,6 +412,10 @@ fun SoftSettings(ui: SettingsUi) {
             PrimaryButton(if (ui.busy) "Prüfe …" else "Speichern und testen", Modifier.fillMaxWidth(), enabled = !ui.busy, onClick = ui.onSave)
         }
         ui.message?.let { Text(it, color = p.muted, fontSize = 14.sp) }
+        SoftCard {
+            CardTitle("Über die App")
+            AboutContent()
+        }
         Spacer(Modifier.height(8.dp))
     }
 }
