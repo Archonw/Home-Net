@@ -42,6 +42,14 @@ class ListOptionsTest {
         assertEquals(listOf("Äpfel"), names(arrange(devices, SortOrder.NAME_ASC, OnlineFilter.OFFLINE, StatusFilter.UNKNOWN)))
     }
 
+    @Test fun quickFilterAndSearch() {
+        assertEquals(listOf("Alpha", "zeta"), names(arrange(devices, SortOrder.NAME_ASC, QuickFilter.ONLINE)))
+        assertEquals(listOf("beta"), names(arrange(devices, SortOrder.NAME_ASC, QuickFilter.BLOCKED)))
+        assertEquals(listOf("Alpha", "Äpfel"), names(arrange(devices, SortOrder.NAME_ASC, QuickFilter.UNKNOWN)))
+        assertEquals(listOf("zeta"), names(arrange(devices, SortOrder.NAME_ASC, QuickFilter.ALL, "ZET")))
+        assertEquals(4, arrange(devices, SortOrder.NAME_ASC, QuickFilter.ALL, "  ").size)
+    }
+
     @Test fun unnamedDevicesUseHostname() {
         val d = dev("", online = true, status = "allowed", host = "drucker")
         assertEquals("drucker", d.title)

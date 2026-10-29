@@ -84,6 +84,7 @@ Der Quellcode liegt in `android/`. GitHub Actions baut bei jedem Push die APK; n
 - Beim ersten Start: Adresse des Monitors (`http://192.168.178.207:8085`) und das Passwort der Weboberfläche eintragen. Beides wird verschlüsselt auf dem Handy gespeichert.
 - „Offline entfernen“ (App) bzw. „Offline-Geräte entfernen“ (Weboberfläche) löscht alle Geräte, die gerade offline sind, aus dem Monitor. Kommen sie wieder ins Netz, gelten sie als neu und müssen erneut bestätigt werden. Gesperrte Geräte bleiben stehen, damit ihre Sperre erhalten bleibt. Die Einträge in der FritzBox selbst ändern sich dadurch nicht.
 - Jeder Start, jede Benachrichtigung und jede Rückkehr nach mehr als einer Minute verlangt eine Anmeldung. Nach der Einrichtung ist das das Passwort der Weboberfläche; unter Einstellungen → „Entsperren mit“ lässt sich auf Fingerabdruck (oder Geräte-PIN) umstellen. Das Passwort funktioniert immer als Ausweg.
+- Zwei Designs zur Wahl unter Einstellungen → „Design“: **Soft** (weiche Karten, Filter-Pillen) und **Kacheln** (Zählkacheln als Filter, Festbreitenschrift für IP/MAC). Beide gibt es hell und dunkel, jeweils mit vier Akzentfarben. Die Liste lässt sich durchsuchen (Name, IP, MAC) und durch Herunterziehen aktualisieren.
 - Auf der Geräteseite lassen sich Werte wie IP- oder MAC-Adresse durch langes Drücken markieren und kopieren.
 - Die App ist mit einem festen Schlüssel aus dem Repo signiert (`android/app/netmon.keystore`), damit Updates ohne Neuinstallation klappen. Sie ist nur für die eigene Installation gedacht.
 

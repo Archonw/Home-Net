@@ -12,14 +12,20 @@ import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 
@@ -38,11 +44,15 @@ class MainActivity : FragmentActivity() {
     private var backgroundSince = 0L
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var useBiometrics by mutableStateOf(false)
+    private var appStyle by mutableStateOf(AppStyle.SOFT)
+    private var accent by mutableStateOf(Accent.INDIGO)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = Settings(this)
         themeMode = settings.themeMode
+        appStyle = settings.appStyle
+        accent = settings.accent(appStyle)
         settings.migrateLockMode()
         useBiometrics = settings.useBiometrics
         // Ohne Einrichtung gibt es noch kein Passwort: die erste Anmeldung ist die Einrichtung selbst
@@ -67,52 +77,80 @@ class MainActivity : FragmentActivity() {
                 }
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
             }
-            val colors = if (dark) {
-                darkColorScheme(primary = Green, error = Red)
-            } else {
-                lightColorScheme(primary = Green, error = Red)
-            }
-            MaterialTheme(colorScheme = colors) {
-                if (!unlocked) {
-                    LockedScreen(
-                        useBiometrics = useBiometrics,
-                        error = authError,
-                        onBiometric = ::authenticate,
-                        onPassword = ::unlockWithPassword,
-                    )
-                } else {
-                    BackHandler(enabled = screen != Screen.List && settings.isConfigured) {
-                        screen = Screen.List
-                    }
-                    when (val s = screen) {
-                        Screen.Setup -> SetupScreen(
-                            settings = settings,
-                            themeMode = themeMode,
-                            onThemeChange = {
-                                themeMode = it
-                                settings.themeMode = it
-                            },
+            val p = palette(appStyle, dark, accent)
+            MaterialTheme(colorScheme = p.colorScheme()) {
+                CompositionLocalProvider(LocalPalette provides p) {
+                    if (!unlocked) {
+                        LockedScreen(
                             useBiometrics = useBiometrics,
-                            onLockModeChange = ::setLockMode,
-                            onBack = { screen = Screen.List },
-                            onSaved = { screen = Screen.List },
+                            error = authError,
+                            onBiometric = ::authenticate,
+                            onPassword = ::unlockWithPassword,
                         )
-                        Screen.List -> ListScreen(
-                            api = settings.api(),
-                            settings = settings,
-                            onOpen = { screen = Screen.Detail(it) },
-                            onSettings = { screen = Screen.Setup },
-                        )
-                        is Screen.Detail -> DetailScreen(
-                            api = settings.api(),
-                            mac = s.mac,
-                            onBack = { screen = Screen.List },
-                        )
+                    } else {
+                        Content(p)
                     }
                 }
             }
         }
         if (!unlocked) authenticate()
+    }
+
+    @Composable
+    private fun Content(p: Palette) {
+        BackHandler(enabled = screen != Screen.List && settings.isConfigured) {
+            screen = Screen.List
+        }
+        Column(Modifier.fillMaxSize().background(p.bg)) {
+            Box(Modifier.weight(1f)) {
+                when (val s = screen) {
+                    Screen.Setup -> SettingsScreen(
+                        settings = settings,
+                        themeMode = themeMode,
+                        onThemeChange = {
+                            themeMode = it
+                            settings.themeMode = it
+                        },
+                        style = appStyle,
+                        onStyleChange = {
+                            appStyle = it
+                            settings.appStyle = it
+                            accent = settings.accent(it)
+                        },
+                        accent = accent,
+                        onAccentChange = {
+                            accent = it
+                            settings.setAccent(appStyle, it)
+                        },
+                        useBiometrics = useBiometrics,
+                        onLockModeChange = ::setLockMode,
+                        onSaved = { screen = Screen.List },
+                    )
+                    Screen.List -> ListScreen(
+                        api = settings.api(),
+                        settings = settings,
+                        style = appStyle,
+                        onOpen = { screen = Screen.Detail(it) },
+                    )
+                    is Screen.Detail -> DetailScreen(
+                        api = settings.api(),
+                        mac = s.mac,
+                        style = appStyle,
+                        onBack = { screen = Screen.List },
+                    )
+                }
+            }
+            if (settings.isConfigured) {
+                NavBar(
+                    style = appStyle,
+                    settingsActive = screen == Screen.Setup,
+                    onList = { screen = Screen.List },
+                    onSettings = { screen = Screen.Setup },
+                )
+            } else {
+                Spacer(Modifier.navigationBarsPadding())
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -206,7 +244,5 @@ class MainActivity : FragmentActivity() {
 
     companion object {
         private const val LOCK_AFTER_MS = 60_000L
-        val Green = Color(0xFF1A7F37)
-        val Red = Color(0xFFC62828)
     }
 }
