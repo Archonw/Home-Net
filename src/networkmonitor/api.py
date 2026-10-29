@@ -15,10 +15,10 @@ from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
-from .config import Settings
+from .config import EDITABLE, Settings, apply_overrides, coerce, public_view
 from .fritzbox import FritzBox, Router
 from .monitor import Monitor
-from .notify import Notifier, TelegramNotifier, build_notifiers
+from .notify import TEST_DEVICE, Notifier, TelegramNotifier, build_notifiers
 from .store import Status, Store
 
 log = logging.getLogger(__name__)
@@ -26,6 +26,49 @@ log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
 UI_HTML = (STATIC / "index.html").read_text(encoding="utf-8")
 DEVICE_HTML = (STATIC / "device.html").read_text(encoding="utf-8")
+SETTINGS_HTML = (STATIC / "settings.html").read_text(encoding="utf-8")
+
+
+class Runtime:
+    """Aktuelle Einstellungen samt daraus gebauter Router-Anbindung und Benachrichtigungen.
+
+    Wird bei Änderungen über die Einstellungsseite neu aufgebaut, ohne Neustart.
+    """
+
+    def __init__(
+        self,
+        settings: Settings,
+        store: Store,
+        router: Router | None,
+        notifiers: list[Notifier] | None,
+    ) -> None:
+        self._fixed_router = router
+        self._fixed_notifiers = notifiers
+        self.settings = settings
+        self.router: Router = router or self._make_router(settings)
+        self.notifiers: list[Notifier] = (
+            notifiers if notifiers is not None else build_notifiers(settings)
+        )
+        self.monitor = Monitor(self.router, store, settings)
+
+    @staticmethod
+    def _make_router(settings: Settings) -> Router:
+        return FritzBox(settings.fritz_address, settings.fritz_user, settings.fritz_password)
+
+    def reload(self, settings: Settings) -> None:
+        old = self.settings
+        fritz_changed = (old.fritz_address, old.fritz_user, old.fritz_password) != (
+            settings.fritz_address,
+            settings.fritz_user,
+            settings.fritz_password,
+        )
+        if self._fixed_router is None and fritz_changed:
+            self.router = self._make_router(settings)
+        if self._fixed_notifiers is None:
+            self.notifiers = build_notifiers(settings)
+        self.settings = settings
+        self.monitor.router = self.router
+        self.monitor.settings = settings
 
 
 class DeviceUpdate(BaseModel):
@@ -41,24 +84,29 @@ def create_app(
     start_poller: bool = True,
     notifiers: list[Notifier] | None = None,
 ) -> FastAPI:
-    router = router or FritzBox(
-        settings.fritz_address, settings.fritz_user, settings.fritz_password
-    )
     store = store or Store(settings.db_path)
-    monitor = Monitor(router, store, settings)
-    notifiers = build_notifiers(settings) if notifiers is None else notifiers
+    try:
+        settings = apply_overrides(settings, store.get_config())
+    except ValueError as exc:
+        log.warning("Gespeicherte Einstellungen ungültig, nutze Umgebung: %s", exc)
+    rt = Runtime(settings, store, router, notifiers)
+    monitor = rt.monitor
     state = {"last_error": None, "last_poll": None}
 
     def notify_new(devices) -> None:
         for device in devices:
-            for notifier in notifiers:
+            for notifier in rt.notifiers:
                 try:
                     notifier.new_device(device)
                 except Exception as exc:  # noqa: BLE001 – Benachrichtigung darf nicht blockieren
                     log.warning("Benachrichtigung über %s fehlgeschlagen: %s", device.mac, exc)
 
-    async def telegram_loop(notifier: TelegramNotifier) -> None:
+    async def telegram_loop() -> None:
         while True:
+            notifier = next((n for n in rt.notifiers if isinstance(n, TelegramNotifier)), None)
+            if notifier is None:
+                await asyncio.sleep(5)
+                continue
             try:
                 await asyncio.to_thread(notifier.process_updates, monitor.set_status)
             except Exception as exc:  # noqa: BLE001
@@ -76,20 +124,16 @@ def create_app(
             except Exception as exc:  # noqa: BLE001 – Schleife muss weiterlaufen
                 log.exception("Abfrage der FritzBox fehlgeschlagen")
                 state["last_error"] = str(exc)
-                if isinstance(router, FritzBox):
-                    router.reset()
-            await asyncio.sleep(settings.poll_interval)
+                if isinstance(rt.router, FritzBox):
+                    rt.router.reset()
+            await asyncio.sleep(rt.settings.poll_interval)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         tasks = []
         if start_poller:
             tasks.append(asyncio.create_task(poll_loop()))
-            tasks += [
-                asyncio.create_task(telegram_loop(n))
-                for n in notifiers
-                if isinstance(n, TelegramNotifier)
-            ]
+            tasks.append(asyncio.create_task(telegram_loop()))
         yield
         for task in tasks:
             task.cancel()
@@ -97,16 +141,18 @@ def create_app(
     app = FastAPI(title="Netzwerkmonitor", lifespan=lifespan)
     app.state.monitor = monitor
     app.state.notify_new = notify_new
+    app.state.runtime = rt
 
     security = HTTPBasic(auto_error=False)
 
     def require_login(
         credentials: HTTPBasicCredentials | None = Depends(security),  # noqa: B008
     ) -> None:
-        if not settings.ui_password:
+        password = rt.settings.ui_password
+        if not password:
             return
         ok = credentials is not None and secrets.compare_digest(
-            credentials.password.encode(), settings.ui_password.encode()
+            credentials.password.encode(), password.encode()
         )
         if not ok:
             raise HTTPException(
@@ -164,6 +210,60 @@ def create_app(
         if device is None:
             raise HTTPException(404, "Gerät nicht gefunden")
         return asdict(device)
+
+    @app.get("/settings", response_class=HTMLResponse, dependencies=[Depends(require_login)])
+    def settings_page() -> str:
+        return SETTINGS_HTML
+
+    @app.get("/api/settings", dependencies=[Depends(require_login)])
+    def get_settings() -> dict:
+        return public_view(rt.settings)
+
+    @app.put("/api/settings", dependencies=[Depends(require_login)])
+    def put_settings(body: dict) -> dict:
+        changes: dict = {}
+        for field, value in body.items():
+            if field not in EDITABLE:
+                raise HTTPException(400, f"Unbekannte Einstellung: {field}")
+            if EDITABLE[field] == "secret":
+                if value == "":
+                    continue  # leer = unverändert lassen
+                if value is None:
+                    value = ""  # null = löschen
+            try:
+                changes[field] = coerce(field, value)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, f"{field}: {exc}") from exc
+        if changes:
+            new_settings = apply_overrides(rt.settings, changes)
+            store.set_config(
+                {k: list(v) if isinstance(v, tuple) else v for k, v in changes.items()}
+            )
+            rt.reload(new_settings)
+        return public_view(rt.settings)
+
+    @app.post("/api/settings/test-fritzbox", dependencies=[Depends(require_login)])
+    def test_fritzbox() -> dict:
+        try:
+            hosts = rt.router.list_hosts()
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "message": f"Keine Verbindung: {exc}"}
+        active = sum(h.active for h in hosts)
+        return {"ok": True, "message": f"Verbunden: {len(hosts)} Geräte bekannt, {active} aktiv"}
+
+    @app.post("/api/settings/test-notify", dependencies=[Depends(require_login)])
+    def test_notify() -> dict:
+        if not rt.notifiers:
+            return {"ok": False, "results": [], "message": "Kein Kanal eingerichtet"}
+        results = []
+        for notifier in rt.notifiers:
+            name = type(notifier).__name__.removesuffix("Notifier")
+            try:
+                notifier.new_device(TEST_DEVICE)
+                results.append({"channel": name, "ok": True, "message": "gesendet"})
+            except Exception as exc:  # noqa: BLE001
+                results.append({"channel": name, "ok": False, "message": str(exc)})
+        return {"ok": all(r["ok"] for r in results), "results": results}
 
     @app.get("/api/events", dependencies=[Depends(require_login)])
     def events(limit: int = 100) -> list[dict]:

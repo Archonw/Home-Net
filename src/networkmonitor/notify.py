@@ -219,6 +219,21 @@ def build_notifiers(settings: Settings) -> list[Notifier]:
     return notifiers
 
 
+TEST_DEVICE = Device(
+    mac="02:00:00:00:00:00",
+    name="",
+    hostname="Testgerät",
+    ip="0.0.0.0",
+    interface="Test",
+    status=Status.UNKNOWN,
+    online=True,
+    random_mac=True,
+    notes="",
+    first_seen="",
+    last_seen="",
+)
+
+
 def main() -> int:
     """Testnachricht an alle eingestellten Kanäle schicken: networkmonitor-notify-test"""
     settings = Settings.from_env()
@@ -226,19 +241,7 @@ def main() -> int:
     if not notifiers:
         print("Keine Benachrichtigung eingerichtet (NOTIFY und Zugangsdaten prüfen).")
         return 1
-    test = Device(
-        mac="02:00:00:00:00:00",
-        name="",
-        hostname="Testgerät",
-        ip="0.0.0.0",
-        interface="Test",
-        status=Status.UNKNOWN,
-        online=True,
-        random_mac=True,
-        notes="",
-        first_seen="",
-        last_seen="",
-    )
+    test = TEST_DEVICE
     ok = True
     for notifier in notifiers:
         try:

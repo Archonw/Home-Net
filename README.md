@@ -40,6 +40,8 @@ Zeigt Modell und FritzOS-Version, ob Hostliste und Internet-Sperre funktionieren
 
 ## 4. Benachrichtigungen
 
+**Alles aus diesem Abschnitt lässt sich auch in der Weboberfläche unter „Einstellungen“ (`/settings`) eintragen**, inklusive FritzBox-Zugang, Abfrageintervall und UI-Passwort. Dort gespeicherte Werte gelten sofort und haben Vorrang vor der `.env`; die `.env` liefert nur die Startwerte.
+
 In der `.env` mit `NOTIFY` wählen: `ntfy`, `telegram`, `homeassistant` oder mehrere mit Komma (z. B. `ntfy,homeassistant`). Leer = aus. Danach den Container neu starten.
 
 **Telegram** (mit Buttons „Erlauben“/„Sperren“ direkt in der Nachricht):

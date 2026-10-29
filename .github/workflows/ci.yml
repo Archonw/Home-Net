@@ -53,7 +53,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew --no-daemon assembleRelease
+      - run: ./gradlew --no-daemon testReleaseUnitTest assembleRelease
       - run: cp app/build/outputs/apk/release/app-release.apk netzwerkmonitor.apk
       - uses: actions/upload-artifact@v4
         with:
