@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
@@ -29,6 +29,11 @@ UI_HTML = (STATIC / "index.html").read_text(encoding="utf-8")
 DEVICE_HTML = (STATIC / "device.html").read_text(encoding="utf-8")
 SETTINGS_HTML = (STATIC / "settings.html").read_text(encoding="utf-8")
 SETUP_HTML = (STATIC / "setup.html").read_text(encoding="utf-8")
+# Gemeinsames Aussehen und Hilfsfunktionen aller Seiten; nichts Geheimes, daher ohne Anmeldung
+ASSETS = {
+    "app.css": ((STATIC / "app.css").read_text(encoding="utf-8"), "text/css"),
+    "app.js": ((STATIC / "app.js").read_text(encoding="utf-8"), "text/javascript"),
+}
 
 # Gilt, solange kein eigenes Passwort gesetzt ist; muss beim ersten Anmelden geändert werden
 DEFAULT_PASSWORD = "netzwerkmonitor"
@@ -232,6 +237,17 @@ def create_app(
         store.set_config({"ui_password": password})
         rt.reload(apply_overrides(rt.settings, {"ui_password": password}))
         return {"ok": True}
+
+    @app.get("/assets/{name}")
+    def asset(name: str) -> Response:
+        if name not in ASSETS:
+            raise HTTPException(404, "Nicht gefunden")
+        content, media_type = ASSETS[name]
+        return Response(
+            content,
+            media_type=f"{media_type}; charset=utf-8",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/health")
     def health() -> dict:

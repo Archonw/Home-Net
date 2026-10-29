@@ -8,7 +8,7 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md) · Zugriff von unterwegs: [do
 
 - Liest alle 30 s die Geräteliste der FritzBox (TR-064) und merkt sich jedes Gerät.
 - Geräte aus dem ersten Scan gelten als **erlaubt**, alle später auftauchenden als **unbekannt**.
-- Weboberfläche (Port 8085) mit „Erlauben“, „Sperren“, „Umbenennen“.
+- Weboberfläche (Port 8085) im Stil der Android-App: Designs „Soft“ und „Kacheln“, hell/dunkel, Akzentfarben, Suche, Filter, Sortierung, Einzelgeräte-Seite mit „Erlauben“, „Sperren“, „Umbenennen“ und kopierbaren Werten. Funktioniert auf Handy und Desktop.
 - **Sperren** trennt das Gerät derzeit nur vom **Internet** (FritzBox-Kindersicherung per TR-064). Die komplette Sperre (WLAN-MAC-Filter, ARP-Block) folgt, sobald das Prüfwerkzeug gezeigt hat, was die FritzBox zulässt.
 - Optional: `QUARANTINE_UNKNOWN=true` trennt unbekannte Geräte sofort vom Internet, bis sie erlaubt werden.
 
