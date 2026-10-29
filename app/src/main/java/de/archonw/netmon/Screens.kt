@@ -119,7 +119,7 @@ fun SetupScreen(
             Spacer(Modifier.height(16.dp))
             Text("Darstellung", fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(8.dp))
-            ChipRow(ThemeMode.entries, themeMode, { it.label }, onThemeChange, horizontalPadding = 0)
+            ChipRow(ThemeMode.entries, themeMode, { it.label }, horizontalPadding = 0, onSelect = onThemeChange)
             Spacer(Modifier.height(24.dp))
             Text("Verbindung", fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(8.dp))
@@ -276,8 +276,8 @@ private fun <T> ChipRow(
     options: List<T>,
     selected: T,
     label: (T) -> String,
-    onSelect: (T) -> Unit,
     horizontalPadding: Int = 20,
+    onSelect: (T) -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
