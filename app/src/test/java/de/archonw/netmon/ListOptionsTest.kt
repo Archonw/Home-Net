@@ -4,8 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ListOptionsTest {
-    private fun dev(name: String, online: Boolean, status: String, host: String = "") = Device(
-        mac = name, name = name, hostname = host, ip = "", iface = "", status = status,
+    private fun dev(name: String, online: Boolean, status: String, host: String = "", ip: String = "") = Device(
+        mac = name, name = name, hostname = host, ip = ip, iface = "", status = status,
         online = online, randomMac = false, firstSeen = "", lastSeen = "",
     )
 
@@ -23,6 +23,19 @@ class ListOptionsTest {
 
     @Test fun nameDescending() =
         assertEquals(listOf("zeta", "beta", "Äpfel", "Alpha"), names(arrange(devices, SortOrder.NAME_DESC)))
+
+    private val withIps = listOf(
+        dev("zehn", online = true, status = "allowed", ip = "192.168.178.10"),
+        dev("ohne", online = false, status = "allowed"),
+        dev("neun", online = true, status = "allowed", ip = "192.168.178.9"),
+        dev("hundert", online = true, status = "allowed", ip = "192.168.178.100"),
+    )
+
+    @Test fun ipAscendingIsNumericWithoutIpLast() =
+        assertEquals(listOf("neun", "zehn", "hundert", "ohne"), names(arrange(withIps, SortOrder.IP_ASC)))
+
+    @Test fun ipDescendingWithoutIpLast() =
+        assertEquals(listOf("hundert", "zehn", "neun", "ohne"), names(arrange(withIps, SortOrder.IP_DESC)))
 
     @Test fun onlineFirstThenName() =
         assertEquals(listOf("Alpha", "zeta", "Äpfel", "beta"), names(arrange(devices, SortOrder.ONLINE_FIRST)))
