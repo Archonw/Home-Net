@@ -41,8 +41,17 @@ data class Device(
 
 class ApiException(message: String) : Exception(message)
 
-/** Spricht mit der REST-API des Netzwerkmonitors (Basic Auth, Benutzername beliebig). */
-class Api(private val baseUrl: String, private val password: String) {
+/**
+ * Spricht mit der REST-API des Netzwerkmonitors (Basic Auth, Benutzername beliebig).
+ *
+ * Probiert erst die Heimnetz-Adresse und, wenn die nicht erreichbar ist, die Adresse für unterwegs.
+ */
+class Api(
+    private val homeUrl: String,
+    private val password: String,
+    private val externalUrl: String = "",
+) {
+    private val urls = listOf(homeUrl, externalUrl).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 
     suspend fun devices(): List<Device> {
         val arr = JSONArray(request("GET", "api/devices"))
@@ -65,11 +74,30 @@ class Api(private val baseUrl: String, private val password: String) {
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
     private suspend fun request(method: String, path: String): String = withContext(Dispatchers.IO) {
-        val url = URL(baseUrl.trimEnd('/') + "/" + path)
+        // Zuletzt erfolgreiche Adresse zuerst, damit unterwegs nicht jedes Mal das Heimnetz abwartet
+        val ordered = urls.sortedBy { if (it == lastWorking) 0 else 1 }
+        var lastError: Exception? = null
+        for (base in ordered) {
+            try {
+                val body = request(base, method, path, connectTimeout = if (ordered.size > 1) 3000 else 8000)
+                lastWorking = base
+                return@withContext body
+            } catch (e: ApiException) {
+                throw e
+            } catch (e: Exception) {
+                lastError = e
+            }
+        }
+        val hint = if (urls.size > 1) "" else " Bist du im Heimnetz?"
+        throw ApiException("Monitor nicht erreichbar (${lastError?.javaClass?.simpleName}).$hint")
+    }
+
+    private fun request(base: String, method: String, path: String, connectTimeout: Int): String {
+        val url = URL(base.trimEnd('/') + "/" + path)
         val conn = url.openConnection() as HttpURLConnection
         try {
             conn.requestMethod = method
-            conn.connectTimeout = 8000
+            conn.connectTimeout = connectTimeout
             conn.readTimeout = 15000
             val auth = Base64.encodeToString("app:$password".toByteArray(), Base64.NO_WRAP)
             conn.setRequestProperty("Authorization", "Basic $auth")
@@ -81,20 +109,22 @@ class Api(private val baseUrl: String, private val password: String) {
             val code = conn.responseCode
             val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
-            when {
+            return when {
                 code in 200..299 -> body
                 code == 401 -> throw ApiException("Passwort falsch")
                 code == 404 -> throw ApiException("Gerät nicht gefunden")
+                code == 429 -> throw ApiException("Zu viele falsche Passwörter, bitte in 15 Minuten erneut versuchen")
                 else -> throw ApiException(
                     runCatching { JSONObject(body).getString("detail") }.getOrDefault("Fehler $code")
                 )
             }
-        } catch (e: ApiException) {
-            throw e
-        } catch (e: Exception) {
-            throw ApiException("Monitor nicht erreichbar (${e.javaClass.simpleName}). Bist du im Heimnetz?")
         } finally {
             conn.disconnect()
         }
+    }
+
+    companion object {
+        @Volatile
+        private var lastWorking: String? = null
     }
 }

@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
+from .auth import LoginGuard, client_ip, via_proxy
 from .config import EDITABLE, Settings, apply_overrides, coerce, public_view
 from .fritzbox import FritzBox, Router
 from .monitor import Monitor
@@ -167,18 +168,37 @@ def create_app(
 
     security = HTTPBasic(auto_error=False)
 
+    guard = LoginGuard()
+    app.state.login_guard = guard
+
     def require_password(
+        request: Request,
         credentials: HTTPBasicCredentials | None = Depends(security),  # noqa: B008
     ) -> None:
+        ip = client_ip(request)
+        wait = guard.retry_after(ip)
+        if wait:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "Zu viele falsche Passwörter, bitte später erneut versuchen",
+                headers={"Retry-After": str(wait)},
+            )
         password = rt.settings.ui_password or DEFAULT_PASSWORD
         ok = credentials is not None and secrets.compare_digest(
             credentials.password.encode(), password.encode()
         )
-        if not ok:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                headers={"WWW-Authenticate": 'Basic realm="Netzwerkmonitor"'},
-            )
+        if ok:
+            guard.succeeded(ip)
+            return
+        if credentials is not None:
+            # Feste Formulierung, damit fail2ban die Zeile erkennen kann
+            log.warning("Anmeldung fehlgeschlagen von %s", ip)
+            if guard.failed(ip):
+                log.warning("Anmeldung für %s gesperrt nach zu vielen Fehlversuchen", ip)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            headers={"WWW-Authenticate": 'Basic realm="Netzwerkmonitor"'},
+        )
 
     def require_login(request: Request, _: None = Depends(require_password)) -> None:  # noqa: B008
         if not rt.setup_pending:
@@ -189,13 +209,18 @@ def create_app(
             )
         raise HTTPException(status.HTTP_303_SEE_OTHER, headers={"Location": "/setup"})
 
-    @app.get("/setup", response_class=HTMLResponse, dependencies=[Depends(require_password)])
+    def require_setup_access(request: Request, _: None = Depends(require_password)) -> None:  # noqa: B008
+        # Mit dem bekannten Standardpasswort darf niemand von außen das eigene Passwort setzen
+        if rt.setup_pending and via_proxy(request):
+            raise HTTPException(403, "Ersteinrichtung nur im Heimnetz möglich")
+
+    @app.get("/setup", response_class=HTMLResponse, dependencies=[Depends(require_setup_access)])
     def setup_page():
         if not rt.setup_pending:
             return RedirectResponse("/settings", status.HTTP_303_SEE_OTHER)
         return SETUP_HTML
 
-    @app.post("/api/setup/password", dependencies=[Depends(require_password)])
+    @app.post("/api/setup/password", dependencies=[Depends(require_setup_access)])
     def setup_password(body: NewPassword) -> dict:
         if not rt.setup_pending:
             raise HTTPException(409, "Passwort ist schon gesetzt, bitte die Einstellungen nutzen")
