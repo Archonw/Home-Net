@@ -1,0 +1,13 @@
+services:
+  networkmonitor:
+    build: .
+    container_name: networkmonitor
+    restart: unless-stopped
+    # Host-Netzwerk: nötig für den späteren ARP/DHCP-Sniffer und den ARP-Block
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    env_file: .env
+    volumes:
+      - ./data:/data

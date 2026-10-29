@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<!-- Unraid-Vorlage: nach /boot/config/plugins/dockerMan/templates-user/my-networkmonitor.xml kopieren -->
+<Container version="2">
+  <Name>networkmonitor</Name>
+  <Repository>ghcr.io/archonw/networkmonitor:latest</Repository>
+  <Network>host</Network>
+  <Privileged>false</Privileged>
+  <ExtraParams>--cap-add=NET_RAW --cap-add=NET_ADMIN --restart=unless-stopped</ExtraParams>
+  <WebUI>http://[IP]:8085/</WebUI>
+  <Overview>Überwacht das Heimnetz über die FritzBox, meldet neue Geräte und lässt sie erlauben oder sperren.</Overview>
+  <Category>Network:Management Tools:</Category>
+  <Config Name="Daten" Target="/data" Default="/mnt/user/appdata/networkmonitor" Mode="rw" Type="Path" Display="always" Required="true">/mnt/user/appdata/networkmonitor</Config>
+  <Config Name="FritzBox-Adresse" Target="FRITZ_ADDRESS" Default="192.168.178.1" Type="Variable" Display="always" Required="true">192.168.178.1</Config>
+  <Config Name="FritzBox-Benutzer" Target="FRITZ_USER" Default="networkmonitor" Type="Variable" Display="always" Required="true">networkmonitor</Config>
+  <Config Name="FritzBox-Passwort" Target="FRITZ_PASSWORD" Default="" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Passwort Weboberfläche" Target="UI_PASSWORD" Default="" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Port" Target="PORT" Default="8085" Type="Variable" Display="advanced" Required="false">8085</Config>
+  <Config Name="Abfrageintervall (s)" Target="POLL_INTERVAL" Default="30" Type="Variable" Display="advanced" Required="false">30</Config>
+  <Config Name="Erste Geräte vertrauen" Target="TRUST_INITIAL_DEVICES" Default="true" Type="Variable" Display="advanced" Required="false">true</Config>
+  <Config Name="Unbekannte sofort ohne Internet" Target="QUARANTINE_UNKNOWN" Default="false" Type="Variable" Display="advanced" Required="false">false</Config>
+</Container>
