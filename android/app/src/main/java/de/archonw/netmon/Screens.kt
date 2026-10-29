@@ -340,7 +340,7 @@ fun SettingsScreen(
     onLockModeChange: (Boolean) -> String?,
     onSaved: () -> Unit,
 ) {
-    var url by remember { mutableStateOf(settings.serverUrl.ifBlank { "http://192.168.178.207:8085" }) }
+    var url by remember { mutableStateOf(settings.serverUrl.ifBlank { "http://" }) }
     var externalUrl by remember { mutableStateOf(settings.externalUrl) }
     var password by remember { mutableStateOf(settings.password) }
     var message by remember { mutableStateOf<String?>(null) }

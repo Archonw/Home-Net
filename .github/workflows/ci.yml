@@ -7,6 +7,10 @@ on:
   # Von Hand starten (Actions → CI → Run workflow), z. B. für eine Test-Version der App
   workflow_dispatch:
 
+# Standard: nur lesen. Jobs, die mehr brauchen, fordern es selbst an.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -55,7 +59,27 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      # Signierschlüssel aus den Secrets (Settings → Secrets and variables → Actions):
+      # NETMON_KEYSTORE_BASE64 (Keystore als Base64), NETMON_KEYSTORE_PASSWORD, NETMON_KEY_ALIAS,
+      # NETMON_KEY_PASSWORD. Pull Requests (auch aus Forks) bekommen keine Secrets und bauen mit dem
+      # Debug-Schlüssel; ein Release auf main ohne Schlüssel bricht ab statt falsch zu signieren.
+      - name: Signierschlüssel bereitstellen
+        env:
+          KEYSTORE_BASE64: ${{ secrets.NETMON_KEYSTORE_BASE64 }}
+          IS_RELEASE: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/netmon.keystore"
+            echo "NETMON_KEYSTORE_FILE=$RUNNER_TEMP/netmon.keystore" >> "$GITHUB_ENV"
+          elif [ "$IS_RELEASE" = "true" ]; then
+            echo "::error::Secret NETMON_KEYSTORE_BASE64 fehlt, Release wird nicht gebaut"
+            exit 1
+          fi
       - run: ./gradlew --no-daemon testReleaseUnitTest assembleRelease
+        env:
+          NETMON_KEYSTORE_PASSWORD: ${{ secrets.NETMON_KEYSTORE_PASSWORD }}
+          NETMON_KEY_ALIAS: ${{ secrets.NETMON_KEY_ALIAS }}
+          NETMON_KEY_PASSWORD: ${{ secrets.NETMON_KEY_PASSWORD }}
       - run: cp app/build/outputs/apk/release/app-release.apk netzwerkmonitor.apk
       - uses: actions/upload-artifact@v4
         with:

@@ -19,12 +19,12 @@ GitHub-Release ──(alle 6 h)──▶ Monitor /data/app ──▶ https://<mo
     *Contents: Read-only* anlegen.
   - **Jetzt nach Update suchen** prüft sofort.
 - **Von Hand:** Eine APK als `netzwerkmonitor-<version>.apk` in den App-Ordner legen (auf Unraid
-  bei Jans Installation `/mnt/user/appdata/networkmonitor/data/app/`, allgemein `app/` im Ordner, der
+  z. B. `/mnt/user/appdata/networkmonitor/data/app/`, allgemein `app/` im Ordner, der
   als `/data` eingebunden ist). Die höchste Version wird angeboten.
 
 ## Auf dem Handy
 
-Die Seite `/app` (z. B. `https://netmon.example.de/app` oder `http://192.168.178.207:8085/app`) ist
+Die Seite `/app` (z. B. `https://netmon.example.de/app` oder `http://192.168.178.20:8085/app`) ist
 ohne Passwort erreichbar, damit Obtainium sie abfragen kann. Sie enthält nur die App, keine
 Zugangsdaten oder Gerätedaten.
 

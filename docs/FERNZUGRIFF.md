@@ -3,7 +3,7 @@
 Ziel: Weboberfläche und Android-App funktionieren auch außerhalb des Heimnetzes, ohne VPN.
 
 ```
-Handy (Mobilfunk) ──https──▶ FRITZ!Box :443 ──▶ Reverse Proxy (Unraid) ──http──▶ Monitor 192.168.178.207:8085
+Handy (Mobilfunk) ──https──▶ FRITZ!Box :443 ──▶ Reverse Proxy (Unraid) ──http──▶ Monitor 192.168.178.20:8085
 ```
 
 Der Monitor selbst bleibt unverändert im Heimnetz auf Port 8085. Nur der Reverse Proxy ist von außen
@@ -36,7 +36,7 @@ IPv6 oder einen Tunnel.
 
 ## 2. Portfreigabe in der FRITZ!Box
 
-*Internet → Freigaben → Portfreigaben → Gerät für Freigaben hinzufügen* → Unraid (192.168.178.207):
+*Internet → Freigaben → Portfreigaben → Gerät für Freigaben hinzufügen* → Unraid (192.168.178.20):
 
 | Extern | Intern (Proxy) | Wofür |
 |---|---|---|
@@ -53,7 +53,7 @@ muss er auf einen anderen Port oder ausgeschaltet werden.
 *Hosts → Proxy Hosts → Add Proxy Host*:
 
 - Domain: deine Adresse aus Schritt 1
-- Scheme `http`, Forward Hostname `192.168.178.207`, Port `8085`
+- Scheme `http`, Forward Hostname `192.168.178.20`, Port `8085`
 - *Block Common Exploits* an
 - Reiter SSL: neues Let's-Encrypt-Zertifikat, *Force SSL* und *HSTS* an
 
@@ -72,7 +72,7 @@ Dann führen die Links in den Benachrichtigungen auch unterwegs zum Gerät.
 
 *Einstellungen → Verbindung*:
 
-- **Adresse im Heimnetz:** `http://192.168.178.207:8085` (wie bisher)
+- **Adresse im Heimnetz:** `http://192.168.178.20:8085` (wie bisher)
 - **Adresse unterwegs:** `https://<deine Adresse>`
 
 Die App probiert zuerst die Adresse, die zuletzt funktioniert hat, und weicht bei Bedarf auf die
@@ -82,7 +82,7 @@ andere aus. Unterwegs dauert die allererste Anfrage deshalb ein paar Sekunden l�
 
 ntfy läuft nur im Heimnetz, deshalb kommen Pushs unterwegs nicht an. Damit das klappt:
 
-1. Zweiten Proxy-Host für ntfy anlegen (z. B. `ntfy.example.de` → `192.168.178.207:8091`,
+1. Zweiten Proxy-Host für ntfy anlegen (z. B. `ntfy.example.de` → `192.168.178.20:8091`,
    mit Websockets-Unterstützung an).
 2. ntfy absichern, damit niemand Fremdes mitliest oder Nachrichten schickt (`server.yml`):
 
@@ -96,13 +96,13 @@ ntfy läuft nur im Heimnetz, deshalb kommen Pushs unterwegs nicht an. Damit das 
 3. Im ntfy-Container einen Benutzer und ein Token anlegen:
 
    ```sh
-   ntfy user add jan
-   ntfy access jan netzwerkmonitor rw
-   ntfy token add jan
+   ntfy user add handy
+   ntfy access handy netzwerkmonitor rw
+   ntfy token add handy
    ```
 
 4. Im Monitor unter *Einstellungen* das Token bei ntfy unter **Zugriffstoken** eintragen.
-5. In der ntfy-App auf dem Handy den Server `https://ntfy.example.de` mit Benutzer `jan` hinzufügen
+5. In der ntfy-App auf dem Handy den Server `https://ntfy.example.de` mit Benutzer `handy` hinzufügen
    und das Thema `netzwerkmonitor` dort abonnieren.
 
 ## 7. Prüfen
