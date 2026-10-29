@@ -27,13 +27,21 @@ class Settings(context: Context) {
         get() = enumOr(prefs.getString("sort", null), SortOrder.NAME_ASC)
         set(value) = prefs.edit().putString("sort", value.name).apply()
 
-    var onlineFilter: OnlineFilter
-        get() = enumOr(prefs.getString("filter_online", null), OnlineFilter.ALL)
-        set(value) = prefs.edit().putString("filter_online", value.name).apply()
+    var quickFilter: QuickFilter
+        get() = enumOr(prefs.getString("quick_filter", null), QuickFilter.ALL)
+        set(value) = prefs.edit().putString("quick_filter", value.name).apply()
 
-    var statusFilter: StatusFilter
-        get() = enumOr(prefs.getString("filter_status", null), StatusFilter.ALL)
-        set(value) = prefs.edit().putString("filter_status", value.name).apply()
+    var appStyle: AppStyle
+        get() = enumOr(prefs.getString("style", null), AppStyle.SOFT)
+        set(value) = prefs.edit().putString("style", value.name).apply()
+
+    /** Jedes Design merkt sich seine eigene Akzentfarbe. */
+    fun accent(style: AppStyle): Accent =
+        enumOr(prefs.getString("accent_${style.name}", null), style.accents.first())
+            .takeIf { it in style.accents } ?: style.accents.first()
+
+    fun setAccent(style: AppStyle, accent: Accent) =
+        prefs.edit().putString("accent_${style.name}", accent.name).apply()
 
     var themeMode: ThemeMode
         get() = enumOr(prefs.getString("theme", null), ThemeMode.SYSTEM)
