@@ -40,6 +40,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -137,7 +139,16 @@ fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
+    var update by remember { mutableStateOf<AppRelease?>(null) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+
+    LaunchedEffect(Unit) {
+        val installed = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+        update = runCatching { api.latestApp() }.getOrNull()
+            ?.takeIf { it.versionCode > installed && it.versionCode != settings.skippedAppVersion }
+    }
 
     LaunchedEffect(reload) {
         error = null
@@ -210,6 +221,26 @@ fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -
                 }) { Text("Entfernen") }
             },
             dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Abbrechen") } },
+        )
+    }
+
+    update?.let { release ->
+        AlertDialog(
+            onDismissRequest = { update = null },
+            title = { Text("Neue App-Version") },
+            text = { Text("Auf dem Monitor liegt Version ${release.version}. Jetzt herunterladen und installieren?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    update = null
+                    uriHandler.openUri(release.url)
+                }) { Text("Laden") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    settings.skippedAppVersion = release.versionCode
+                    update = null
+                }) { Text("Später") }
+            },
         )
     }
 

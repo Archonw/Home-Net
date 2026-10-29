@@ -62,6 +62,11 @@ class Settings(context: Context) {
         if (!prefs.contains("use_biometrics")) useBiometrics = isConfigured
     }
 
+    /** App-Version, für die „Später“ gewählt wurde; dafür wird nicht erneut gefragt. */
+    var skippedAppVersion: Long
+        get() = prefs.getLong("skipped_app_version", 0)
+        set(value) = prefs.edit().putLong("skipped_app_version", value).apply()
+
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =
         enumValues<E>().firstOrNull { it.name == name } ?: default
 

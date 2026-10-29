@@ -82,6 +82,18 @@
 </section>
 
 <section class="group">
+  <h2>Android-App</h2>
+  <div class="box">
+  <div class="hint" style="margin:0 0 10px">Der Monitor stellt die App unter <a id="app-link" href="/app">/app</a> bereit. Diese Adresse in Obtainium als Quelle eintragen, dann kommen Updates automatisch aufs Handy. Neue Versionen holt sich der Monitor alle 6 Stunden aus den GitHub-Releases.</div>
+  <label class="field"><span>GitHub-Repository (leer = nicht automatisch suchen)</span><input type="text" name="app_update_repo" placeholder="Archonw/Networkmonitor"></label>
+  <label class="field"><span>GitHub-Token (nur für private Repositories, Rechte: Contents lesen)</span><input type="password" name="app_update_token" data-secret></label>
+  <button type="button" class="btn" id="app-check">Jetzt nach Update suchen</button>
+  <div class="hint" style="margin:6px 0 0">Gesucht wird mit den gespeicherten Werten, also vorher speichern.</div>
+  <div class="result" id="app-status"></div>
+  </div>
+</section>
+
+<section class="group">
   <h2>Weboberfläche</h2>
   <div class="box">
   <label class="field"><span>Neues Passwort</span><input type="password" name="ui_password" data-secret></label>
@@ -122,6 +134,9 @@ renderAppearance();
 NM.tabbar("settings");
 
 const form = document.getElementById("form");
+const appLink = document.getElementById("app-link");
+appLink.href = new URL("app", location.href).href;
+appLink.textContent = appLink.href;
 const firstRun = new URLSearchParams(location.search).has("setup");
 document.getElementById("welcome").hidden = !firstRun;
 if (firstRun) document.querySelector(".page-title").textContent = "Einrichten";
@@ -228,6 +243,21 @@ for (const btn of form.querySelectorAll("[data-test]")) {
   });
 }
 
+function showApp(r) {
+  const parts = [r.version ? `Bereitgestellt: Version ${r.version}` : "Noch keine App bereitgestellt", r.message];
+  showResult("app-status", r.ok !== false, parts.filter(Boolean).join("\n"));
+}
+
+document.getElementById("app-check").addEventListener("click", async () => {
+  showResult("app-status", true, "…");
+  try {
+    showApp(await call("api/app/check", { method: "POST" }));
+  } catch (err) {
+    showResult("app-status", false, err.message);
+  }
+});
+
+call("api/app").then(showApp).catch(() => {});
 call("api/settings").then(render).catch(err => showResult("save", false, err.message));
 </script>
 </body>

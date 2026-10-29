@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, fields, replace
 
 
@@ -33,6 +34,10 @@ class Settings:
     ntfy_url: str = ""
     ntfy_topic: str = ""
     ntfy_token: str = ""
+    # Android-App zum Herunterladen (Obtainium): Ordner und GitHub-Quelle für neue Versionen
+    app_dir: str = "/data/app"
+    app_update_repo: str = "Archonw/Networkmonitor"
+    app_update_token: str = ""
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -56,6 +61,9 @@ class Settings:
             ntfy_url=env.get("NTFY_URL", ""),
             ntfy_topic=env.get("NTFY_TOPIC", ""),
             ntfy_token=env.get("NTFY_TOKEN", ""),
+            app_dir=env.get("APP_DIR", cls.app_dir),
+            app_update_repo=env.get("APP_UPDATE_REPO", cls.app_update_repo),
+            app_update_token=env.get("APP_UPDATE_TOKEN", ""),
         )
 
 
@@ -78,6 +86,8 @@ EDITABLE: dict[str, str] = {
     "ha_url": "str",
     "ha_token": "secret",
     "ha_notify_service": "str",
+    "app_update_repo": "str",
+    "app_update_token": "secret",
 }
 NOTIFY_CHANNELS = ("ntfy", "telegram", "homeassistant")
 
@@ -99,7 +109,10 @@ def coerce(field: str, value) -> object:
         if unknown:
             raise ValueError(f"Unbekannter Benachrichtigungskanal: {', '.join(unknown)}")
         return channels
-    return str(value).strip()
+    text = str(value).strip()
+    if field == "app_update_repo" and text and not re.fullmatch(r"[\w.-]+/[\w.-]+", text):
+        raise ValueError("Bitte als Besitzer/Repository angeben, z. B. Archonw/Networkmonitor")
+    return text
 
 
 def apply_overrides(settings: Settings, overrides: dict) -> Settings:
