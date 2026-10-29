@@ -38,6 +38,24 @@ docker exec -it networkmonitor networkmonitor-probe --test-block 192.168.178.50 
 
 Zeigt Modell und FritzOS-Version, ob Hostliste und Internet-Sperre funktionieren, welche WLAN-Aktionen die Schnittstelle anbietet (MAC-Filter?) und relevante Zeilen aus dem Ereignisprotokoll.
 
+## 4. Benachrichtigungen
+
+In der `.env` mit `NOTIFY` wählen: `telegram`, `homeassistant` oder beides (`telegram,homeassistant`). Leer = aus. Danach den Container neu starten.
+
+**Telegram** (mit Buttons „Erlauben“/„Sperren“ direkt in der Nachricht):
+1. In Telegram mit `@BotFather` einen Bot anlegen (`/newbot`), Token in `TELEGRAM_BOT_TOKEN` eintragen.
+2. Dem neuen Bot eine beliebige Nachricht schicken.
+3. `https://api.telegram.org/bot<TOKEN>/getUpdates` im Browser öffnen und die Zahl bei `"chat":{"id":` in `TELEGRAM_CHAT_ID` eintragen.
+
+Nur Klicks aus diesem Chat werden ausgeführt.
+
+**Home Assistant** (Nachricht mit „Öffnen“-Knopf zur Weboberfläche):
+1. In Home Assistant unter Profil → Sicherheit ein langlebiges Zugriffstoken erstellen → `HA_TOKEN`.
+2. `HA_URL` auf die Adresse von Home Assistant setzen.
+3. `HA_NOTIFY_SERVICE` auf den notify-Dienst der Companion-App setzen (Entwicklerwerkzeuge → Aktionen, `notify.mobile_app_…`).
+
+Test: `docker exec networkmonitor networkmonitor-notify-test` schickt eine Testnachricht an alle eingestellten Kanäle.
+
 ## Entwicklung
 
 ```
