@@ -86,7 +86,7 @@
   <div class="box">
   <div class="hint" style="margin:0 0 10px">Der Monitor stellt die App unter <a id="app-link" href="/app">/app</a> bereit. Diese Adresse in Obtainium als Quelle eintragen, dann kommen Updates automatisch aufs Handy. Neue Versionen holt sich der Monitor alle 6 Stunden aus den GitHub-Releases.</div>
   <label class="field"><span>GitHub-Repository (leer = nicht automatisch suchen)</span><input type="text" name="app_update_repo" placeholder="Archonw/Networkmonitor"></label>
-  <label class="field"><span>GitHub-Token (nur für private Repositories, Rechte: Contents lesen)</span><input type="password" name="app_update_token" data-secret></label>
+  <label class="field"><span>GitHub-Token (nur für ein privates Repository nötig, Rechte: Contents lesen)</span><input type="password" name="app_update_token" data-secret></label>
   <button type="button" class="btn" id="app-check">Jetzt nach Update suchen</button>
   <div class="hint" style="margin:6px 0 0">Repository und Token werden dabei gespeichert.</div>
   <div class="result" id="app-status"></div>
@@ -106,6 +106,8 @@
   <span class="result" id="save"></span>
 </div>
 </form>
+
+<div class="hint" style="margin:16px 0 0;text-align:center">Netzwerkmonitor ist freie Software unter der <a href="https://github.com/Archonw/Networkmonitor/blob/main/LICENSE" target="_blank" rel="noopener">Apache-Lizenz 2.0</a> · <a href="https://github.com/Archonw/Networkmonitor" target="_blank" rel="noopener">Quellcode auf GitHub</a></div>
 </div>
 
 <script>
