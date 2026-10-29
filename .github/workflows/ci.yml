@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Von Hand starten (Actions → CI → Run workflow), z. B. für eine Test-Version der App
+  workflow_dispatch:
 
 jobs:
   test:
@@ -59,7 +61,7 @@ jobs:
         with:
           name: netzwerkmonitor-apk
           path: android/netzwerkmonitor.apk
-      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: app-${{ github.run_number }}
