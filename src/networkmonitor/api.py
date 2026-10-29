@@ -23,7 +23,9 @@ from .store import Status, Store
 
 log = logging.getLogger(__name__)
 
-UI_HTML = (Path(__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+STATIC = Path(__file__).parent / "static"
+UI_HTML = (STATIC / "index.html").read_text(encoding="utf-8")
+DEVICE_HTML = (STATIC / "device.html").read_text(encoding="utf-8")
 
 
 class DeviceUpdate(BaseModel):
@@ -123,6 +125,17 @@ def create_app(
     @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_login)])
     def index() -> str:
         return UI_HTML
+
+    @app.get("/device/{mac}", response_class=HTMLResponse, dependencies=[Depends(require_login)])
+    def device_page(mac: str) -> str:
+        return DEVICE_HTML
+
+    @app.get("/api/devices/{mac}", dependencies=[Depends(require_login)])
+    def get_device(mac: str) -> dict:
+        device = store.get(mac)
+        if device is None:
+            raise HTTPException(404, "Gerät nicht gefunden")
+        return asdict(device)
 
     @app.get("/api/devices", dependencies=[Depends(require_login)])
     def list_devices() -> list[dict]:

@@ -145,6 +145,17 @@ def test_api_lists_and_blocks(client):
     assert c.get("/", auth=("admin", "geheim")).status_code == 200
 
 
+def test_single_device_page(client):
+    c, _ = client
+    auth = ("admin", "geheim")
+    assert c.get("/device/DE:AD:BE:EF:00:03").status_code == 401
+    page = c.get("/device/DE:AD:BE:EF:00:03", auth=auth)
+    assert page.status_code == 200 and "Erlauben" in page.text
+    device = c.get("/api/devices/de-ad-be-ef-00-03", auth=auth).json()
+    assert device["hostname"] == "fremd" and device["status"] == "unknown"
+    assert c.get("/api/devices/00:00:00:00:00:00", auth=auth).status_code == 404
+
+
 def test_new_devices_trigger_notifiers():
     router = FakeRouter([PHONE])
     sent = []

@@ -13,7 +13,7 @@
   .dev { border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px; }
   .dev.unknown { border-color:var(--warn); }
   .top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; flex-wrap:wrap; }
-  .name { font-weight:600; }
+  .name { font-weight:600; color:inherit; }
   .meta { color:var(--muted); font-size:13px; }
   .badge { font-size:12px; padding:2px 8px; border-radius:99px; border:1px solid currentColor; }
   .allowed { color:var(--ok); } .blocked { color:var(--bad); } .unknown .badge { color:var(--warn); }
@@ -45,7 +45,7 @@ async function load() {
   document.getElementById("list").innerHTML = devices.map(d => `
     <div class="dev ${d.status}">
       <div class="top">
-        <span class="name">${esc(d.name || d.hostname || d.mac)}</span>
+        <a class="name" href="device/${encodeURIComponent(d.mac)}">${esc(d.name || d.hostname || d.mac)}</a>
         <span class="badge ${d.status}">${LABEL[d.status]}</span>
       </div>
       <div class="meta">${esc(d.mac)} · ${esc(d.ip || "keine IP")} · ${esc(d.interface || "?")} ·
