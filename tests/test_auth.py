@@ -74,3 +74,8 @@ def test_first_setup_not_from_outside():
         r = c.post("/api/setup/password", auth=default, headers=EXTERN, json={"password": "x" * 10})
         assert r.status_code == 403
         assert c.get("/setup", auth=default).status_code == 200
+
+
+def test_api_docs_not_public(client):
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code == 404
