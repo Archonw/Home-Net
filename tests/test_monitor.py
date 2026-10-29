@@ -143,3 +143,25 @@ def test_api_lists_and_blocks(client):
     missing = c.post("/api/devices/00:00:00:00:00:00/allow", auth=("admin", "geheim"))
     assert missing.status_code == 404
     assert c.get("/", auth=("admin", "geheim")).status_code == 200
+
+
+def test_new_devices_trigger_notifiers():
+    router = FakeRouter([PHONE])
+    sent = []
+
+    class Recorder:
+        def new_device(self, device):
+            sent.append(device.mac)
+
+    app = create_app(
+        Settings(db_path=":memory:"),
+        router=router,
+        store=Store(":memory:"),
+        start_poller=False,
+        notifiers=[Recorder()],
+    )
+    app.state.monitor.poll_once()
+    router.hosts.append(STRANGER)
+    result = app.state.monitor.poll_once()
+    app.state.notify_new(result.new_devices)
+    assert sent == ["DE:AD:BE:EF:00:03"]

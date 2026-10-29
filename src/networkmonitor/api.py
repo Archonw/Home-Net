@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from .config import Settings
 from .fritzbox import FritzBox, Router
 from .monitor import Monitor
+from .notify import Notifier, TelegramNotifier, build_notifiers
 from .store import Status, Store
 
 log = logging.getLogger(__name__)
@@ -36,13 +37,31 @@ def create_app(
     router: Router | None = None,
     store: Store | None = None,
     start_poller: bool = True,
+    notifiers: list[Notifier] | None = None,
 ) -> FastAPI:
     router = router or FritzBox(
         settings.fritz_address, settings.fritz_user, settings.fritz_password
     )
     store = store or Store(settings.db_path)
     monitor = Monitor(router, store, settings)
+    notifiers = build_notifiers(settings) if notifiers is None else notifiers
     state = {"last_error": None, "last_poll": None}
+
+    def notify_new(devices) -> None:
+        for device in devices:
+            for notifier in notifiers:
+                try:
+                    notifier.new_device(device)
+                except Exception as exc:  # noqa: BLE001 – Benachrichtigung darf nicht blockieren
+                    log.warning("Benachrichtigung über %s fehlgeschlagen: %s", device.mac, exc)
+
+    async def telegram_loop(notifier: TelegramNotifier) -> None:
+        while True:
+            try:
+                await asyncio.to_thread(notifier.process_updates, monitor.set_status)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Telegram-Abfrage fehlgeschlagen: %s", exc)
+                await asyncio.sleep(10)
 
     async def poll_loop() -> None:
         while True:
@@ -50,6 +69,8 @@ def create_app(
                 result = await asyncio.to_thread(monitor.poll_once)
                 state["last_error"] = "; ".join(result.errors) or None
                 state["last_poll"] = datetime.now(UTC).isoformat(timespec="seconds")
+                if result.new_devices:
+                    await asyncio.to_thread(notify_new, result.new_devices)
             except Exception as exc:  # noqa: BLE001 – Schleife muss weiterlaufen
                 log.exception("Abfrage der FritzBox fehlgeschlagen")
                 state["last_error"] = str(exc)
@@ -59,13 +80,21 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        task = asyncio.create_task(poll_loop()) if start_poller else None
+        tasks = []
+        if start_poller:
+            tasks.append(asyncio.create_task(poll_loop()))
+            tasks += [
+                asyncio.create_task(telegram_loop(n))
+                for n in notifiers
+                if isinstance(n, TelegramNotifier)
+            ]
         yield
-        if task:
+        for task in tasks:
             task.cancel()
 
     app = FastAPI(title="Netzwerkmonitor", lifespan=lifespan)
     app.state.monitor = monitor
+    app.state.notify_new = notify_new
 
     security = HTTPBasic(auto_error=False)
 

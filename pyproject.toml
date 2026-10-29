@@ -19,6 +19,7 @@ dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.5"]
 [project.scripts]
 networkmonitor = "networkmonitor.main:run"
 networkmonitor-probe = "networkmonitor.probe:main"
+networkmonitor-notify-test = "networkmonitor.notify:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
