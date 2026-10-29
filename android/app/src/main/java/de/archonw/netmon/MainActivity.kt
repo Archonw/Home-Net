@@ -37,12 +37,19 @@ class MainActivity : FragmentActivity() {
     private var screen by mutableStateOf<Screen>(Screen.List)
     private var backgroundSince = 0L
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
+    private var useBiometrics by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = Settings(this)
         themeMode = settings.themeMode
-        if (!settings.isConfigured) screen = Screen.Setup
+        settings.migrateLockMode()
+        useBiometrics = settings.useBiometrics
+        // Ohne Einrichtung gibt es noch kein Passwort: die erste Anmeldung ist die Einrichtung selbst
+        if (!settings.isConfigured) {
+            screen = Screen.Setup
+            unlocked = true
+        }
         handleLink(intent)
 
         setContent {
@@ -67,7 +74,12 @@ class MainActivity : FragmentActivity() {
             }
             MaterialTheme(colorScheme = colors) {
                 if (!unlocked) {
-                    LockedScreen(error = authError, onUnlock = ::authenticate)
+                    LockedScreen(
+                        useBiometrics = useBiometrics,
+                        error = authError,
+                        onBiometric = ::authenticate,
+                        onPassword = ::unlockWithPassword,
+                    )
                 } else {
                     BackHandler(enabled = screen != Screen.List && settings.isConfigured) {
                         screen = Screen.List
@@ -80,6 +92,8 @@ class MainActivity : FragmentActivity() {
                                 themeMode = it
                                 settings.themeMode = it
                             },
+                            useBiometrics = useBiometrics,
+                            onLockModeChange = ::setLockMode,
                             onBack = { screen = Screen.List },
                             onSaved = { screen = Screen.List },
                         )
@@ -98,7 +112,7 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
-        authenticate()
+        if (!unlocked) authenticate()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -134,12 +148,37 @@ class MainActivity : FragmentActivity() {
         return true
     }
 
+    private fun unlockWithPassword(entered: String) {
+        if (entered.isNotEmpty() && entered == settings.password) {
+            authError = null
+            unlocked = true
+        } else {
+            authError = "Passwort falsch"
+        }
+    }
+
+    private fun biometricsAvailable() =
+        BiometricManager.from(this).canAuthenticate(BIOMETRIC_STRONG or DEVICE_CREDENTIAL) ==
+            BiometricManager.BIOMETRIC_SUCCESS
+
+    /** Liefert eine Fehlermeldung, wenn der Fingerabdruck nicht genutzt werden kann. */
+    private fun setLockMode(biometrics: Boolean): String? {
+        if (biometrics && !biometricsAvailable()) {
+            return "Auf diesem Gerät ist kein Fingerabdruck und keine Displaysperre eingerichtet."
+        }
+        useBiometrics = biometrics
+        settings.useBiometrics = biometrics
+        return null
+    }
+
     private fun authenticate() {
+        authError = null
+        // Im Passwort-Modus zeigt der Sperrbildschirm das Eingabefeld
+        if (!useBiometrics) return
         val authenticators = BIOMETRIC_STRONG or DEVICE_CREDENTIAL
-        val can = BiometricManager.from(this).canAuthenticate(authenticators)
-        if (can != BiometricManager.BIOMETRIC_SUCCESS) {
+        if (!biometricsAvailable()) {
             authError = "Auf diesem Gerät ist keine Displaysperre eingerichtet. " +
-                "Bitte Fingerabdruck oder PIN in den Android-Einstellungen aktivieren."
+                "Bitte mit dem Passwort entsperren."
             return
         }
         val prompt = BiometricPrompt(

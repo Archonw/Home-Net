@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -42,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -79,7 +82,13 @@ private fun ifaceLabel(iface: String) = when (iface) {
 }
 
 @Composable
-fun LockedScreen(error: String?, onUnlock: () -> Unit) {
+fun LockedScreen(
+    useBiometrics: Boolean,
+    error: String?,
+    onBiometric: () -> Unit,
+    onPassword: (String) -> Unit,
+) {
+    var password by remember { mutableStateOf("") }
     Scaffold { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).padding(24.dp),
@@ -94,7 +103,23 @@ fun LockedScreen(error: String?, onUnlock: () -> Unit) {
                 Text(error, color = MaterialTheme.colorScheme.error)
             }
             Spacer(Modifier.height(24.dp))
-            Button(onClick = onUnlock) { Text("Mit Fingerabdruck entsperren") }
+            // Passwort geht immer, z. B. auch wenn der Fingerabdruck nicht klappt
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Passwort") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { onPassword(password) }),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = { onPassword(password) }, modifier = Modifier.fillMaxWidth()) { Text("Entsperren") }
+            if (useBiometrics) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onBiometric) { Text("Mit Fingerabdruck entsperren") }
+            }
         }
     }
 }
@@ -104,6 +129,8 @@ fun SetupScreen(
     settings: Settings,
     themeMode: ThemeMode,
     onThemeChange: (ThemeMode) -> Unit,
+    useBiometrics: Boolean,
+    onLockModeChange: (Boolean) -> String?,
     onBack: () -> Unit,
     onSaved: () -> Unit,
 ) {
@@ -121,6 +148,18 @@ fun SetupScreen(
             Text("Darstellung", fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(8.dp))
             ChipRow(ThemeMode.entries, themeMode, { it.label }, horizontalPadding = 0, onSelect = onThemeChange)
+            if (settings.isConfigured) {
+                Spacer(Modifier.height(24.dp))
+                Text("Entsperren mit", fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(8.dp))
+                ChipRow(
+                    options = listOf(false, true),
+                    selected = useBiometrics,
+                    label = { if (it) "Fingerabdruck" else "Passwort" },
+                    horizontalPadding = 0,
+                    onSelect = { message = onLockModeChange(it) },
+                )
+            }
             Spacer(Modifier.height(24.dp))
             Text("Verbindung", fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(8.dp))
@@ -392,6 +431,8 @@ fun DetailScreen(api: Api, mac: String, onBack: () -> Unit) {
             )
             Spacer(Modifier.height(16.dp))
             Card(shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                // Lange drücken markiert einen Wert, z. B. die IP, zum Kopieren
+                SelectionContainer {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                     listOf(
                         "Gerätename" to d.hostname.ifBlank { "–" },
@@ -407,6 +448,7 @@ fun DetailScreen(api: Api, mac: String, onBack: () -> Unit) {
                             Text(v)
                         }
                     }
+                }
                 }
             }
             if (d.randomMac) {
@@ -426,14 +468,14 @@ fun DetailScreen(api: Api, mac: String, onBack: () -> Unit) {
                 Button(
                     onClick = { act(true) },
                     enabled = !busy && d.status != "allowed",
-                    colors = ButtonDefaults.buttonColors(containerColor = MainActivity.Green),
+                    colors = ButtonDefaults.buttonColors(containerColor = MainActivity.Green, contentColor = Color.White),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.weight(1f).height(60.dp),
                 ) { Text("Erlauben", fontSize = 18.sp) }
                 Button(
                     onClick = { act(false) },
                     enabled = !busy && d.status != "blocked",
-                    colors = ButtonDefaults.buttonColors(containerColor = MainActivity.Red),
+                    colors = ButtonDefaults.buttonColors(containerColor = MainActivity.Red, contentColor = Color.White),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.weight(1f).height(60.dp),
                 ) { Text("Sperren", fontSize = 18.sp) }
