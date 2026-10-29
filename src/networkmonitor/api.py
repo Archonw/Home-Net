@@ -20,7 +20,7 @@ from .appupdate import AppFolder, update_from_github
 from .auth import LoginGuard, client_ip, via_proxy
 from .config import EDITABLE, Settings, apply_overrides, coerce, public_view
 from .fritzbox import FritzBox, Router
-from .monitor import Monitor
+from .monitor import BlockNotPossible, Monitor
 from .notify import TEST_DEVICE, Notifier, TelegramNotifier, build_notifiers
 from .store import Status, Store
 
@@ -362,6 +362,8 @@ def create_app(
     def _set(mac: str, new_status: Status) -> dict:
         try:
             device = monitor.set_status(mac, new_status)
+        except BlockNotPossible as exc:
+            raise HTTPException(409, str(exc)) from exc
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(502, f"FritzBox-Fehler: {exc}") from exc
         if device is None:

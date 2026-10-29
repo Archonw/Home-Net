@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 
 from .config import Settings
-from .fritzbox import Router
+from .fritzbox import NotInHostFilter, Router
 from .store import Device, Status, Store
 
 log = logging.getLogger(__name__)
@@ -18,6 +18,17 @@ INITIAL_SCAN_DONE = "initial_scan_done"
 class PollResult:
     new_devices: list[Device] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+
+
+class BlockNotPossible(Exception):
+    """Gerät soll gesperrt sein, die FritzBox kann es aber nicht sperren."""
+
+    def __init__(self, device: Device) -> None:
+        super().__init__(
+            f"{device.mac} ({device.ip}) lässt sich nicht sperren: Die FritzBox führt diese IP "
+            "nicht in ihrer Kindersicherung. Das passiert meist bei Geräten mit fest "
+            "eingestellter IP statt DHCP von der FritzBox."
+        )
 
 
 class Monitor:
@@ -51,8 +62,11 @@ class Monitor:
             if host.active and host.ip:
                 try:
                     self.enforce(device)
+                except BlockNotPossible as exc:
+                    log.warning("%s", exc)
+                    result.errors.append(str(exc))
                 except Exception as exc:  # noqa: BLE001 – ein Gerät darf den Lauf nicht stoppen
-                    msg = f"Sperre für {device.mac} ({device.ip}) fehlgeschlagen: {exc}"
+                    msg = f"Internet-Sperre für {device.mac} ({device.ip}) nicht abgleichbar: {exc}"
                     log.warning(msg)
                     result.errors.append(msg)
 
@@ -72,8 +86,15 @@ class Monitor:
         if not device.ip:
             return
         wanted = self.should_have_internet(device)
-        if self.router.get_internet_access(device.ip) != wanted:
+        try:
+            if self.router.get_internet_access(device.ip) == wanted:
+                return
             self.router.set_internet_access(device.ip, wanted)
+        except NotInHostFilter:
+            if wanted:
+                # nicht in der Kindersicherung heißt auch: nicht gesperrt – alles in Ordnung
+                return
+            raise BlockNotPossible(device) from None
             self.store.add_event(device.mac, "internet_on" if wanted else "internet_off", device.ip)
 
     def set_status(self, mac: str, status: Status) -> Device | None:
