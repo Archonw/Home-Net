@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import secrets
 from contextlib import asynccontextmanager
@@ -11,10 +12,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
+from .appupdate import AppFolder, update_from_github
 from .auth import LoginGuard, client_ip, via_proxy
 from .config import EDITABLE, Settings, apply_overrides, coerce, public_view
 from .fritzbox import FritzBox, Router
@@ -33,6 +35,9 @@ SETUP_HTML = (STATIC / "setup.html").read_text(encoding="utf-8")
 # Gilt, solange kein eigenes Passwort gesetzt ist; muss beim ersten Anmelden geändert werden
 DEFAULT_PASSWORD = "netzwerkmonitor"
 MIN_PASSWORD_LENGTH = 8
+# So oft schaut der Monitor nach einer neuen App-Version
+APP_UPDATE_INTERVAL = 6 * 60 * 60
+APK_TYPE = "application/vnd.android.package-archive"
 
 
 class Runtime:
@@ -111,6 +116,35 @@ def create_app(
     rt = Runtime(settings, store, router, notifiers)
     monitor = rt.monitor
     state = {"last_error": None, "last_poll": None}
+    app_folder = AppFolder(settings.app_dir)
+    app_state: dict = {"checked": None, "message": None, "ok": None}
+
+    def check_app_update() -> dict:
+        repo = rt.settings.app_update_repo
+        if not repo:
+            app_state.update(ok=None, message="Automatische Suche aus")
+        else:
+            try:
+                message = update_from_github(app_folder, repo, rt.settings.app_update_token)
+                app_state.update(ok=True, message=message)
+            except Exception as exc:  # noqa: BLE001 – Monitor läuft auch ohne App-Update
+                log.warning("App-Update von GitHub fehlgeschlagen: %s", exc)
+                app_state.update(ok=False, message=f"GitHub: {exc}")
+        app_state["checked"] = datetime.now(UTC).isoformat(timespec="seconds")
+        return app_status()
+
+    def app_status() -> dict:
+        latest = app_folder.latest()
+        return {
+            "version": latest.version if latest else None,
+            "file": latest.filename if latest else None,
+            **app_state,
+        }
+
+    async def app_update_loop() -> None:
+        while True:
+            await asyncio.to_thread(check_app_update)
+            await asyncio.sleep(APP_UPDATE_INTERVAL)
 
     def notify_new(devices) -> None:
         for device in devices:
@@ -157,6 +191,7 @@ def create_app(
         if start_poller:
             tasks.append(asyncio.create_task(poll_loop()))
             tasks.append(asyncio.create_task(telegram_loop()))
+            tasks.append(asyncio.create_task(app_update_loop()))
         yield
         for task in tasks:
             task.cancel()
@@ -243,6 +278,51 @@ def create_app(
             "error": state["last_error"],
             "last_poll": state["last_poll"],
         }
+
+    # Ohne Anmeldung, damit Obtainium die App laden kann; die APK enthält keine Zugangsdaten
+    @app.get("/app", response_class=HTMLResponse)
+    def app_page() -> str:
+        latest = app_folder.latest()
+        if latest is None:
+            body = "<p>Auf diesem Monitor liegt noch keine App.</p>"
+        else:
+            name = html.escape(latest.filename)
+            body = (
+                f'<p><a href="/app/{name}">{name}</a></p>'
+                "<p>Für automatische Updates diese Seite in Obtainium als Quelle hinzufügen.</p>"
+            )
+        return (
+            '<!doctype html><html lang="de"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            f"<title>Netzwerkmonitor-App</title></head><body><h1>Netzwerkmonitor-App</h1>{body}"
+            "</body></html>"
+        )
+
+    @app.get("/app/latest.json")
+    def app_latest() -> dict:
+        latest = app_folder.latest()
+        if latest is None:
+            raise HTTPException(404, "Keine App bereitgestellt")
+        return {
+            "version": latest.version,
+            "version_code": latest.version_code,
+            "url": f"/app/{latest.filename}",
+        }
+
+    @app.get("/app/{filename}")
+    def app_download(filename: str) -> FileResponse:
+        found = app_folder.get(filename)
+        if found is None:
+            raise HTTPException(404, "Nicht gefunden")
+        return FileResponse(found.path, media_type=APK_TYPE, filename=found.filename)
+
+    @app.get("/api/app", dependencies=[Depends(require_login)])
+    def get_app_status() -> dict:
+        return app_status()
+
+    @app.post("/api/app/check", dependencies=[Depends(require_login)])
+    def post_app_check() -> dict:
+        return check_app_update()
 
     @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_login)])
     def index() -> str:

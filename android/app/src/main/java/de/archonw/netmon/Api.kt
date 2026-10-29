@@ -41,6 +41,9 @@ data class Device(
 
 class ApiException(message: String) : Exception(message)
 
+/** Auf dem Monitor bereitgestellte App-Version; [url] ist die volle Download-Adresse. */
+data class AppRelease(val version: String, val versionCode: Long, val url: String)
+
 /**
  * Spricht mit der REST-API des Netzwerkmonitors (Basic Auth, Benutzername beliebig).
  *
@@ -70,6 +73,17 @@ class Api(
     /** Entfernt alle offline Geräte außer gesperrten; liefert die Anzahl. */
     suspend fun removeOffline(): Int =
         JSONObject(request("POST", "api/devices/remove-offline")).getInt("removed")
+
+    /** Neueste App-Version auf dem Monitor, null wenn dort keine liegt. */
+    suspend fun latestApp(): AppRelease? {
+        val o = try {
+            JSONObject(request("GET", "app/latest.json"))
+        } catch (e: ApiException) {
+            return null
+        }
+        val base = (lastWorking ?: urls.first()).trimEnd('/')
+        return AppRelease(o.getString("version"), o.getLong("version_code"), base + o.getString("url"))
+    }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
