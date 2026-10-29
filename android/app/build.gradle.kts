@@ -16,24 +16,26 @@ android {
         versionName = "0.1.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
     }
 
+    // Signierschlüssel kommt aus Umgebungsvariablen (in GitHub Actions aus den Repository-Secrets).
+    // Ohne sie wird mit dem Debug-Schlüssel von Android Studio signiert, z. B. bei eigenen Builds
+    // oder Pull Requests aus Forks. Solche APKs lassen sich nicht über die offizielle installieren.
+    fun env(name: String) = System.getenv(name)?.takeIf { it.isNotBlank() }
+    val keystorePath = env("NETMON_KEYSTORE_FILE")
     signingConfigs {
-        // Fester Schlüssel im Repo, damit sich jede neue APK über die alte installieren lässt.
-        // Die App wird nur selbst installiert, nicht im Play Store veröffentlicht.
-        create("shared") {
-            storeFile = file("netmon.keystore")
-            storePassword = "netmon-sideload"
-            keyAlias = "netmon"
-            keyPassword = "netmon-sideload"
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = env("NETMON_KEYSTORE_PASSWORD")
+                keyAlias = env("NETMON_KEY_ALIAS") ?: "netmon"
+                keyPassword = env("NETMON_KEY_PASSWORD") ?: storePassword
+            }
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("shared")
-        }
-        debug {
-            signingConfig = signingConfigs.getByName("shared")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

@@ -9,7 +9,7 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md) · Zugriff von unterwegs: [do
 - Liest alle 30 s die Geräteliste der FritzBox (TR-064) und merkt sich jedes Gerät.
 - Geräte aus dem ersten Scan gelten als **erlaubt**, alle später auftauchenden als **unbekannt**.
 - Weboberfläche (Port 8085) im Stil der Android-App: Designs „Soft“ und „Kacheln“, hell/dunkel, Akzentfarben, Suche, Filter, Sortierung, Einzelgeräte-Seite mit „Erlauben“, „Sperren“, „Umbenennen“ und kopierbaren Werten. Funktioniert auf Handy und Desktop.
-- **Sperren** trennt das Gerät derzeit nur vom **Internet** (FritzBox-Kindersicherung per TR-064). Die komplette Sperre (WLAN-MAC-Filter, ARP-Block) folgt, sobald das Prüfwerkzeug gezeigt hat, was die FritzBox zulässt.
+- **Sperren** trennt das Gerät vom **Internet** (FritzBox-Kindersicherung per TR-064). Im Heimnetz bleibt es erreichbar, denn den WLAN-MAC-Filter kann die FritzBox über TR-064 nicht pflegen.
 - Optional: `QUARANTINE_UNKNOWN=true` trennt unbekannte Geräte sofort vom Internet, bis sie erlaubt werden.
 
 ## 1. FritzBox vorbereiten
@@ -21,7 +21,7 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md) · Zugriff von unterwegs: [do
 
 Eine `.env` ist nicht nötig. Alles wird in der Weboberfläche eingerichtet.
 
-**Container starten** (Unraid, Code liegt unter `/mnt/user/appdata/networkmonitor/src`):
+**Container starten**, z. B. auf Unraid mit dem Code unter `/mnt/user/appdata/networkmonitor/src` (jeder andere Docker-Host geht genauso):
 
 ```
 docker build -t networkmonitor:local /mnt/user/appdata/networkmonitor/src
@@ -68,10 +68,10 @@ Nur Klicks aus diesem Chat werden ausgeführt.
 3. `HA_NOTIFY_SERVICE` auf den notify-Dienst der Companion-App setzen (Entwicklerwerkzeuge → Aktionen, `notify.mobile_app_…`).
 
 **ntfy + Android-App** (Fingerabdruck, dann nur das eine Gerät mit „Erlauben“/„Sperren“):
-1. ntfy-Server auf Unraid starten, z. B. Port 8090:
+1. Einen eigenen ntfy-Server starten, z. B. auf Port 8090:
    `docker run -d --name ntfy --restart unless-stopped -p 8090:80 -v /mnt/user/appdata/ntfy:/var/cache/ntfy binwiederhier/ntfy serve --cache-file /var/cache/ntfy/cache.db`
-2. In der `.env`: `NOTIFY=ntfy` (oder zusätzlich zu anderen), `NTFY_URL=http://192.168.178.207:8090`, `NTFY_TOPIC=netzwerkmonitor`.
-3. Auf dem Handy die **ntfy-App** installieren (Play Store oder F-Droid), Standardserver auf `http://192.168.178.207:8090` setzen und das Thema `netzwerkmonitor` abonnieren.
+2. In der `.env`: `NOTIFY=ntfy` (oder zusätzlich zu anderen), `NTFY_URL=http://192.168.178.20:8090`, `NTFY_TOPIC=netzwerkmonitor`.
+3. Auf dem Handy die **ntfy-App** installieren (Play Store oder F-Droid), Standardserver auf `http://192.168.178.20:8090` setzen und das Thema `netzwerkmonitor` abonnieren.
 4. Die **Netzwerkmonitor-App** installieren (siehe unten). Antippen der ntfy-Nachricht öffnet sie über `netmon://device/<MAC>`.
 
 Test: `docker exec networkmonitor networkmonitor-notify-test` schickt eine Testnachricht an alle eingestellten Kanäle.
@@ -81,12 +81,12 @@ Test: `docker exec networkmonitor networkmonitor-notify-test` schickt eine Testn
 Der Quellcode liegt in `android/`. GitHub Actions baut bei jedem Push die APK; nach einem Merge auf `main` liegt sie unter **Releases** als `netzwerkmonitor.apk`.
 
 - APK aufs Handy laden und installieren („Installation aus unbekannten Quellen“ für den Browser erlauben). Updates werden einfach drüber installiert.
-- Beim ersten Start: Adresse des Monitors (`http://192.168.178.207:8085`) und das Passwort der Weboberfläche eintragen. Beides wird verschlüsselt auf dem Handy gespeichert.
+- Beim ersten Start: Adresse des Monitors (`http://192.168.178.20:8085`) und das Passwort der Weboberfläche eintragen. Beides wird verschlüsselt auf dem Handy gespeichert.
 - „Offline entfernen“ (App) bzw. „Offline-Geräte entfernen“ (Weboberfläche) löscht alle Geräte, die gerade offline sind, aus dem Monitor. Kommen sie wieder ins Netz, gelten sie als neu und müssen erneut bestätigt werden. Gesperrte Geräte bleiben stehen, damit ihre Sperre erhalten bleibt. Die Einträge in der FritzBox selbst ändern sich dadurch nicht.
 - Jeder Start, jede Benachrichtigung und jede Rückkehr nach mehr als einer Minute verlangt eine Anmeldung. Nach der Einrichtung ist das das Passwort der Weboberfläche; unter Einstellungen → „Entsperren mit“ lässt sich auf Fingerabdruck (oder Geräte-PIN) umstellen. Das Passwort funktioniert immer als Ausweg.
 - Zwei Designs zur Wahl unter Einstellungen → „Design“: **Soft** (weiche Karten, Filter-Pillen) und **Kacheln** (Zählkacheln als Filter, Festbreitenschrift für IP/MAC). Beide gibt es hell und dunkel, jeweils mit vier Akzentfarben. Die Liste lässt sich durchsuchen (Name, IP, MAC) und durch Herunterziehen aktualisieren.
 - Auf der Geräteseite lassen sich Werte wie IP- oder MAC-Adresse durch langes Drücken markieren und kopieren.
-- Die App ist mit einem festen Schlüssel aus dem Repo signiert (`android/app/netmon.keystore`), damit Updates ohne Neuinstallation klappen. Sie ist nur für die eigene Installation gedacht.
+- Die APKs aus den Releases sind immer mit demselben Schlüssel signiert, damit Updates ohne Neuinstallation klappen. Der Schlüssel liegt nicht im Repository, sondern als Secret in GitHub Actions. Wer die App selbst baut, bekommt eine mit dem Debug-Schlüssel signierte APK; die lässt sich nicht über eine offizielle installieren (vorher deinstallieren).
 
 ## Entwicklung
 
@@ -94,3 +94,9 @@ Der Quellcode liegt in `android/`. GitHub Actions baut bei jedem Push die APK; n
 pip install -e '.[dev]'
 ruff check . && ruff format --check . && pytest
 ```
+
+## Lizenz
+
+[Apache License 2.0](LICENSE). Die Android-App enthält Bibliotheken von AndroidX und Kotlin, ebenfalls unter Apache-2.0; ihre Hinweise zeigt die App unter Einstellungen → „Über die App“. Der Monitor nutzt FastAPI (MIT), Uvicorn (BSD-3-Clause) und fritzconnection (MIT).
+
+FRITZ!Box ist eine Marke der AVM GmbH. Dieses Projekt steht in keiner Verbindung zu AVM.
