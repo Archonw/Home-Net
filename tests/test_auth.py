@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-from networkmonitor.auth import LOCK, MAX_FAILURES, LoginGuard
 
 from networkmonitor.api import DEFAULT_PASSWORD, create_app
+from networkmonitor.auth import LOCK, MAX_FAILURES, LoginGuard
 from networkmonitor.config import Settings
 from networkmonitor.store import Store
 
