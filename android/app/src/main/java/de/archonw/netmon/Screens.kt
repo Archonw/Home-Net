@@ -116,6 +116,8 @@ class SettingsUi(
     val onLockMode: (Boolean) -> Unit,
     val url: String,
     val onUrl: (String) -> Unit,
+    val externalUrl: String,
+    val onExternalUrl: (String) -> Unit,
     val password: String,
     val onPassword: (String) -> Unit,
     val busy: Boolean,
@@ -282,6 +284,7 @@ fun SettingsScreen(
     onSaved: () -> Unit,
 ) {
     var url by remember { mutableStateOf(settings.serverUrl.ifBlank { "http://192.168.178.207:8085" }) }
+    var externalUrl by remember { mutableStateOf(settings.externalUrl) }
     var password by remember { mutableStateOf(settings.password) }
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -299,6 +302,8 @@ fun SettingsScreen(
         onLockMode = { message = onLockModeChange(it) },
         url = url,
         onUrl = { url = it },
+        externalUrl = externalUrl,
+        onExternalUrl = { externalUrl = it },
         password = password,
         onPassword = { password = it },
         busy = busy,
@@ -308,9 +313,14 @@ fun SettingsScreen(
             message = null
             scope.launch {
                 try {
-                    val count = Api(url, password).devices().size
+                    if (externalUrl.isNotBlank() && !externalUrl.trim().startsWith("https://")) {
+                        message = "Die Adresse für unterwegs muss mit https:// beginnen."
+                        return@launch
+                    }
+                    val count = Api(url, password, externalUrl).devices().size
                     val first = !settings.isConfigured
                     settings.serverUrl = url
+                    settings.externalUrl = externalUrl
                     settings.password = password
                     message = "Verbunden, $count Geräte."
                     if (first) onSaved()

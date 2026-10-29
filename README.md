@@ -2,7 +2,7 @@
 
 Überwacht das Heimnetz über die FritzBox, erkennt neue Geräte und lässt sie erlauben oder sperren.
 
-Plan und Architektur: [docs/PLAN.md](docs/PLAN.md)
+Plan und Architektur: [docs/PLAN.md](docs/PLAN.md) · Zugriff von unterwegs: [docs/FERNZUGRIFF.md](docs/FERNZUGRIFF.md)
 
 ## Stand
 

@@ -370,7 +370,18 @@ fun TilesSettings(ui: SettingsUi) {
             OutlinedTextField(
                 value = ui.url,
                 onValueChange = ui.onUrl,
-                label = { Text("Adresse des Monitors") },
+                label = { Text("Adresse im Heimnetz") },
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp),
+                colors = fieldColors(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = ui.externalUrl,
+                onValueChange = ui.onExternalUrl,
+                label = { Text("Adresse unterwegs (optional, https://…)") },
                 singleLine = true,
                 shape = RoundedCornerShape(10.dp),
                 colors = fieldColors(),
