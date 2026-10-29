@@ -214,3 +214,13 @@ def test_remove_offline_endpoint():
     client.auth = ("admin", "geheim")
     assert client.post("/api/devices/remove-offline").json() == {"removed": 1}
     assert [d["mac"] for d in client.get("/api/devices").json()] == [normalize_mac(PHONE.mac)]
+
+
+def test_shared_assets_are_served(client):
+    c, _ = client
+    css = c.get("/assets/app.css")
+    assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
+    js = c.get("/assets/app.js")
+    assert js.status_code == 200 and "NM" in js.text
+    assert c.get("/assets/../api.py").status_code == 404
+    assert c.get("/assets/geheim.txt").status_code == 404

@@ -2,106 +2,129 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Einstellungen – Netzwerkmonitor</title>
-<style>
-  :root { --bg:#fff; --card:#f5f5f7; --fg:#1d1d1f; --muted:#6e6e73; --line:#d2d2d7; --ok:#1a7f37; --bad:#c62828; --accent:#1a7f37; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#111; --card:#1c1c1e; --fg:#eee; --muted:#999; --line:#3a3a3c; } }
-  * { box-sizing:border-box; }
-  body { margin:0 auto; padding:16px; max-width:640px; font:15px/1.4 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
-  a { color:var(--muted); }
-  h1 { font-size:22px; margin:8px 0 16px; }
-  section { background:var(--card); border-radius:14px; padding:16px; margin-bottom:16px; }
-  h2 { font-size:16px; margin:0 0 12px; }
-  .hint { color:var(--muted); font-size:13px; margin:-4px 0 12px; }
-  label { display:block; margin-bottom:12px; }
-  label > span { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
-  input[type=text], input[type=password], input[type=number], input[type=url] {
-    width:100%; font:inherit; padding:9px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
-  .check { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
-  .check input { width:18px; height:18px; }
-  .clear { font-size:13px; color:var(--muted); display:flex; gap:6px; align-items:center; margin-top:4px; }
-  .channel { border-top:1px solid var(--line); padding-top:12px; margin-top:12px; }
-  .channel[hidden] { display:none; }
-  h3 { font-size:14px; margin:0 0 8px; }
-  button { font:inherit; padding:9px 14px; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--fg); cursor:pointer; }
-  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
-  .result { font-size:13px; margin-top:8px; white-space:pre-line; }
-  .result.ok { color:var(--ok); } .result.bad { color:var(--bad); }
-  section[hidden] { display:none; }
-  .bar { position:sticky; bottom:0; background:var(--bg); padding:12px 0; display:flex; gap:12px; align-items:center; }
-</style>
+<link rel="stylesheet" href="/assets/app.css">
+<script src="/assets/app.js"></script>
 </head>
 <body>
-<a href="./">‹ Alle Geräte</a>
-<h1>Einstellungen</h1>
-<section id="welcome" hidden>
+<div class="page narrow">
+<h1 class="page-title">Einstellungen</h1>
+<section class="group" id="welcome" hidden>
   <h2>Fast geschafft</h2>
-  <div class="hint" style="margin:0">Trage jetzt den FritzBox-Zugang ein und prüfe ihn mit „Verbindung testen“. Erst danach beginnt die Überwachung. Benachrichtigungen kannst du auch später einrichten. Zum Schluss „Speichern“.</div>
+  <div class="box"><div class="hint" style="margin:0">Trage jetzt den FritzBox-Zugang ein und prüfe ihn mit „Verbindung testen“. Erst danach beginnt die Überwachung. Benachrichtigungen kannst du auch später einrichten. Zum Schluss „Speichern“.</div></div>
+</section>
+
+<section class="group">
+  <h2>Design</h2>
+  <div class="segmented" id="style" role="radiogroup" aria-label="Design"></div>
+</section>
+<section class="group">
+  <h2>Darstellung</h2>
+  <div class="segmented" id="theme" role="radiogroup" aria-label="Darstellung"></div>
+</section>
+<section class="group">
+  <h2>Akzentfarbe</h2>
+  <div class="swatches" id="accent" role="radiogroup" aria-label="Akzentfarbe"></div>
+  <div class="hint" style="margin:8px 0 0">Design, Darstellung und Farbe gelten für diesen Browser, wie in der App für dein Handy.</div>
 </section>
 
 <form id="form" autocomplete="off">
-<section>
+<section class="group">
   <h2>FritzBox</h2>
-  <label><span>Adresse</span><input type="text" name="fritz_address"></label>
-  <label><span>Benutzer</span><input type="text" name="fritz_user"></label>
-  <label><span>Passwort</span><input type="password" name="fritz_password" data-secret></label>
-  <button type="button" data-test="fritzbox">Verbindung testen</button>
+  <div class="box">
+  <label class="field"><span>Adresse</span><input type="text" name="fritz_address"></label>
+  <label class="field"><span>Benutzer</span><input type="text" name="fritz_user"></label>
+  <label class="field"><span>Passwort</span><input type="password" name="fritz_password" data-secret></label>
+  <button type="button" class="btn" data-test="fritzbox">Verbindung testen</button>
   <div class="result" id="test-fritzbox"></div>
+  </div>
 </section>
 
-<section>
+<section class="group">
   <h2>Überwachung</h2>
-  <label><span>Abfrageintervall in Sekunden (10–3600)</span><input type="number" name="poll_interval" min="10" max="3600"></label>
-  <div class="check"><input type="checkbox" id="quarantine_unknown" name="quarantine_unknown"><label for="quarantine_unknown" style="margin:0">Unbekannte Geräte sofort vom Internet trennen, bis ich sie erlaube</label></div>
-  <div class="check"><input type="checkbox" id="trust_initial_devices" name="trust_initial_devices"><label for="trust_initial_devices" style="margin:0">Geräte aus dem allerersten Scan als erlaubt übernehmen</label></div>
+  <div class="box">
+  <label class="field"><span>Abfrageintervall in Sekunden (10–3600)</span><input type="number" name="poll_interval" min="10" max="3600"></label>
+  <div class="check"><input type="checkbox" id="quarantine_unknown" name="quarantine_unknown"><label for="quarantine_unknown">Unbekannte Geräte sofort vom Internet trennen, bis ich sie erlaube</label></div>
+  <div class="check"><input type="checkbox" id="trust_initial_devices" name="trust_initial_devices"><label for="trust_initial_devices">Geräte aus dem allerersten Scan als erlaubt übernehmen</label></div>
+  </div>
 </section>
 
-<section>
+<section class="group">
   <h2>Benachrichtigungen</h2>
-  <div class="check"><input type="checkbox" id="ch-ntfy" data-channel="ntfy"><label for="ch-ntfy" style="margin:0">ntfy (Android-App)</label></div>
-  <div class="check"><input type="checkbox" id="ch-telegram" data-channel="telegram"><label for="ch-telegram" style="margin:0">Telegram</label></div>
-  <div class="check"><input type="checkbox" id="ch-homeassistant" data-channel="homeassistant"><label for="ch-homeassistant" style="margin:0">Home Assistant</label></div>
-  <label style="margin-top:12px"><span>Adresse dieser Weboberfläche (für Links in Nachrichten)</span><input type="url" name="public_url"></label>
+  <div class="box">
+  <div class="check"><input type="checkbox" id="ch-ntfy" data-channel="ntfy"><label for="ch-ntfy">ntfy (Android-App)</label></div>
+  <div class="check"><input type="checkbox" id="ch-telegram" data-channel="telegram"><label for="ch-telegram">Telegram</label></div>
+  <div class="check"><input type="checkbox" id="ch-homeassistant" data-channel="homeassistant"><label for="ch-homeassistant">Home Assistant</label></div>
+  <label class="field" style="margin-top:12px"><span>Adresse dieser Weboberfläche (für Links in Nachrichten)</span><input type="url" name="public_url"></label>
 
   <div class="channel" data-for="ntfy">
     <h3>ntfy</h3>
-    <label><span>ntfy-Server</span><input type="url" name="ntfy_url" placeholder="http://192.168.178.207:8091"></label>
-    <label><span>Thema</span><input type="text" name="ntfy_topic"></label>
-    <label><span>Zugriffstoken (optional)</span><input type="password" name="ntfy_token" data-secret></label>
+    <label class="field"><span>ntfy-Server</span><input type="url" name="ntfy_url" placeholder="http://192.168.178.207:8091"></label>
+    <label class="field"><span>Thema</span><input type="text" name="ntfy_topic"></label>
+    <label class="field"><span>Zugriffstoken (optional)</span><input type="password" name="ntfy_token" data-secret></label>
   </div>
   <div class="channel" data-for="telegram">
     <h3>Telegram</h3>
-    <label><span>Bot-Token</span><input type="password" name="telegram_bot_token" data-secret></label>
-    <label><span>Chat-ID</span><input type="text" name="telegram_chat_id"></label>
+    <label class="field"><span>Bot-Token</span><input type="password" name="telegram_bot_token" data-secret></label>
+    <label class="field"><span>Chat-ID</span><input type="text" name="telegram_chat_id"></label>
   </div>
   <div class="channel" data-for="homeassistant">
     <h3>Home Assistant</h3>
-    <label><span>Home-Assistant-Adresse</span><input type="url" name="ha_url"></label>
-    <label><span>Langlebiges Zugriffstoken</span><input type="password" name="ha_token" data-secret></label>
-    <label><span>notify-Dienst</span><input type="text" name="ha_notify_service" placeholder="mobile_app_…"></label>
+    <label class="field"><span>Home-Assistant-Adresse</span><input type="url" name="ha_url"></label>
+    <label class="field"><span>Langlebiges Zugriffstoken</span><input type="password" name="ha_token" data-secret></label>
+    <label class="field"><span>notify-Dienst</span><input type="text" name="ha_notify_service" placeholder="mobile_app_…"></label>
   </div>
-  <button type="button" data-test="notify">Testnachricht senden</button>
-  <div class="hint" style="margin-top:6px">Gesendet wird an die gespeicherten Kanäle, also vorher speichern.</div>
+  <button type="button" class="btn" data-test="notify">Testnachricht senden</button>
+  <div class="hint" style="margin:6px 0 0">Gesendet wird an die gespeicherten Kanäle, also vorher speichern.</div>
   <div class="result" id="test-notify"></div>
+  </div>
 </section>
 
-<section>
+<section class="group">
   <h2>Weboberfläche</h2>
-  <label><span>Neues Passwort</span><input type="password" name="ui_password" data-secret></label>
-  <div class="hint">Nach einer Änderung fragt der Browser neu nach dem Passwort. In der Android-App musst du es unter Einstellungen ebenfalls ändern.</div>
+  <div class="box">
+  <label class="field"><span>Neues Passwort</span><input type="password" name="ui_password" data-secret></label>
+  <div class="hint" style="margin:0">Nach einer Änderung fragt der Browser neu nach dem Passwort. In der Android-App musst du es unter Einstellungen ebenfalls ändern.</div>
+  </div>
 </section>
 
-<div class="bar">
-  <button type="submit" class="primary">Speichern</button>
+<div class="save-bar">
+  <button type="submit" class="btn primary">Speichern</button>
   <span class="result" id="save"></span>
 </div>
 </form>
+</div>
 
 <script>
+// ---- Aussehen (je Browser) ----
+function segmented(id, options, selected, onPick) {
+  const el = document.getElementById(id);
+  el.innerHTML = Object.entries(options).map(([k, label]) =>
+    `<button type="button" role="radio" aria-checked="${k === selected}" class="${k === selected ? "on" : ""}" data-k="${k}">${label}</button>`).join("");
+  el.onclick = e => { const b = e.target.closest("[data-k]"); if (b) onPick(b.dataset.k); };
+}
+function renderAppearance() {
+  const styles = Object.fromEntries(Object.entries(NM.STYLES).map(([k, s]) => [k, s.label]));
+  segmented("style", styles, NM.prefs.style, k => NM.set({ style: k }));
+  const { light, dark, system } = NM.THEMES;
+  segmented("theme", { light, dark, system }, NM.prefs.theme, k => NM.set({ theme: k }));
+  const accent = document.getElementById("accent");
+  accent.innerHTML = NM.STYLES[NM.prefs.style].accents.map(k => {
+    const [label, color] = NM.ACCENTS[k], on = k === NM.prefs.accent;
+    return `<button type="button" role="radio" aria-checked="${on}" class="swatch ${on ? "on" : ""}" data-k="${k}"
+      style="--c:${color}"><i></i>${label}</button>`;
+  }).join("");
+  accent.onclick = e => { const b = e.target.closest("[data-k]"); if (b) NM.set({ accent: b.dataset.k }); };
+}
+document.addEventListener("nm:prefs", renderAppearance);
+renderAppearance();
+NM.tabbar("settings");
+
 const form = document.getElementById("form");
 const firstRun = new URLSearchParams(location.search).has("setup");
 document.getElementById("welcome").hidden = !firstRun;
+if (firstRun) document.querySelector(".page-title").textContent = "Einrichten";
 let loaded = null;
 
 async function call(path, opts = {}) {
