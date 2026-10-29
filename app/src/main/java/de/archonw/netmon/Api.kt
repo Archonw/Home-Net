@@ -58,6 +58,10 @@ class Api(private val baseUrl: String, private val password: String) {
     suspend fun block(mac: String): Device =
         Device.from(JSONObject(request("POST", "api/devices/${enc(mac)}/block")))
 
+    /** Entfernt alle offline Geräte außer gesperrten; liefert die Anzahl. */
+    suspend fun removeOffline(): Int =
+        JSONObject(request("POST", "api/devices/remove-offline")).getInt("removed")
+
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
     private suspend fun request(method: String, path: String): String = withContext(Dispatchers.IO) {
