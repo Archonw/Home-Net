@@ -2,94 +2,138 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Gerät – Netzwerkmonitor</title>
-<style>
-  :root { --bg:#fff; --card:#f5f5f7; --fg:#1d1d1f; --muted:#6e6e73; --ok:#1a7f37; --bad:#c62828; --warn:#b26a00; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#111; --card:#1c1c1e; --fg:#eee; --muted:#999; } }
-  * { box-sizing:border-box; }
-  body { margin:0; padding:16px; font:16px/1.4 system-ui, sans-serif; background:var(--bg); color:var(--fg);
-         min-height:100vh; display:flex; flex-direction:column; max-width:520px; margin-inline:auto; }
-  .badge { display:inline-block; font-size:13px; padding:3px 10px; border-radius:99px; border:1px solid currentColor; }
-  .unknown { color:var(--warn); } .allowed { color:var(--ok); } .blocked { color:var(--bad); }
-  h1 { font-size:24px; margin:12px 0 4px; word-break:break-word; }
-  .sub { color:var(--muted); margin-bottom:20px; }
-  dl { background:var(--card); border-radius:14px; padding:4px 16px; margin:0 0 24px; }
-  dl div { display:flex; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid rgba(127,127,127,.2); }
-  dl div:last-child { border-bottom:0; }
-  dt { color:var(--muted); } dd { margin:0; text-align:right; font-variant-numeric:tabular-nums; word-break:break-all; }
-  .hint { font-size:14px; color:var(--warn); margin:-12px 0 20px; }
-  .actions { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:auto; }
-  button { font:inherit; font-size:18px; font-weight:600; padding:18px; border-radius:14px; border:0; color:#fff; cursor:pointer; }
-  button:disabled { opacity:.4; }
-  .allow { background:var(--ok); } .block { background:var(--bad); }
-  #msg { text-align:center; min-height:24px; margin:12px 0; }
-  a { color:var(--muted); text-align:center; display:block; margin-top:16px; }
-</style>
+<link rel="stylesheet" href="/assets/app.css">
+<script src="/assets/app.js"></script>
 </head>
 <body>
-<div><span id="badge" class="badge">…</span></div>
-<h1 id="name">Lade …</h1>
-<div class="sub" id="sub"></div>
-<dl id="info"></dl>
-<div class="hint" id="hint" hidden>Zufällige (private) MAC-Adresse: Das kann auch ein bekanntes Handy mit neuer Adresse sein.</div>
-<div id="msg"></div>
-<div class="actions">
-  <button class="allow" id="allow">Erlauben</button>
-  <button class="block" id="block">Sperren</button>
+<div class="page narrow">
+  <header class="topbar" id="topbar"></header>
+  <main id="main"><div class="loading"><div class="nm-spinner"></div></div></main>
+  <div class="actions" id="actions" hidden>
+    <button class="allow" id="allow">Erlauben</button>
+    <button class="block" id="block">Sperren</button>
+  </div>
 </div>
-<a href="../">Alle Geräte</a>
 <script>
-const LABEL = { unknown: "unbekannt", allowed: "erlaubt", blocked: "gesperrt" };
-const IFACE = { "802.11": "WLAN", "Ethernet": "LAN-Kabel" };
 const mac = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop());
-const fmt = ts => ts ? new Date(ts).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "–";
 const $ = id => document.getElementById(id);
+const state = { device: null, error: null, message: null, busy: false };
 
-function render(d) {
-  $("badge").textContent = LABEL[d.status];
-  $("badge").className = "badge " + d.status;
-  $("name").textContent = d.name || d.hostname || "Unbekanntes Gerät";
-  $("sub").textContent = d.online ? "gerade online" : "offline";
-  const rows = [
-    ["Gerätename", d.hostname || "–"],
-    ["IP-Adresse", d.ip || "–"],
-    ["MAC-Adresse", d.mac],
-    ["Verbindung", IFACE[d.interface] || d.interface || "–"],
-    ["Zuerst gesehen", fmt(d.first_seen)],
-    ["Zuletzt gesehen", fmt(d.last_seen)],
-  ];
-  $("info").innerHTML = "";
-  for (const [k, v] of rows) {
-    const div = document.createElement("div");
-    const dt = document.createElement("dt"); dt.textContent = k;
-    const dd = document.createElement("dd"); dd.textContent = v;
-    div.append(dt, dd); $("info").append(div);
+function renderTop() {
+  $("topbar").innerHTML = NM.prefs.style === "soft"
+    ? `<a class="back-link" href="/">${NM.icon("back")}Alle Geräte</a>`
+    : `<a class="icon-btn" href="/" aria-label="Zurück zu allen Geräten">${NM.icon("back")}</a>
+       <span class="muted" style="font-weight:600">Gerät</span>`;
+}
+
+const copyBtn = (label, value) =>
+  `<button class="copy" data-copy="${NM.esc(value)}" data-label="${NM.esc(label)}">Kopieren</button>`;
+
+function render() {
+  renderTop();
+  const d = state.device;
+  $("actions").hidden = !d;
+  if (!d) {
+    $("main").innerHTML = state.error ? `<div class="error">${NM.esc(state.error)}</div>`
+      : `<div class="loading"><div class="nm-spinner"></div></div>`;
+    return;
   }
-  $("hint").hidden = !d.random_mac;
-  $("allow").disabled = d.status === "allowed";
-  $("block").disabled = d.status === "blocked";
+  document.title = `${NM.title(d)} – Netzwerkmonitor`;
+  const where = `${d.online ? "gerade online" : "offline"} · ${NM.esc(NM.ifaceLabel(d.interface))}`;
+  const name = NM.esc(d.name || d.hostname || "Unbekanntes Gerät");
+  const rename = `<button class="rename" data-act="rename">Umbenennen</button>`;
+  const msg = `<div class="msg" role="status">${NM.esc(state.message || "")}</div>`;
+  if (NM.prefs.style === "soft") {
+    const rows = [
+      ["Gerätename", d.hostname || "–", false],
+      ["IP-Adresse", d.ip || "–", !!d.ip],
+      ["MAC-Adresse", d.mac, true],
+      ["Verbindung", NM.ifaceLabel(d.interface), false],
+      ["Zuerst gesehen", NM.fmt(d.first_seen), false],
+      ["Zuletzt gesehen", NM.fmt(d.last_seen), false],
+    ];
+    $("main").innerHTML = `<div class="detail-stack">
+      <section class="hero"><span class="status-pill ${d.status}">${NM.statusLabel(d.status)}</span>
+        <h1>${name}</h1><div class="sub">${where}</div>${rename}</section>
+      <div class="facts">${rows.map(([k, v, c]) => `<div class="fact"><span class="k">${k}</span>
+        <span class="v">${NM.esc(v)}</span>${c ? copyBtn(k, v) : ""}</div>`).join("")}</div>
+      ${d.random_mac ? `<div class="random-hint">Zufällige (private) MAC-Adresse: Das kann auch ein bekanntes Handy mit neuer Adresse sein.</div>` : ""}
+      ${msg}</div>`;
+  } else {
+    const tile = (k, v, { mono = false, size = 15, copy = false, full = false } = {}) =>
+      `<div class="fact-tile ${full ? "full" : ""}"><div class="head"><span class="k">${k}</span>${copy ? copyBtn(k, v) : ""}</div>
+        <div class="v ${mono ? "mono" : ""}" style="font-size:${size}px">${NM.esc(v)}</div></div>`;
+    $("main").innerHTML = `<div class="detail-stack">
+      <section class="status-card ${d.status}"><div class="label ${d.status}-c">${NM.statusLabel(d.status)}</div>
+        <h1>${name}</h1><div class="sub">${where}</div>${rename}</section>
+      <div class="fact-grid">
+        ${tile("IP-Adresse", d.ip || "–", { mono: true, size: 18, copy: !!d.ip, full: true })}
+        ${tile("MAC-Adresse", d.mac, { mono: true, size: 16, copy: true, full: true })}
+        ${tile("Verbindung", NM.ifaceLabel(d.interface))}
+        ${tile("Gerätename", d.hostname || "–")}
+        ${tile("Zuerst", NM.fmt(d.first_seen))}
+        ${tile("Zuletzt", NM.fmt(d.last_seen))}
+      </div>
+      ${d.random_mac ? `<div class="random-hint">Zufällige MAC-Adresse: Das kann auch ein bekanntes Handy mit neuer Adresse sein.</div>` : ""}
+      ${msg}</div>`;
+  }
+  $("allow").disabled = state.busy || d.status === "allowed";
+  $("block").disabled = state.busy || d.status === "blocked";
 }
 
-async function call(path, opts) {
-  const r = await fetch(path, opts);
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
-  return r.json();
-}
+const url = path => `/api/devices/${encodeURIComponent(mac)}${path}`;
 
 async function act(action) {
-  $("msg").textContent = "…";
+  state.busy = true;
+  state.message = null;
+  render();
   try {
-    const d = await call(`../api/devices/${encodeURIComponent(mac)}/${action}`, { method: "POST" });
-    render(d);
-    $("msg").textContent = action === "allow" ? "Gerät ist erlaubt." : "Gerät ist gesperrt.";
-  } catch (e) { $("msg").textContent = "Fehler: " + e.message; }
+    state.device = await NM.api(url("/" + action), { method: "POST" });
+    state.message = action === "allow" ? "Gerät ist erlaubt." : "Gerät ist gesperrt.";
+  } catch (e) { state.message = e.message; }
+  state.busy = false;
+  render();
+}
+
+async function load() {
+  try {
+    state.device = await NM.api(url(""));
+    state.error = null;
+  } catch (e) {
+    if (!state.device) state.error = "Gerät nicht gefunden: " + e.message;
+  }
+  render();
 }
 
 $("allow").onclick = () => act("allow");
 $("block").onclick = () => act("block");
-call(`../api/devices/${encodeURIComponent(mac)}`).then(render)
-  .catch(e => { $("name").textContent = "Gerät nicht gefunden"; $("msg").textContent = e.message; });
+document.addEventListener("click", async e => {
+  const c = e.target.closest("[data-copy]");
+  if (c) {
+    const ok = await NM.copy(c.dataset.copy);
+    NM.toast(ok ? `${c.dataset.label} kopiert.` : "Kopieren nicht möglich");
+    return;
+  }
+  if (e.target.closest('[data-act="rename"]')) {
+    const name = await NM.dialog({ title: "Gerät umbenennen", input: state.device.name || "", ok: "Speichern" });
+    if (name === null) return;
+    try {
+      state.device = await NM.api(url(""), {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }),
+      });
+      state.message = "Name gespeichert.";
+    } catch (err) { state.message = err.message; }
+    render();
+  }
+});
+document.addEventListener("nm:prefs", render);
+
+NM.tabbar("devices");
+NM.pullToRefresh(load);
+render();
+load();
 </script>
 </body>
 </html>

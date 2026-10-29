@@ -2,37 +2,28 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ersteinrichtung – Netzwerkmonitor</title>
-<style>
-  :root { --bg:#fff; --card:#f5f5f7; --fg:#1d1d1f; --muted:#6e6e73; --line:#d2d2d7; --ok:#1a7f37; --bad:#c62828; --accent:#1a7f37; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#111; --card:#1c1c1e; --fg:#eee; --muted:#999; --line:#3a3a3c; } }
-  * { box-sizing:border-box; }
-  body { margin:0 auto; padding:16px; max-width:480px; font:15px/1.4 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
-  h1 { font-size:22px; margin:8px 0 16px; }
-  section { background:var(--card); border-radius:14px; padding:16px; }
-  p { margin:0 0 12px; }
-  .hint { color:var(--muted); font-size:13px; }
-  label { display:block; margin-bottom:12px; }
-  label > span { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
-  input { width:100%; font:inherit; padding:9px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
-  button { font:inherit; padding:10px 16px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; font-weight:600; cursor:pointer; }
-  .result { font-size:13px; margin-top:10px; }
-  .result.ok { color:var(--ok); } .result.bad { color:var(--bad); }
-</style>
+<link rel="stylesheet" href="/assets/app.css">
+<script src="/assets/app.js"></script>
 </head>
 <body>
-<h1>Willkommen beim Netzwerkmonitor</h1>
-<section>
-  <p>Du bist mit dem Standardpasswort angemeldet. Lege zuerst ein eigenes Passwort fest. Danach geht es mit den Einstellungen für FritzBox und Benachrichtigungen weiter.</p>
+<div class="page narrow">
+<h1 class="page-title">Willkommen</h1>
+<section class="group">
+  <h2>Eigenes Passwort festlegen</h2>
+  <div class="box">
+  <p class="hint" style="margin-top:0">Du bist mit dem Standardpasswort angemeldet. Lege zuerst ein eigenes Passwort fest. Danach geht es mit den Einstellungen für FritzBox und Benachrichtigungen weiter.</p>
   <form id="form">
-    <label><span>Neues Passwort (mindestens 8 Zeichen)</span><input type="password" id="pw1" autocomplete="new-password" required minlength="8"></label>
-    <label><span>Passwort wiederholen</span><input type="password" id="pw2" autocomplete="new-password" required></label>
-    <button type="submit">Passwort speichern</button>
+    <label class="field"><span>Neues Passwort (mindestens 8 Zeichen)</span><input type="password" id="pw1" autocomplete="new-password" required minlength="8"></label>
+    <label class="field"><span>Passwort wiederholen</span><input type="password" id="pw2" autocomplete="new-password" required></label>
+    <button type="submit" class="btn primary wide">Passwort speichern</button>
     <div class="result" id="result"></div>
   </form>
-  <p class="hint" style="margin-top:12px">Nach dem Speichern fragt der Browser noch einmal nach den Zugangsdaten: Benutzername beliebig, dazu dein neues Passwort. Dasselbe Passwort trägst du später auch in der Android-App ein.</p>
+  <p class="hint" style="margin:12px 0 0">Nach dem Speichern fragt der Browser noch einmal nach den Zugangsdaten: Benutzername beliebig, dazu dein neues Passwort. Dasselbe Passwort trägst du später auch in der Android-App ein.</p>
+  </div>
 </section>
+</div>
 <script>
 const result = document.getElementById("result");
 document.getElementById("form").addEventListener("submit", async e => {
