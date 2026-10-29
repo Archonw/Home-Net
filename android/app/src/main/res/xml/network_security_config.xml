@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Der Monitor läuft im Heimnetz ohne HTTPS (z. B. http://192.168.178.207:8085) -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

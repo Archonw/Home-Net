@@ -38,3 +38,30 @@ jobs:
           context: .
           push: ${{ github.event_name == 'push' }}
           tags: ghcr.io/archonw/networkmonitor:latest
+
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew --no-daemon assembleRelease
+      - run: cp app/build/outputs/apk/release/app-release.apk netzwerkmonitor.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netzwerkmonitor-apk
+          path: android/netzwerkmonitor.apk
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-${{ github.run_number }}
+          name: Android-App ${{ github.run_number }}
+          files: android/netzwerkmonitor.apk
