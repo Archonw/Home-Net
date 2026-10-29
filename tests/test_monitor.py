@@ -5,8 +5,8 @@ from fastapi.testclient import TestClient
 
 from networkmonitor.api import create_app
 from networkmonitor.config import Settings
-from networkmonitor.fritzbox import Host
-from networkmonitor.monitor import Monitor
+from networkmonitor.fritzbox import Host, NotInHostFilter
+from networkmonitor.monitor import BlockNotPossible, Monitor
 from networkmonitor.store import Status, Store, is_random_mac, normalize_mac
 
 
@@ -15,11 +15,14 @@ class FakeRouter:
         self.hosts = hosts
         self.blocked: set[str] = set()
         self.calls: list[tuple[str, bool]] = []
+        self.unfilterable: set[str] = set()
 
     def list_hosts(self) -> list[Host]:
         return list(self.hosts)
 
     def get_internet_access(self, ip: str) -> bool:
+        if ip in self.unfilterable:
+            raise NotInHostFilter(ip)
         return ip not in self.blocked
 
     def set_internet_access(self, ip: str, allowed: bool) -> None:
@@ -224,3 +227,24 @@ def test_shared_assets_are_served(client):
     assert js.status_code == 200 and "NM" in js.text
     assert c.get("/assets/../api.py").status_code == 404
     assert c.get("/assets/geheim.txt").status_code == 404
+
+
+def test_device_outside_host_filter_is_fine_when_allowed():
+    # z. B. Pi-hole mit fester IP: FritzBox kennt die IP nicht in der Kindersicherung
+    router, store, monitor = make()
+    router.unfilterable.add(LAPTOP.ip)
+    monitor.poll_once()
+    result = monitor.poll_once()
+    assert result.errors == []
+    assert router.calls == []
+
+
+def test_blocking_device_outside_host_filter_gives_clear_error():
+    router, store, monitor = make()
+    monitor.poll_once()
+    router.unfilterable.add(LAPTOP.ip)
+    with pytest.raises(BlockNotPossible, match="nicht sperren"):
+        monitor.set_status(normalize_mac(LAPTOP.mac), Status.BLOCKED)
+    result = monitor.poll_once()
+    assert len(result.errors) == 1
+    assert "fest eingestellter IP" in result.errors[0]
