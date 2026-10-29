@@ -19,6 +19,11 @@ class Settings(context: Context) {
         get() = prefs.getString("server_url", "") ?: ""
         set(value) = prefs.edit().putString("server_url", value.trim()).apply()
 
+    /** Optionale Adresse für unterwegs, z. B. https://netmon.example.de (über den Reverse Proxy). */
+    var externalUrl: String
+        get() = prefs.getString("external_url", "") ?: ""
+        set(value) = prefs.edit().putString("external_url", value.trim()).apply()
+
     var password: String
         get() = prefs.getString("password", "") ?: ""
         set(value) = prefs.edit().putString("password", value).apply()
@@ -62,5 +67,5 @@ class Settings(context: Context) {
 
     val isConfigured: Boolean get() = serverUrl.isNotBlank()
 
-    fun api() = Api(serverUrl, password)
+    fun api() = Api(serverUrl, password, externalUrl)
 }
