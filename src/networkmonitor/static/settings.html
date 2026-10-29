@@ -88,7 +88,7 @@
   <label class="field"><span>GitHub-Repository (leer = nicht automatisch suchen)</span><input type="text" name="app_update_repo" placeholder="Archonw/Networkmonitor"></label>
   <label class="field"><span>GitHub-Token (nur für private Repositories, Rechte: Contents lesen)</span><input type="password" name="app_update_token" data-secret></label>
   <button type="button" class="btn" id="app-check">Jetzt nach Update suchen</button>
-  <div class="hint" style="margin:6px 0 0">Gesucht wird mit den gespeicherten Werten, also vorher speichern.</div>
+  <div class="hint" style="margin:6px 0 0">Repository und Token werden dabei gespeichert.</div>
   <div class="result" id="app-status"></div>
   </div>
 </section>
@@ -251,6 +251,21 @@ function showApp(r) {
 document.getElementById("app-check").addEventListener("click", async () => {
   showResult("app-status", true, "…");
   try {
+    // Eingetragenes Repository/Token zuerst speichern, sonst sucht der Monitor mit den alten Werten
+    const changes = {};
+    for (const name of ["app_update_repo", "app_update_token"]) {
+      const value = form.elements[name].value.trim();
+      if (name === "app_update_token" ? value : value !== loaded.values[name]) changes[name] = value;
+    }
+    if (Object.keys(changes).length) {
+      // Nur diese beiden Felder übernehmen, andere ungespeicherte Eingaben bleiben stehen
+      const saved = await call("api/settings", { method: "PUT", body: JSON.stringify(changes) });
+      loaded.values.app_update_repo = saved.values.app_update_repo;
+      loaded.secrets.app_update_token = saved.secrets.app_update_token;
+      const token = form.elements.app_update_token;
+      token.value = "";
+      token.placeholder = "gespeichert – leer lassen, um es zu behalten";
+    }
     showApp(await call("api/app/check", { method: "POST" }));
   } catch (err) {
     showResult("app-status", false, err.message);
