@@ -161,7 +161,10 @@ def create_app(
         for task in tasks:
             task.cancel()
 
-    app = FastAPI(title="Netzwerkmonitor", lifespan=lifespan)
+    # Keine öffentliche API-Beschreibung, der Monitor ist per Reverse Proxy von außen erreichbar
+    app = FastAPI(
+        title="Netzwerkmonitor", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
+    )
     app.state.monitor = monitor
     app.state.notify_new = notify_new
     app.state.runtime = rt
