@@ -136,7 +136,7 @@ fun SetupScreen(
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Passwort (UI_PASSWORD)") },
+                label = { Text("Passwort der Weboberfläche") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
