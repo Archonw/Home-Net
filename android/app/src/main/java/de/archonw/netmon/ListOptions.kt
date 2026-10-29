@@ -25,6 +25,14 @@ enum class StatusFilter(val label: String, val status: String?) {
     UNKNOWN("Unbekannt", "unknown"),
 }
 
+/** Ein Filter für beide Designs: Chips (Soft) bzw. Zählkacheln (Kacheln). */
+enum class QuickFilter(val label: String, val online: OnlineFilter, val status: StatusFilter) {
+    ALL("Alle", OnlineFilter.ALL, StatusFilter.ALL),
+    ONLINE("Online", OnlineFilter.ONLINE, StatusFilter.ALL),
+    UNKNOWN("Unbekannt", OnlineFilter.ALL, StatusFilter.UNKNOWN),
+    BLOCKED("Gesperrt", OnlineFilter.ALL, StatusFilter.BLOCKED),
+}
+
 enum class ThemeMode(val label: String) {
     SYSTEM("Wie System"),
     LIGHT("Hell"),
@@ -32,6 +40,18 @@ enum class ThemeMode(val label: String) {
 }
 
 private val collator: Collator = Collator.getInstance(Locale.GERMAN).apply { strength = Collator.PRIMARY }
+
+/** Suche über Name, Hostname, IP und MAC; ohne Suchbegriff bleibt die Liste unverändert. */
+fun search(devices: List<Device>, query: String): List<Device> {
+    val q = query.trim()
+    if (q.isEmpty()) return devices
+    return devices.filter { d ->
+        listOf(d.name, d.hostname, d.ip, d.mac).any { it.contains(q, ignoreCase = true) }
+    }
+}
+
+fun arrange(devices: List<Device>, sort: SortOrder, filter: QuickFilter, query: String = ""): List<Device> =
+    arrange(search(devices, query), sort, filter.online, filter.status)
 
 /** Filtert und sortiert die Geräteliste. Bei Gleichstand entscheidet immer der Name (A–Z). */
 fun arrange(
