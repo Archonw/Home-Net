@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -113,6 +114,22 @@ class Store:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+
+    def get_config(self) -> dict:
+        rows = self._db.execute("SELECT key, value FROM meta WHERE key LIKE 'cfg.%'").fetchall()
+        return {r["key"][4:]: json.loads(r["value"]) for r in rows}
+
+    def set_config(self, values: dict) -> None:
+        with self._lock, self._db:
+            for key, value in values.items():
+                if value is None:
+                    self._db.execute("DELETE FROM meta WHERE key = ?", (f"cfg.{key}",))
+                else:
+                    self._db.execute(
+                        "INSERT INTO meta (key, value) VALUES (?, ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                        (f"cfg.{key}", json.dumps(value)),
+                    )
 
     def get(self, mac: str) -> Device | None:
         row = self._db.execute(
