@@ -1,6 +1,9 @@
 package de.archonw.netmon
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +20,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -92,7 +99,13 @@ fun LockedScreen(error: String?, onUnlock: () -> Unit) {
 }
 
 @Composable
-fun SetupScreen(settings: Settings, onSaved: () -> Unit) {
+fun SetupScreen(
+    settings: Settings,
+    themeMode: ThemeMode,
+    onThemeChange: (ThemeMode) -> Unit,
+    onBack: () -> Unit,
+    onSaved: () -> Unit,
+) {
     var url by remember { mutableStateOf(settings.serverUrl.ifBlank { "http://192.168.178.207:8085" }) }
     var password by remember { mutableStateOf(settings.password) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -101,8 +114,15 @@ fun SetupScreen(settings: Settings, onSaved: () -> Unit) {
 
     Scaffold { pad ->
         Column(Modifier.fillMaxSize().padding(pad).padding(20.dp)) {
-            Text("Verbindung", fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+            if (settings.isConfigured) TextButton(onClick = onBack) { Text("‹ Zurück") }
+            Text("Einstellungen", fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(16.dp))
+            Text("Darstellung", fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(8.dp))
+            ChipRow(ThemeMode.entries, themeMode, { it.label }, onThemeChange, horizontalPadding = 0)
+            Spacer(Modifier.height(24.dp))
+            Text("Verbindung", fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
@@ -152,10 +172,14 @@ fun SetupScreen(settings: Settings, onSaved: () -> Unit) {
 }
 
 @Composable
-fun ListScreen(api: Api, onOpen: (String) -> Unit, onSettings: () -> Unit) {
+fun ListScreen(api: Api, settings: Settings, onOpen: (String) -> Unit, onSettings: () -> Unit) {
     var devices by remember { mutableStateOf<List<Device>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableStateOf(0) }
+    var sort by remember { mutableStateOf(settings.sortOrder) }
+    var onlineFilter by remember { mutableStateOf(settings.onlineFilter) }
+    var statusFilter by remember { mutableStateOf(settings.statusFilter) }
+    var sortMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(reload) {
         error = null
@@ -175,20 +199,52 @@ fun ListScreen(api: Api, onOpen: (String) -> Unit, onSettings: () -> Unit) {
                 Text("Geräte", fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = { reload++ }) { Text("Aktualisieren") }
-                TextButton(onClick = onSettings) { Text("Verbindung") }
+                TextButton(onClick = onSettings) { Text("Einstellungen") }
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp)) }
-            val list = devices
-            if (list == null && error == null) {
+            val all = devices
+            if (all == null && error == null) {
                 Loading()
-            } else if (list != null) {
-                val unknown = list.count { it.status == "unknown" }
+            } else if (all != null) {
+                val list = arrange(all, sort, onlineFilter, statusFilter)
+                val unknown = all.count { it.status == "unknown" }
                 Text(
-                    "${list.size} Geräte · ${list.count { it.online }} online" +
-                        if (unknown > 0) " · $unknown unbekannt" else "",
+                    "${all.size} Geräte · ${all.count { it.online }} online" +
+                        (if (unknown > 0) " · $unknown unbekannt" else "") +
+                        (if (list.size != all.size) " · ${list.size} angezeigt" else ""),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                 )
+                Box(Modifier.padding(horizontal = 12.dp)) {
+                    TextButton(onClick = { sortMenu = true }) { Text("Sortieren: ${sort.label} ▾") }
+                    DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                        SortOrder.entries.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text((if (option == sort) "✓ " else "") + option.label) },
+                                onClick = {
+                                    sort = option
+                                    settings.sortOrder = option
+                                    sortMenu = false
+                                },
+                            )
+                        }
+                    }
+                }
+                ChipRow(OnlineFilter.entries, onlineFilter, { it.label }) {
+                    onlineFilter = it
+                    settings.onlineFilter = it
+                }
+                ChipRow(StatusFilter.entries, statusFilter, { it.label }) {
+                    statusFilter = it
+                    settings.statusFilter = it
+                }
+                if (list.isEmpty()) {
+                    Text(
+                        "Keine Geräte für diesen Filter.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(20.dp),
+                    )
+                }
                 LazyColumn(Modifier.fillMaxSize()) {
                     items(list, key = { it.mac }) { d ->
                         Row(
@@ -210,6 +266,30 @@ fun ListScreen(api: Api, onOpen: (String) -> Unit, onSettings: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> ChipRow(
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+    horizontalPadding: Int = 20,
+) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+            .padding(horizontal = horizontalPadding.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEach { option ->
+            FilterChip(
+                selected = option == selected,
+                onClick = { onSelect(option) },
+                label = { Text(label(option)) },
+            )
         }
     }
 }
