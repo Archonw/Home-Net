@@ -404,6 +404,10 @@ fun TilesSettings(ui: SettingsUi) {
             PrimaryButton(if (ui.busy) "Prüfe …" else "Speichern und testen", Modifier.fillMaxWidth(), enabled = !ui.busy, onClick = ui.onSave)
         }
         ui.message?.let { Text(it, color = p.muted, fontSize = 14.sp, modifier = Modifier.padding(4.dp)) }
+        SectionLabel("Über die App")
+        Column(Modifier.fillMaxWidth().clip(TileShape).background(p.card).padding(12.dp)) {
+            AboutContent()
+        }
         Spacer(Modifier.height(8.dp))
     }
 }
