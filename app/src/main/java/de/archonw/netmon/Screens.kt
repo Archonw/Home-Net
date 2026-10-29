@@ -41,7 +41,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -140,9 +139,10 @@ fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -
     var searching by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
     var update by remember { mutableStateOf<AppRelease?>(null) }
+    var updateBusy by remember { mutableStateOf(false) }
+    var updateError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(Unit) {
         val installed = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
@@ -226,17 +226,43 @@ fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -
 
     update?.let { release ->
         AlertDialog(
-            onDismissRequest = { update = null },
+            onDismissRequest = { if (!updateBusy) update = null },
             title = { Text("Neue App-Version") },
-            text = { Text("Auf dem Monitor liegt Version ${release.version}. Jetzt herunterladen und installieren?") },
+            text = {
+                Text(
+                    when {
+                        updateBusy -> "Version ${release.version} wird geladen …"
+                        updateError != null -> updateError!!
+                        !Updater.canInstall(context) ->
+                            "Auf dem Monitor liegt Version ${release.version}. Damit die App sich selbst " +
+                                "aktualisieren kann, erlaube ihr einmalig, Apps zu installieren, und tippe " +
+                                "danach erneut auf „Installieren“."
+                        else -> "Auf dem Monitor liegt Version ${release.version}. Jetzt installieren?"
+                    },
+                )
+            },
             confirmButton = {
-                TextButton(onClick = {
-                    update = null
-                    uriHandler.openUri(release.url)
-                }) { Text("Laden") }
+                TextButton(enabled = !updateBusy, onClick = {
+                    updateError = null
+                    if (!Updater.canInstall(context)) {
+                        Updater.openInstallPermission(context)
+                        return@TextButton
+                    }
+                    updateBusy = true
+                    scope.launch {
+                        try {
+                            Updater.install(context, release)
+                            update = null
+                        } catch (e: Exception) {
+                            updateError = "Update fehlgeschlagen: ${e.message ?: e.javaClass.simpleName}"
+                        } finally {
+                            updateBusy = false
+                        }
+                    }
+                }) { Text("Installieren") }
             },
             dismissButton = {
-                TextButton(onClick = {
+                TextButton(enabled = !updateBusy, onClick = {
                     settings.skippedAppVersion = release.versionCode
                     update = null
                 }) { Text("Später") }
