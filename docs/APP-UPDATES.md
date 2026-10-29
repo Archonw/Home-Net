@@ -34,8 +34,11 @@ neuere bereitstellt. Für eine schöne Versionsanzeige unter *Version Extraction
 `netzwerkmonitor-(.+)\.apk` mit *Match Group* `1` eintragen; dann passt die Version genau zu der in der App.
 
 **Ohne Obtainium:** Die App fragt beim Öffnen der Geräteliste ihren eigenen Monitor, ob dort eine
-neuere Version liegt, und bietet sie zum Herunterladen an. Installieren muss man sie dann von Hand
-(Android fragt einmalig nach der Erlaubnis, Apps aus dem Browser zu installieren).
+neuere Version liegt, und bietet „Installieren“ an. Sie lädt die APK selbst und übergibt sie dem
+Android-Installer. Beim ersten Mal muss man ihr in den Android-Einstellungen erlauben, Apps zu
+installieren, und das Update einmal bestätigen. Hat sich die App einmal selbst aktualisiert, spielt
+Android ab Version 12 weitere Updates meist ohne Rückfrage ein (solange Obtainium nicht zuletzt
+installiert hat).
 
 ## Andere Haushalte
 
