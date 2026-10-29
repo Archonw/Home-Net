@@ -17,17 +17,28 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md)
 1. **Heimnetz → Netzwerk → Netzwerkeinstellungen**: „Zugriff für Anwendungen zulassen“ und „Statusinformationen über UPnP übertragen“ aktivieren.
 2. **System → FRITZ!Box-Benutzer → Benutzer hinzufügen**: z. B. `networkmonitor` mit eigenem Passwort und der Berechtigung **„FRITZ!Box Einstellungen“** (ohne Zugang aus dem Internet).
 
-## 2. Auf Unraid installieren
+## 2. Installieren und einrichten
 
-Bis das Image automatisch gebaut wird (nach dem Merge über GitHub Actions nach `ghcr.io/archonw/networkmonitor`):
+Eine `.env` ist nicht nötig. Alles wird in der Weboberfläche eingerichtet.
 
-- Vorlage `unraid/networkmonitor.xml` nach `/boot/config/plugins/dockerMan/templates-user/my-networkmonitor.xml` kopieren.
-- In Unraid unter **Docker → Add Container** die Vorlage „networkmonitor“ wählen, FritzBox-Passwort und ein Passwort für die Weboberfläche eintragen.
-- Weboberfläche: `http://<unraid-ip>:8085/` (Benutzername beliebig, z. B. `admin`).
+**Container starten** (Unraid, Code liegt unter `/mnt/user/appdata/networkmonitor/src`):
 
-Da das Repo privat ist, muss das Paket auf ghcr.io entweder öffentlich geschaltet oder Unraid mit einem GitHub-Token angemeldet werden (`docker login ghcr.io`).
+```
+docker build -t networkmonitor:local /mnt/user/appdata/networkmonitor/src
+docker run -d --name networkmonitor --network host --cap-add NET_ADMIN --cap-add NET_RAW \
+  -v /mnt/user/appdata/networkmonitor/data:/data --restart unless-stopped networkmonitor:local
+```
 
-Alternativ per Compose: `.env.example` nach `.env` kopieren, ausfüllen, `docker compose up -d --build`.
+Alternativ die Vorlage `unraid/networkmonitor.xml` nach `/boot/config/plugins/dockerMan/templates-user/my-networkmonitor.xml` kopieren und in Unraid unter **Docker → Add Container** wählen, oder `docker compose up -d --build`.
+
+**Ersteinrichtung im Browser:**
+1. `http://<unraid-ip>:8085/` öffnen und mit dem Standardpasswort **`netzwerkmonitor`** anmelden (Benutzername beliebig).
+2. Ein eigenes Passwort festlegen (mindestens 8 Zeichen). Vorher ist nichts anderes erreichbar, auch nicht für die App.
+3. Der Browser fragt erneut: jetzt mit dem neuen Passwort anmelden.
+4. Auf der Einstellungsseite den FritzBox-Zugang aus Schritt 1 eintragen, „Verbindung testen“, speichern. Erst dann beginnt die Überwachung; der erste Scan übernimmt die vorhandenen Geräte als erlaubt.
+5. Optional Benachrichtigungen einrichten (siehe unten) und „Testnachricht senden“.
+
+Einstellungen liegen in der Datenbank unter `/data`. Wer den Container neu anlegt und `/data` behält, muss nichts erneut einrichten. Werte aus einer `.env` (siehe `.env.example`) sind weiterhin möglich und dienen als Startwerte; in der Weboberfläche gespeicherte Werte haben Vorrang.
 
 ## 3. FritzBox-Fähigkeiten prüfen
 
@@ -70,9 +81,10 @@ Test: `docker exec networkmonitor networkmonitor-notify-test` schickt eine Testn
 Der Quellcode liegt in `android/`. GitHub Actions baut bei jedem Push die APK; nach einem Merge auf `main` liegt sie unter **Releases** als `netzwerkmonitor.apk`.
 
 - APK aufs Handy laden und installieren („Installation aus unbekannten Quellen“ für den Browser erlauben). Updates werden einfach drüber installiert.
-- Beim ersten Start: Adresse des Monitors (`http://192.168.178.207:8085`) und das `UI_PASSWORD` eintragen. Beides wird verschlüsselt auf dem Handy gespeichert.
+- Beim ersten Start: Adresse des Monitors (`http://192.168.178.207:8085`) und das Passwort der Weboberfläche eintragen. Beides wird verschlüsselt auf dem Handy gespeichert.
 - „Offline entfernen“ (App) bzw. „Offline-Geräte entfernen“ (Weboberfläche) löscht alle Geräte, die gerade offline sind, aus dem Monitor. Kommen sie wieder ins Netz, gelten sie als neu und müssen erneut bestätigt werden. Gesperrte Geräte bleiben stehen, damit ihre Sperre erhalten bleibt. Die Einträge in der FritzBox selbst ändern sich dadurch nicht.
-- Jeder Start, jede Benachrichtigung und jede Rückkehr nach mehr als einer Minute verlangt Fingerabdruck (oder Geräte-PIN).
+- Jeder Start, jede Benachrichtigung und jede Rückkehr nach mehr als einer Minute verlangt eine Anmeldung. Nach der Einrichtung ist das das Passwort der Weboberfläche; unter Einstellungen → „Entsperren mit“ lässt sich auf Fingerabdruck (oder Geräte-PIN) umstellen. Das Passwort funktioniert immer als Ausweg.
+- Auf der Geräteseite lassen sich Werte wie IP- oder MAC-Adresse durch langes Drücken markieren und kopieren.
 - Die App ist mit einem festen Schlüssel aus dem Repo signiert (`android/app/netmon.keystore`), damit Updates ohne Neuinstallation klappen. Sie ist nur für die eigene Installation gedacht.
 
 ## Entwicklung

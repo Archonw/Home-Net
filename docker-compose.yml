@@ -8,6 +8,7 @@ services:
     cap_add:
       - NET_RAW
       - NET_ADMIN
-    env_file: .env
+    # Einstellungen erfolgen in der Weboberfläche. Optional Startwerte aus einer .env:
+    # env_file: .env
     volumes:
       - ./data:/data

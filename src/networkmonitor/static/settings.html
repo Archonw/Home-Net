@@ -28,12 +28,17 @@
   button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
   .result { font-size:13px; margin-top:8px; white-space:pre-line; }
   .result.ok { color:var(--ok); } .result.bad { color:var(--bad); }
+  section[hidden] { display:none; }
   .bar { position:sticky; bottom:0; background:var(--bg); padding:12px 0; display:flex; gap:12px; align-items:center; }
 </style>
 </head>
 <body>
 <a href="./">‹ Alle Geräte</a>
 <h1>Einstellungen</h1>
+<section id="welcome" hidden>
+  <h2>Fast geschafft</h2>
+  <div class="hint" style="margin:0">Trage jetzt den FritzBox-Zugang ein und prüfe ihn mit „Verbindung testen“. Erst danach beginnt die Überwachung. Benachrichtigungen kannst du auch später einrichten. Zum Schluss „Speichern“.</div>
+</section>
 
 <form id="form" autocomplete="off">
 <section>
@@ -95,6 +100,8 @@
 
 <script>
 const form = document.getElementById("form");
+const firstRun = new URLSearchParams(location.search).has("setup");
+document.getElementById("welcome").hidden = !firstRun;
 let loaded = null;
 
 async function call(path, opts = {}) {
@@ -144,6 +151,9 @@ function render(data) {
     }
   }
   toggleChannels();
+  if (firstRun && data.values.public_url === "http://localhost:8085/") {
+    form.elements.public_url.value = location.origin + "/";
+  }
 }
 
 function collectChanges() {

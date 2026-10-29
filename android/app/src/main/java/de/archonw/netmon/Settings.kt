@@ -39,6 +39,16 @@ class Settings(context: Context) {
         get() = enumOr(prefs.getString("theme", null), ThemeMode.SYSTEM)
         set(value) = prefs.edit().putString("theme", value.name).apply()
 
+    /** Entsperren per Fingerabdruck statt mit dem Passwort. */
+    var useBiometrics: Boolean
+        get() = prefs.getBoolean("use_biometrics", false)
+        set(value) = prefs.edit().putBoolean("use_biometrics", value).apply()
+
+    /** Ältere Versionen kannten nur den Fingerabdruck; bestehende Installationen behalten ihn. */
+    fun migrateLockMode() {
+        if (!prefs.contains("use_biometrics")) useBiometrics = isConfigured
+    }
+
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =
         enumValues<E>().firstOrNull { it.name == name } ?: default
 

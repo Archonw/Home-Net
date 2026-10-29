@@ -10,8 +10,8 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
@@ -27,6 +27,11 @@ STATIC = Path(__file__).parent / "static"
 UI_HTML = (STATIC / "index.html").read_text(encoding="utf-8")
 DEVICE_HTML = (STATIC / "device.html").read_text(encoding="utf-8")
 SETTINGS_HTML = (STATIC / "settings.html").read_text(encoding="utf-8")
+SETUP_HTML = (STATIC / "setup.html").read_text(encoding="utf-8")
+
+# Gilt, solange kein eigenes Passwort gesetzt ist; muss beim ersten Anmelden geändert werden
+DEFAULT_PASSWORD = "netzwerkmonitor"
+MIN_PASSWORD_LENGTH = 8
 
 
 class Runtime:
@@ -51,6 +56,15 @@ class Runtime:
         )
         self.monitor = Monitor(self.router, store, settings)
 
+    @property
+    def setup_pending(self) -> bool:
+        """Noch kein eigenes Passwort gesetzt: nur die Ersteinrichtung ist erreichbar."""
+        return not self.settings.ui_password
+
+    @property
+    def fritzbox_missing(self) -> bool:
+        return self._fixed_router is None and not self.settings.fritz_password
+
     @staticmethod
     def _make_router(settings: Settings) -> Router:
         return FritzBox(settings.fritz_address, settings.fritz_user, settings.fritz_password)
@@ -74,6 +88,10 @@ class Runtime:
 class DeviceUpdate(BaseModel):
     name: str | None = None
     notes: str | None = None
+
+
+class NewPassword(BaseModel):
+    password: str
 
 
 def create_app(
@@ -115,6 +133,10 @@ def create_app(
 
     async def poll_loop() -> None:
         while True:
+            if rt.fritzbox_missing:
+                state["last_error"] = "FritzBox noch nicht eingerichtet (Einstellungen)"
+                await asyncio.sleep(5)
+                continue
             try:
                 result = await asyncio.to_thread(monitor.poll_once)
                 state["last_error"] = "; ".join(result.errors) or None
@@ -145,12 +167,10 @@ def create_app(
 
     security = HTTPBasic(auto_error=False)
 
-    def require_login(
+    def require_password(
         credentials: HTTPBasicCredentials | None = Depends(security),  # noqa: B008
     ) -> None:
-        password = rt.settings.ui_password
-        if not password:
-            return
+        password = rt.settings.ui_password or DEFAULT_PASSWORD
         ok = credentials is not None and secrets.compare_digest(
             credentials.password.encode(), password.encode()
         )
@@ -159,6 +179,34 @@ def create_app(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 headers={"WWW-Authenticate": 'Basic realm="Netzwerkmonitor"'},
             )
+
+    def require_login(request: Request, _: None = Depends(require_password)) -> None:  # noqa: B008
+        if not rt.setup_pending:
+            return
+        if request.url.path.startswith("/api/"):
+            raise HTTPException(
+                403, "Ersteinrichtung: bitte zuerst im Browser ein eigenes Passwort festlegen"
+            )
+        raise HTTPException(status.HTTP_303_SEE_OTHER, headers={"Location": "/setup"})
+
+    @app.get("/setup", response_class=HTMLResponse, dependencies=[Depends(require_password)])
+    def setup_page():
+        if not rt.setup_pending:
+            return RedirectResponse("/settings", status.HTTP_303_SEE_OTHER)
+        return SETUP_HTML
+
+    @app.post("/api/setup/password", dependencies=[Depends(require_password)])
+    def setup_password(body: NewPassword) -> dict:
+        if not rt.setup_pending:
+            raise HTTPException(409, "Passwort ist schon gesetzt, bitte die Einstellungen nutzen")
+        password = body.password.strip()
+        if len(password) < MIN_PASSWORD_LENGTH:
+            raise HTTPException(400, f"Mindestens {MIN_PASSWORD_LENGTH} Zeichen")
+        if password == DEFAULT_PASSWORD:
+            raise HTTPException(400, "Bitte ein anderes als das Standardpasswort wählen")
+        store.set_config({"ui_password": password})
+        rt.reload(apply_overrides(rt.settings, {"ui_password": password}))
+        return {"ok": True}
 
     @app.get("/health")
     def health() -> dict:
@@ -234,7 +282,11 @@ def create_app(
                 if value == "":
                     continue  # leer = unverändert lassen
                 if value is None:
+                    if field == "ui_password":
+                        raise HTTPException(400, "Das Passwort kann nicht entfernt werden")
                     value = ""  # null = löschen
+                if field == "ui_password" and len(str(value).strip()) < MIN_PASSWORD_LENGTH:
+                    raise HTTPException(400, f"Passwort: mindestens {MIN_PASSWORD_LENGTH} Zeichen")
             try:
                 changes[field] = coerce(field, value)
             except (TypeError, ValueError) as exc:

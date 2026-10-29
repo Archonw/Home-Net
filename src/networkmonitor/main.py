@@ -17,8 +17,6 @@ def run() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     settings = Settings.from_env()
-    if not settings.ui_password:
-        logging.warning("UI_PASSWORD ist leer – die Weboberfläche ist ohne Anmeldung erreichbar.")
     app = create_app(settings)
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8085")))
 
