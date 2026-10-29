@@ -67,9 +67,9 @@ def test_secret_clear_and_password_change(env):
     c, app, _ = env
     c.put("/api/settings", auth=AUTH, json={"ha_token": None})
     assert app.state.runtime.settings.ha_token == ""
-    c.put("/api/settings", auth=AUTH, json={"ui_password": "neu"})
+    c.put("/api/settings", auth=AUTH, json={"ui_password": "neu-geheim"})
     assert c.get("/api/settings", auth=AUTH).status_code == 401
-    assert c.get("/api/settings", auth=("admin", "neu")).status_code == 200
+    assert c.get("/api/settings", auth=("admin", "neu-geheim")).status_code == 200
 
 
 def test_invalid_values_are_rejected(env):

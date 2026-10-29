@@ -7,25 +7,8 @@
   <Privileged>false</Privileged>
   <ExtraParams>--cap-add=NET_RAW --cap-add=NET_ADMIN --restart=unless-stopped</ExtraParams>
   <WebUI>http://[IP]:8085/</WebUI>
-  <Overview>Überwacht das Heimnetz über die FritzBox, meldet neue Geräte und lässt sie erlauben oder sperren.</Overview>
+  <Overview>Überwacht das Heimnetz über die FritzBox, meldet neue Geräte und lässt sie erlauben oder sperren. Alle Einstellungen erfolgen in der Weboberfläche; erste Anmeldung mit dem Passwort „netzwerkmonitor“.</Overview>
   <Category>Network:Management Tools:</Category>
   <Config Name="Daten" Target="/data" Default="/mnt/user/appdata/networkmonitor" Mode="rw" Type="Path" Display="always" Required="true">/mnt/user/appdata/networkmonitor</Config>
-  <Config Name="FritzBox-Adresse" Target="FRITZ_ADDRESS" Default="192.168.178.1" Type="Variable" Display="always" Required="true">192.168.178.1</Config>
-  <Config Name="FritzBox-Benutzer" Target="FRITZ_USER" Default="networkmonitor" Type="Variable" Display="always" Required="true">networkmonitor</Config>
-  <Config Name="FritzBox-Passwort" Target="FRITZ_PASSWORD" Default="" Type="Variable" Display="always" Required="true" Mask="true"></Config>
-  <Config Name="Passwort Weboberfläche" Target="UI_PASSWORD" Default="" Type="Variable" Display="always" Required="true" Mask="true"></Config>
   <Config Name="Port" Target="PORT" Default="8085" Type="Variable" Display="advanced" Required="false">8085</Config>
-  <Config Name="Abfrageintervall (s)" Target="POLL_INTERVAL" Default="30" Type="Variable" Display="advanced" Required="false">30</Config>
-  <Config Name="Erste Geräte vertrauen" Target="TRUST_INITIAL_DEVICES" Default="true" Type="Variable" Display="advanced" Required="false">true</Config>
-  <Config Name="Unbekannte sofort ohne Internet" Target="QUARANTINE_UNKNOWN" Default="false" Type="Variable" Display="advanced" Required="false">false</Config>
-  <Config Name="Benachrichtigung" Target="NOTIFY" Default="" Type="Variable" Display="always" Required="false" Description="ntfy, telegram, homeassistant – mehrere mit Komma"></Config>
-  <Config Name="Adresse der Weboberfläche" Target="PUBLIC_URL" Default="http://192.168.178.207:8085/" Type="Variable" Display="advanced" Required="false">http://192.168.178.207:8085/</Config>
-  <Config Name="Telegram Bot-Token" Target="TELEGRAM_BOT_TOKEN" Default="" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
-  <Config Name="Telegram Chat-ID" Target="TELEGRAM_CHAT_ID" Default="" Type="Variable" Display="advanced" Required="false"></Config>
-  <Config Name="Home Assistant URL" Target="HA_URL" Default="http://homeassistant.local:8123" Type="Variable" Display="advanced" Required="false"></Config>
-  <Config Name="Home Assistant Token" Target="HA_TOKEN" Default="" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
-  <Config Name="Home Assistant notify-Dienst" Target="HA_NOTIFY_SERVICE" Default="" Type="Variable" Display="advanced" Required="false" Description="z. B. mobile_app_jans_handy"></Config>
-  <Config Name="ntfy-Server" Target="NTFY_URL" Default="http://192.168.178.207:8090" Type="Variable" Display="advanced" Required="false"></Config>
-  <Config Name="ntfy-Thema" Target="NTFY_TOPIC" Default="netzwerkmonitor" Type="Variable" Display="advanced" Required="false"></Config>
-  <Config Name="ntfy-Token" Target="NTFY_TOKEN" Default="" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
 </Container>

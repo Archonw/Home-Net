@@ -208,7 +208,9 @@ def test_remove_offline_endpoint():
     monitor.poll_once()
     router.hosts = [PHONE, Host(LAPTOP.mac, LAPTOP.ip, "laptop", "Ethernet", False)]
     monitor.poll_once()
-    app = create_app(Settings(db_path=":memory:"), router=router, store=store, start_poller=False)
+    settings = Settings(db_path=":memory:", ui_password="geheim")
+    app = create_app(settings, router=router, store=store, start_poller=False)
     client = TestClient(app)
+    client.auth = ("admin", "geheim")
     assert client.post("/api/devices/remove-offline").json() == {"removed": 1}
     assert [d["mac"] for d in client.get("/api/devices").json()] == [normalize_mac(PHONE.mac)]
