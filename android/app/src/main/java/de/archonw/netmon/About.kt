@@ -16,10 +16,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
+const val SOURCE_URL = "https://github.com/Archonw/Networkmonitor"
 
 /** Bibliotheken, die in der App stecken; alle unter der Apache-Lizenz 2.0. */
 private val LIBRARIES = listOf(
@@ -33,6 +36,7 @@ private val LIBRARIES = listOf(
 fun AboutContent() {
     val p = LocalPalette.current
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val version = remember {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
     }
@@ -47,6 +51,13 @@ fun AboutContent() {
         color = p.muted,
         fontSize = 13.sp,
     )
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "Netzwerkmonitor ist freie Software unter der Apache-Lizenz 2.0.",
+        color = p.muted,
+        fontSize = 13.sp,
+    )
+    TextButton(onClick = { uriHandler.openUri(SOURCE_URL) }) { Text("Quellcode auf GitHub") }
     TextButton(onClick = { showLicenses = true }) { Text("Open-Source-Lizenzen") }
 
     if (showLicenses) {
@@ -58,7 +69,9 @@ fun AboutContent() {
             title = { Text("Open-Source-Lizenzen") },
             text = {
                 Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
-                    Text("Diese App verwendet folgende Bibliotheken unter der Apache-Lizenz 2.0:")
+                    Text("Netzwerkmonitor steht unter der Apache-Lizenz 2.0 ($SOURCE_URL).")
+                    Spacer(Modifier.height(8.dp))
+                    Text("Die App verwendet außerdem folgende Bibliotheken unter derselben Lizenz:")
                     Spacer(Modifier.height(8.dp))
                     LIBRARIES.forEach { Text("• $it", fontSize = 13.sp) }
                     Spacer(Modifier.height(12.dp))
