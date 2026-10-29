@@ -3,8 +3,10 @@ package de.archonw.netmon
 import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -13,6 +15,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -33,15 +36,30 @@ class MainActivity : FragmentActivity() {
     private var authError by mutableStateOf<String?>(null)
     private var screen by mutableStateOf<Screen>(Screen.List)
     private var backgroundSince = 0L
+    private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = Settings(this)
+        themeMode = settings.themeMode
         if (!settings.isConfigured) screen = Screen.Setup
         handleLink(intent)
 
         setContent {
-            val dark = isSystemInDarkTheme()
+            val dark = when (themeMode) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            LaunchedEffect(dark) {
+                // Statusleisten-Symbole passend zum gewählten Modus einfärben
+                val bars = if (dark) {
+                    SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                }
+                enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+            }
             val colors = if (dark) {
                 darkColorScheme(primary = Green, error = Red)
             } else {
@@ -55,9 +73,19 @@ class MainActivity : FragmentActivity() {
                         screen = Screen.List
                     }
                     when (val s = screen) {
-                        Screen.Setup -> SetupScreen(settings) { screen = Screen.List }
+                        Screen.Setup -> SetupScreen(
+                            settings = settings,
+                            themeMode = themeMode,
+                            onThemeChange = {
+                                themeMode = it
+                                settings.themeMode = it
+                            },
+                            onBack = { screen = Screen.List },
+                            onSaved = { screen = Screen.List },
+                        )
                         Screen.List -> ListScreen(
                             api = settings.api(),
+                            settings = settings,
                             onOpen = { screen = Screen.Detail(it) },
                             onSettings = { screen = Screen.Setup },
                         )
