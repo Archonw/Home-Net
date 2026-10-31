@@ -12,8 +12,8 @@ android {
         applicationId = "de.archonw.netmon"
         minSdk = 30
         targetSdk = 35
-        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-        versionName = "0.1.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
+        versionCode = (System.getenv("APP_BUILD") ?: "1").toInt()
+        versionName = "0.1.${System.getenv("APP_BUILD") ?: "0"}"
     }
 
     // Signierschlüssel kommt aus Umgebungsvariablen (in GitHub Actions aus den Repository-Secrets).

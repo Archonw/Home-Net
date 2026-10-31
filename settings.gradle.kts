@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "Netzwerkmonitor"
+rootProject.name = "Home-Net"
 include(":app")
