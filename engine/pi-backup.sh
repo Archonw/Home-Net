@@ -12,6 +12,7 @@
 #   pi-backup.sh install-key <pi-dir>  same, then install it using a password from stdin
 #   pi-backup.sh due    <root>      run every Pi whose schedule is due (for cron)
 #   pi-backup.sh summary <root>     facts about all Pis as tab separated lines
+#   pi-backup.sh api                forced ssh command of the phone service, see cmd_api
 #
 # How a backup works: rsync keeps a file level mirror of the Pi in an ext4
 # container, so repeat runs only transfer changes. The image is then built new
@@ -675,6 +676,38 @@ cmd_summary() {
   done < <(find "$root" -mindepth 2 -name pi.conf -not -path '*/.state/*' -not -path '*/.engine/*')
 }
 
+# The phone service holds an ssh key that can only run this. It may read the
+# inventory and start or stop backups of existing Pis, and nothing else.
+cmd_api() {
+  local root verb arg dir log
+  root=$(dirname "$(dirname "$SCRIPT")")
+  read -r verb arg <<< "${SSH_ORIGINAL_COMMAND:-}"
+  case "$verb" in
+    inventory) cat "$root/inventory.json" 2>/dev/null; return 0 ;;
+    summary) cmd_summary "$root"; return ;;
+    state|status|images|start|cancel|progress) ;;
+    *) echo "Nicht erlaubt" >&2; exit 2 ;;
+  esac
+  dir=$(printf '%s' "$arg" | base64 -d 2>/dev/null)
+  case "$dir" in
+    "$root"/*) ;;
+    *) echo "Nicht erlaubt" >&2; exit 2 ;;
+  esac
+  case "$dir" in
+    */../*|*/..) echo "Nicht erlaubt" >&2; exit 2 ;;
+  esac
+  [ -f "$dir/pi.conf" ] || { echo "Unbekannter Pi" >&2; exit 2; }
+  if [ "$verb" = progress ]; then
+    log=$(ls -1t "$dir"/logs/*.log 2>/dev/null | head -1)
+    [ -n "$log" ] || return 0
+    grep -a '^@@STEP' "$log" | tail -1
+    grep -a '^@@PROGRESS' "$log" | tail -1
+    grep -av '^@@' "$log" | tail -15
+    return 0
+  fi
+  "cmd_$verb" "$dir"
+}
+
 cmd_due() {
   local root=${1%/} conf now hour age need
   now=$(date +%s); hour=$((10#$(date +%H)))
@@ -702,8 +735,9 @@ case "${1:-}" in
   backup|start|state|cancel|status|images|keygen) c=$1; shift; "cmd_$c" "$@" ;;
   install-key) shift; cmd_install_key "$@" ;;
   summary) shift; cmd_summary "$@" ;;
+  api) cmd_api ;;
   ntfy-test) ntfy_send "Pi-Wartung" "Testnachricht: Benachrichtigungen kommen hier an." default white_check_mark ;;
   due) shift; exec 8>/tmp/pi-wartung-due.lock; flock -n 8 || exit 0; cmd_due "$@" ;;
   version) echo "$ENGINE_VERSION" ;;
-  *) sed -n '2,15p' "$SCRIPT"; exit 2 ;;
+  *) sed -n '2,16p' "$SCRIPT"; exit 2 ;;
 esac

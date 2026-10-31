@@ -1407,6 +1407,11 @@ class MainWindow(Gtk.ApplicationWindow):
         local = Gtk.Entry(text=s.local_prefix)
         add_row(grid, r, "Hier eingehängt als", local, "Damit die App Images auf diesem Rechner findet.")
 
+        grid = card("Handy-Zugang")
+        phone_password = Gtk.Entry(visibility=False)
+        add_row(grid, 0, "Neues Passwort", phone_password,
+                "Für Pi-Wartung in der Home-Net-App. Bleibt leer unverändert. Gespeichert wird nur ein Hash.")
+
         grid = card("ntfy")
         ntfy_url = Gtk.Entry(placeholder_text="http://192.168.178.207:8091")
         r = add_row(grid, 0, "Server", ntfy_url, "Leer lassen, um nur die Unraid-Benachrichtigungen zu nutzen.")
@@ -1449,6 +1454,10 @@ class MainWindow(Gtk.ApplicationWindow):
             s.remote_prefix, s.local_prefix = remote.get_text().strip().rstrip("/"), local.get_text().strip().rstrip("/")
             s.save()
             background(store_ntfy, None, lambda e: self.error(f"ntfy-Einstellungen nicht gespeichert:\n{e}"))
+            new_password = phone_password.get_text()
+            if new_password:
+                background(lambda: self.unraid.save_service_password(new_password), None,
+                           lambda e: self.error(f"Handy-Passwort nicht gespeichert:\n{e}"))
             self.unraid = Unraid(s)
             self.current_id = None
             self.stop_tail()

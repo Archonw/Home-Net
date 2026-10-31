@@ -15,6 +15,8 @@ ENGINE_SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 USER_SCRIPT_DIR = "/boot/config/plugins/user.scripts"
 USER_SCRIPT_NAME = "PiWartung-Geplant"
 DEFAULT_KEY = "/root/.ssh/pi-wartung"
+SERVICE_AUTH_FILE = "/mnt/user/appdata/pi-wartung/auth.json"
+PBKDF2_ROUNDS = 200_000
 
 
 class UnraidError(Exception):
@@ -358,6 +360,17 @@ class Unraid:
     def list_keys(self):
         out = self.run("ls -1 /root/.ssh/*.pub 2>/dev/null | sed 's/\\.pub$//'; true")
         return [line for line in out.splitlines() if line]
+
+    # ---- phone service
+    def save_service_password(self, password):
+        """Stores only a salted hash. The service reads it on every login, no restart needed."""
+        salt = os.urandom(16)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ROUNDS)
+        text = json.dumps({"salt": salt.hex(), "hash": digest.hex(), "rounds": PBKDF2_ROUNDS})
+        self.write_file(SERVICE_AUTH_FILE, text + "\n", mode="600")
+
+    def service_has_password(self):
+        return bool(self.run(f"test -s {SERVICE_AUTH_FILE} && echo ja; true").strip())
 
     # ---- ntfy
     def ntfy_path(self):
