@@ -83,6 +83,9 @@ Pro Pi lässt sich wählen: nur bei Fehlern, auch bei Erfolg oder aus. Die Nachr
 des Unraid, wohin sie geht, stellst du dort unter *Settings → Notifications* ein. Bei einem dauerhaften Problem kommt eine
 Nachricht beim ersten Fehler, dann höchstens eine pro Tag und eine, sobald es wieder klappt.
 
+Zusätzlich kann die App über einen eigenen ntfy-Server benachrichtigen. Server, Thema und optional ein Token stehen unter
+**Einstellungen**, dort gibt es auch eine Testnachricht. Das Thema musst du einmal in der ntfy-App abonnieren.
+
 ## Entwicklung
 
 ```bash

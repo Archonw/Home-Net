@@ -66,6 +66,21 @@ on_pi() { "$SSHW" "$TARGET" "$@"; }
 ERROR=""
 MNT="" LOOPDEV_ROOT="" PRE_DONE=0 FINISHED=0 CANCELLED=0 WARNINGS=""
 
+# Optional second channel next to the Unraid notifications. ntfy.conf holds the
+# server, topic and token; the token goes through curl's stdin to stay out of ps.
+ntfy_send() {
+  local title=$1 message=$2 priority=$3 tags=$4 conf
+  conf="$(dirname "$SCRIPT")/ntfy.conf"
+  [ -f "$conf" ] || return 0
+  local NTFY_URL="" NTFY_TOPIC="" NTFY_TOKEN=""
+  # shellcheck disable=SC1090
+  . "$conf"
+  [ -n "$NTFY_URL" ] && [ -n "$NTFY_TOPIC" ] || return 0
+  { [ -n "$NTFY_TOKEN" ] && printf 'header = "Authorization: Bearer %s"\n' "$NTFY_TOKEN"; } |
+    curl -fsS -m 20 -o /dev/null -K - -G --data-urlencode "title=$title" --data-urlencode "message=$message" \
+      --data-urlencode "priority=$priority" --data-urlencode "tags=$tags" "${NTFY_URL%/}/$NTFY_TOPIC/publish"
+}
+
 # One message when a Pi starts failing, a reminder per day while it stays broken,
 # and one when it recovers. Hourly retries would otherwise flood the inbox.
 send_notification() {
@@ -78,13 +93,16 @@ send_notification() {
     failed)
       if [ "$prev" != failed ] || [ $((now - notified)) -ge 86400 ]; then
         "$sender" -e "Pi-Wartung" -s "Sicherung von $NAME fehlgeschlagen" -d "$ERROR" -i alert >/dev/null 2>&1
+        ntfy_send "Sicherung von $NAME fehlgeschlagen" "$ERROR" high warning || log "WARNUNG: ntfy nicht erreichbar"
         echo "$now" > "$STATE/notified"
       fi ;;
     ok)
       if [ "$prev" = failed ]; then
         "$sender" -e "Pi-Wartung" -s "Sicherung von $NAME klappt wieder" -d "Neues Image: ${OUT_NAME:-}" -i normal >/dev/null 2>&1
+        ntfy_send "Sicherung von $NAME klappt wieder" "Neues Image: ${OUT_NAME:-}" default white_check_mark || log "WARNUNG: ntfy nicht erreichbar"
       elif [ "$NOTIFY" = always ]; then
         "$sender" -e "Pi-Wartung" -s "Sicherung von $NAME erfolgreich" -d "Neues Image: ${OUT_NAME:-}" -i normal >/dev/null 2>&1
+        ntfy_send "Sicherung von $NAME erfolgreich" "Neues Image: ${OUT_NAME:-}" default white_check_mark || log "WARNUNG: ntfy nicht erreichbar"
       fi
       rm -f "$STATE/notified" ;;
   esac
@@ -684,6 +702,7 @@ case "${1:-}" in
   backup|start|state|cancel|status|images|keygen) c=$1; shift; "cmd_$c" "$@" ;;
   install-key) shift; cmd_install_key "$@" ;;
   summary) shift; cmd_summary "$@" ;;
+  ntfy-test) ntfy_send "Pi-Wartung" "Testnachricht: Benachrichtigungen kommen hier an." default white_check_mark ;;
   due) shift; exec 8>/tmp/pi-wartung-due.lock; flock -n 8 || exit 0; cmd_due "$@" ;;
   version) echo "$ENGINE_VERSION" ;;
   *) sed -n '2,15p' "$SCRIPT"; exit 2 ;;

@@ -359,6 +359,28 @@ class Unraid:
         out = self.run("ls -1 /root/.ssh/*.pub 2>/dev/null | sed 's/\\.pub$//'; true")
         return [line for line in out.splitlines() if line]
 
+    # ---- ntfy
+    def ntfy_path(self):
+        return f"{self.s.root}/.engine/ntfy.conf"
+
+    def load_ntfy(self):
+        """Server and topic, plus whether a token is set; the token itself stays on the server."""
+        values = parse_shell_kv(self.run(f"cat {shlex.quote(self.ntfy_path())} 2>/dev/null; true"))
+        return {"url": values.get("NTFY_URL", ""), "topic": values.get("NTFY_TOPIC", ""),
+                "has_token": bool(values.get("NTFY_TOKEN"))}
+
+    def save_ntfy(self, url, topic, token=None):
+        """Stores the settings. token None keeps the current one, an empty string removes it."""
+        if token is None:
+            current = parse_shell_kv(self.run(f"cat {shlex.quote(self.ntfy_path())} 2>/dev/null; true"))
+            token = current.get("NTFY_TOKEN", "")
+        text = "".join(f"{k}={shlex.quote(v)}\n" for k, v in
+                       (("NTFY_URL", url), ("NTFY_TOPIC", topic), ("NTFY_TOKEN", token)))
+        self.write_file(self.ntfy_path(), text, mode="600")
+
+    def test_ntfy(self):
+        self.run(f"bash {shlex.quote(self.engine)} ntfy-test", timeout=40)
+
     # ---- schedule through the User Scripts plugin
     def install_user_script(self):
         d = f"{USER_SCRIPT_DIR}/scripts/{USER_SCRIPT_NAME}"

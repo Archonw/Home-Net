@@ -1383,8 +1383,20 @@ class MainWindow(Gtk.ApplicationWindow):
     def on_settings(self, *_):
         dlg = Gtk.Dialog(title="Einstellungen", transient_for=self, modal=True)
         dlg.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Speichern", Gtk.ResponseType.OK)
-        grid = form_grid()
+        dlg.set_default_size(560, -1)
         s = self.settings
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        box.set_border_width(18)
+
+        def card(title):
+            c = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), "card")
+            c.pack_start(styled(Gtk.Label(label=title, xalign=0), "card-title"), False, False, 0)
+            grid = form_grid()
+            c.pack_start(grid, False, False, 0)
+            box.pack_start(c, False, False, 0)
+            return grid
+
+        grid = card("Unraid")
         ssh = Gtk.Entry(text=s.unraid_ssh)
         r = add_row(grid, 0, "Unraid per SSH", ssh, "Eintrag aus ~/.ssh/config oder root@adresse.")
         root = Gtk.Entry(text=s.root)
@@ -1392,13 +1404,50 @@ class MainWindow(Gtk.ApplicationWindow):
         remote = Gtk.Entry(text=s.remote_prefix)
         r = add_row(grid, r, "Pfad auf Unraid", remote)
         local = Gtk.Entry(text=s.local_prefix)
-        r = add_row(grid, r, "Hier eingehängt als", local, "Damit die App Images auf diesem Rechner findet.")
-        dlg.get_content_area().pack_start(grid, True, True, 0)
+        add_row(grid, r, "Hier eingehängt als", local, "Damit die App Images auf diesem Rechner findet.")
+
+        grid = card("ntfy")
+        ntfy_url = Gtk.Entry(placeholder_text="http://192.168.178.207:8091")
+        r = add_row(grid, 0, "Server", ntfy_url, "Leer lassen, um nur die Unraid-Benachrichtigungen zu nutzen.")
+        ntfy_topic = Gtk.Entry(placeholder_text="pi-wartung")
+        r = add_row(grid, r, "Thema", ntfy_topic)
+        ntfy_token = Gtk.Entry(visibility=False)
+        r = add_row(grid, r, "Zugriffstoken", ntfy_token, "Optional. Bleibt leer unverändert, wenn schon eines gespeichert ist.")
+        test = Gtk.Button(label="Testnachricht senden", halign=Gtk.Align.START)
+        add_row(grid, r, "", test)
+
+        def filled(values):
+            ntfy_url.set_text(values["url"])
+            ntfy_topic.set_text(values["topic"])
+            if values["has_token"]:
+                ntfy_token.set_placeholder_text("Gespeichert")
+
+        def store_ntfy():
+            self.unraid.deploy_engine()
+            self.unraid.save_ntfy(ntfy_url.get_text().strip().rstrip("/"), ntfy_topic.get_text().strip(),
+                                  ntfy_token.get_text().strip() or None)
+
+        def on_test(_button):
+            url, topic, token = ntfy_url.get_text().strip().rstrip("/"), ntfy_topic.get_text().strip(), ntfy_token.get_text().strip() or None
+
+            def work():
+                self.unraid.deploy_engine()
+                self.unraid.save_ntfy(url, topic, token)
+                self.unraid.test_ntfy()
+
+            test.set_sensitive(False)
+            background(work, lambda _: (test.set_sensitive(True), test.set_label("Gesendet")),
+                       lambda e: (test.set_sensitive(True), self.error(f"ntfy nicht erreichbar:\n{e}")))
+
+        test.connect("clicked", on_test)
+        background(self.unraid.load_ntfy, filled, lambda e: None)
+        dlg.get_content_area().pack_start(box, True, True, 0)
         dlg.show_all()
         if dlg.run() == Gtk.ResponseType.OK:
             s.unraid_ssh, s.root = ssh.get_text().strip(), root.get_text().strip().rstrip("/")
             s.remote_prefix, s.local_prefix = remote.get_text().strip().rstrip("/"), local.get_text().strip().rstrip("/")
             s.save()
+            background(store_ntfy, None, lambda e: self.error(f"ntfy-Einstellungen nicht gespeichert:\n{e}"))
             self.unraid = Unraid(s)
             self.current_id = None
             self.stop_tail()
