@@ -36,7 +36,7 @@ class Settings:
     ntfy_token: str = ""
     # Android-App zum Herunterladen (Obtainium): Ordner und GitHub-Quelle für neue Versionen
     app_dir: str = "/data/app"
-    app_update_repo: str = "Archonw/Networkmonitor"
+    app_update_repo: str = "Archonw/Home-Net"
     app_update_token: str = ""
 
     @classmethod
@@ -111,7 +111,7 @@ def coerce(field: str, value) -> object:
         return channels
     text = str(value).strip()
     if field == "app_update_repo" and text and not re.fullmatch(r"[\w.-]+/[\w.-]+", text):
-        raise ValueError("Bitte als Besitzer/Repository angeben, z. B. Archonw/Networkmonitor")
+        raise ValueError("Bitte als Besitzer/Repository angeben, z. B. Archonw/Home-Net")
     return text
 
 

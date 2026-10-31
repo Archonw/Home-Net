@@ -13,7 +13,7 @@ GitHub-Release ──(alle 6 h)──▶ Monitor /data/app ──▶ https://<mo
   `app-<Nummer>` ab. Der Monitor schaut beim Start und dann alle 6 Stunden nach und lädt eine neuere
   Version nach `/data/app/netzwerkmonitor-0.1.<Nummer>.apk`. Ältere Versionen löscht er.
   Einstellungen → *Android-App*:
-  - **GitHub-Repository:** Standard `Archonw/Networkmonitor`, leer = nicht automatisch suchen.
+  - **GitHub-Repository:** Standard `Archonw/Home-Net`, leer = nicht automatisch suchen.
   - **GitHub-Token:** nur nötig, solange das Repository privat ist. Auf GitHub unter
     *Settings → Developer settings → Fine-grained tokens* ein Token nur für dieses Repository mit
     *Contents: Read-only* anlegen.

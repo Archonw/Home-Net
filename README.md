@@ -79,7 +79,7 @@ Test: `docker exec networkmonitor networkmonitor-notify-test` schickt eine Testn
 
 ## 5. Android-App
 
-Der Quellcode liegt in `android/`. GitHub Actions baut bei jedem Push die APK; nach einem Merge auf `main` liegt sie unter **Releases** als `netzwerkmonitor.apk`.
+Die App heißt jetzt **Home-Net** und hat ein [eigenes Repository](https://github.com/Archonw/Home-Net). Dort baut GitHub Actions bei jedem Push die APK; nach einem Push auf `main` liegt sie unter **Releases** als `netzwerkmonitor.apk`.
 
 - APK aufs Handy laden und installieren („Installation aus unbekannten Quellen“ für den Browser erlauben). Updates werden einfach drüber installiert.
 - Beim ersten Start: Adresse des Monitors (`http://192.168.178.20:8085`) und das Passwort der Weboberfläche eintragen. Beides wird verschlüsselt auf dem Handy gespeichert.

@@ -1,6 +1,0 @@
-<resources>
-    <style name="Theme.Netmon" parent="android:Theme.DeviceDefault.DayNight">
-        <item name="android:windowActionBar">false</item>
-        <item name="android:windowNoTitle">true</item>
-    </style>
-</resources>
