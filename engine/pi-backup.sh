@@ -204,7 +204,9 @@ EOF
   [ "$BWLIMIT" -gt 0 ] && opts+=(--bwlimit="$BWLIMIT")
   [ "$COMPRESS" = 1 ] && opts+=(-z)
 
-  for try in 1 2 3 4; do
+  # WLAN dropouts can last minutes, so the waits grow. The mirror keeps what arrived.
+  local waits=(30 120 300 600 900) wait
+  for try in 1 2 3 4 5 6; do
     log "rsync Versuch $try"
     rsync "${opts[@]}" "$TARGET:/" "$MNT/" 2>&1 | tr '\r' '\n' | awk '
       /^[ \t]*[0-9,]+[ \t]+[0-9]+%/ {
@@ -221,7 +223,11 @@ EOF
           restore_mountpoints "${netmounts[@]}"; return 0 ;;
       23) WARNINGS="Einige Dateien konnten nicht gelesen werden, siehe Protokoll"; log "WARNUNG: $WARNINGS"
           restore_mountpoints "${netmounts[@]}"; return 0 ;;
-      10|11|12|30|35|255) log "Verbindung abgebrochen (Code $rc), neuer Versuch in 30 s"; sleep 30 ;;
+      10|11|12|30|35|255)
+        wait=${waits[$((try - 1))]:-0}
+        [ "$wait" -gt 0 ] || break
+        log "Verbindung abgebrochen (Code $rc), neuer Versuch in $wait s"
+        sleep "$wait" ;;
       *) die "rsync fehlgeschlagen (Code $rc)" ;;
     esac
   done
