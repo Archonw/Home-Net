@@ -333,7 +333,7 @@ class MainWindow(Gtk.ApplicationWindow):
         dash_btn = styled(Gtk.Button(label="Übersicht aller Pis", relief=Gtk.ReliefStyle.NONE), "sidebar-home")
         dash_btn.connect("clicked", lambda *_: self.show_dashboard())
         side.pack_start(dash_btn, False, False, 0)
-        side.pack_start(styled(Gtk.Label(label="RASPBERRY PIS", xalign=0), "sidebar-heading"), False, False, 0)
+        side.pack_start(styled(Gtk.Label(label="Alle Geräte", xalign=0), "sidebar-heading"), False, False, 0)
         side.pack_start(scroll, True, True, 0)
         paned.pack1(side, False, False)
 
@@ -395,6 +395,7 @@ class MainWindow(Gtk.ApplicationWindow):
         for i, title in enumerate(("Zeitpunkt", "Pi", "Fehler")):
             col = Gtk.TreeViewColumn(title, Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, ypad=4), text=i)
             col.set_expand(i == 2)
+            col.set_min_width({0: 130, 1: 110}.get(i, -1))
             errors.append_column(col)
         card = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6), "card")
         card.pack_start(styled(Gtk.Label(label="Letzte Fehler", xalign=0), "card-title"), False, False, 0)

@@ -9,7 +9,7 @@
 .sidebar-pane treeview.view { background-color: transparent; }
 .sidebar-pane treeview.view:selected { background-color: alpha(@accent, 0.16); color: @theme_fg_color; }
 .sidebar-home { margin: 12px 10px 0; font-weight: 600; }
-.sidebar-heading { font-size: 0.8em; font-weight: 700; letter-spacing: 1px; opacity: 0.6; margin: 16px 16px 6px; }
+.sidebar-heading { font-size: 0.9em; font-weight: 700; opacity: 0.6; margin: 16px 16px 6px; }
 
 .content-pane { background-color: @theme_base_color; }
 .hero { padding: 22px 26px 12px; }
