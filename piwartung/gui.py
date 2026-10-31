@@ -1,0 +1,1019 @@
+"""GTK3 interface of Pi-Wartung."""
+import copy
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import threading
+import time
+
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+
+from . import core  # noqa: E402
+from .core import Inventory, Pi, Settings, Unraid, UnraidError, human_size  # noqa: E402
+
+FORMATS = [("xz", "Am kleinsten (.img.xz)"), ("gz", "Schneller (.img.gz)"), ("img", "Unkomprimiert (.img)")]
+SCHEDULES = [("off", "Aus"), ("daily", "Täglich"), ("weekly", "Wöchentlich"), ("monthly", "Monatlich")]
+ROW_CATEGORY, ROW_PI = 0, 1
+
+
+def background(func, done=None, error=None):
+    """Runs func in a thread and hands the result back to the GTK main loop."""
+    def worker():
+        try:
+            result = func()
+        except Exception as exc:  # shown to the user, nothing to recover here
+            if error:
+                GLib.idle_add(error, str(exc))
+            return
+        if done:
+            GLib.idle_add(done, result)
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def combo(options, active):
+    box = Gtk.ComboBoxText()
+    for value, label in options:
+        box.append(value, label)
+    box.set_active_id(active)
+    return box
+
+
+def form_grid():
+    grid = Gtk.Grid(column_spacing=12, row_spacing=8)
+    grid.set_border_width(16)
+    return grid
+
+
+def add_row(grid, row, label, widget, hint=None):
+    lab = Gtk.Label(label=label, xalign=1)
+    lab.get_style_context().add_class("dim-label")
+    grid.attach(lab, 0, row, 1, 1)
+    widget.set_hexpand(True)
+    grid.attach(widget, 1, row, 1, 1)
+    if hint:
+        h = Gtk.Label(label=hint, xalign=0)
+        h.set_line_wrap(True)
+        h.get_style_context().add_class("dim-label")
+        h.set_max_width_chars(60)
+        attrs = Pango.AttrList()
+        attrs.insert(Pango.attr_scale_new(0.85))
+        h.set_attributes(attrs)
+        grid.attach(h, 1, row + 1, 1, 1)
+        return row + 2
+    return row + 1
+
+
+def text_view(text=""):
+    view = Gtk.TextView()
+    view.get_buffer().set_text(text)
+    view.set_left_margin(6)
+    view.set_top_margin(4)
+    scroll = Gtk.ScrolledWindow()
+    scroll.set_shadow_type(Gtk.ShadowType.IN)
+    scroll.set_min_content_height(70)
+    scroll.add(view)
+    return view, scroll
+
+
+def view_text(view):
+    b = view.get_buffer()
+    return b.get_text(b.get_start_iter(), b.get_end_iter(), False)
+
+
+class PiForm(Gtk.ScrolledWindow):
+    """All settings of one Pi; used in the tab and in the 'new Pi' dialog."""
+
+    def __init__(self, inventory, keys):
+        super().__init__()
+        self.pi = Pi()
+        grid = form_grid()
+        self.add(grid)
+        r = 0
+
+        def section(title):
+            nonlocal r
+            lab = Gtk.Label(xalign=0)
+            lab.set_markup(f"<b>{title}</b>")
+            lab.set_margin_top(10 if r else 0)
+            grid.attach(lab, 0, r, 2, 1)
+            r += 1
+
+        section("Allgemein")
+        self.name = Gtk.Entry()
+        r = add_row(grid, r, "Name", self.name)
+        self.category = Gtk.ComboBoxText.new_with_entry()
+        for c in inventory.all_categories():
+            self.category.append_text(c)
+        r = add_row(grid, r, "Kategorie", self.category, "Unterkategorien mit /, zum Beispiel Firma Müller/Standort Nord")
+        self.notes_view, notes = text_view()
+        r = add_row(grid, r, "Notizen", notes)
+
+        section("Verbindung")
+        self.host = Gtk.Entry()
+        r = add_row(grid, r, "Adresse", self.host, "IP oder Hostname, auch DynDNS oder Tailscale. Das Unraid baut die Verbindung auf.")
+        self.port = Gtk.SpinButton.new_with_range(1, 65535, 1)
+        r = add_row(grid, r, "Port", self.port)
+        self.user = Gtk.Entry()
+        r = add_row(grid, r, "Benutzer", self.user, "Braucht sudo ohne Passwort, bei Raspberry Pi OS ist das Standard.")
+        self.key = Gtk.ComboBoxText.new_with_entry()
+        for k in keys:
+            self.key.append_text(k)
+        r = add_row(grid, r, "SSH-Schlüssel", self.key, "Pfad auf dem Unraid.")
+        self.jump = Gtk.Entry()
+        self.jump.set_placeholder_text("benutzer@sprunghost, leer für direkte Verbindung")
+        r = add_row(grid, r, "Sprunghost", self.jump)
+        self.jump_port = Gtk.SpinButton.new_with_range(1, 65535, 1)
+        r = add_row(grid, r, "Port Sprunghost", self.jump_port)
+        self.compress = Gtk.CheckButton(label="Übertragung komprimieren (für Pis im Internet)")
+        r = add_row(grid, r, "", self.compress)
+        self.bwlimit = Gtk.SpinButton.new_with_range(0, 1000000, 100)
+        r = add_row(grid, r, "Bandbreite KiB/s", self.bwlimit, "0 bedeutet unbegrenzt.")
+
+        section("Sicherung")
+        self.format = combo(FORMATS, "xz")
+        r = add_row(grid, r, "Format", self.format, "Alle drei lassen sich mit Pi Imager und Balena Etcher schreiben.")
+        self.keep = Gtk.SpinButton.new_with_range(0, 100, 1)
+        r = add_row(grid, r, "Behalten", self.keep, "Anzahl Images, 0 behält alle.")
+        self.expand = Gtk.CheckButton(label="Beim ersten Start auf die ganze SD-Karte vergrößern")
+        r = add_row(grid, r, "", self.expand)
+        self.schedule = combo(SCHEDULES, "off")
+        r = add_row(grid, r, "Zeitplan", self.schedule, "Läuft auf dem Unraid über User Scripts, auch wenn dieser Rechner aus ist.")
+        self.hour = Gtk.SpinButton.new_with_range(0, 23, 1)
+        r = add_row(grid, r, "Frühestens ab Stunde", self.hour)
+        self.excludes_view, excludes = text_view()
+        r = add_row(grid, r, "Ausschlüsse", excludes, "Ein rsync-Muster je Zeile, zusätzlich zu Swap, Caches und /tmp.")
+        self.pre = Gtk.Entry()
+        self.pre.set_placeholder_text("zum Beispiel sudo systemctl stop datenbank")
+        r = add_row(grid, r, "Befehl vorher", self.pre)
+        self.post = Gtk.Entry()
+        self.post.set_placeholder_text("zum Beispiel sudo systemctl start datenbank")
+        r = add_row(grid, r, "Befehl nachher", self.post)
+        self.set_size_request(-1, 420)
+
+    def load(self, pi):
+        self.pi = pi
+        self.name.set_text(pi.name)
+        self.category.get_child().set_text(pi.category)
+        self.notes_view.get_buffer().set_text(pi.notes)
+        self.host.set_text(pi.host)
+        self.port.set_value(pi.port)
+        self.user.set_text(pi.user)
+        self.key.get_child().set_text(pi.key)
+        self.jump.set_text(pi.jump)
+        self.jump_port.set_value(pi.jump_port)
+        self.compress.set_active(pi.compress)
+        self.bwlimit.set_value(pi.bwlimit)
+        self.format.set_active_id(pi.format)
+        self.keep.set_value(pi.keep)
+        self.expand.set_active(pi.expand)
+        self.schedule.set_active_id(pi.schedule)
+        self.hour.set_value(pi.hour)
+        self.excludes_view.get_buffer().set_text(pi.excludes)
+        self.pre.set_text(pi.pre_cmd)
+        self.post.set_text(pi.post_cmd)
+
+    def result(self):
+        p = copy.copy(self.pi)
+        p.name = self.name.get_text().strip()
+        p.category = "/".join(s.strip() for s in self.category.get_active_text().split("/") if s.strip())
+        p.notes = view_text(self.notes_view)
+        p.host = self.host.get_text().strip()
+        p.port = self.port.get_value_as_int()
+        p.user = self.user.get_text().strip()
+        p.key = self.key.get_active_text().strip()
+        p.jump = self.jump.get_text().strip()
+        p.jump_port = self.jump_port.get_value_as_int()
+        p.compress = self.compress.get_active()
+        p.bwlimit = self.bwlimit.get_value_as_int()
+        p.format = self.format.get_active_id()
+        p.keep = self.keep.get_value_as_int()
+        p.expand = self.expand.get_active()
+        p.schedule = self.schedule.get_active_id()
+        p.hour = self.hour.get_value_as_int()
+        p.excludes = view_text(self.excludes_view).strip()
+        p.pre_cmd = self.pre.get_text().strip()
+        p.post_cmd = self.post.get_text().strip()
+        return p
+
+
+def validate(pi, inventory):
+    if not core.valid_segment(pi.name):
+        return "Der Name darf nicht leer sein und keine Sonderzeichen wie / oder : enthalten."
+    if not core.valid_category(pi.category):
+        return "Die Kategorie enthält ungültige Zeichen."
+    if not pi.host or re.search(r"\s", pi.host):
+        return "Bitte eine Adresse angeben."
+    if not pi.user or not pi.key:
+        return "Bitte Benutzer und SSH-Schlüssel angeben."
+    if inventory.name_taken(pi.name, pi.category, pi.id):
+        return "In dieser Kategorie gibt es schon einen Pi mit diesem Namen."
+    return None
+
+
+class MainWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Pi-Wartung")
+        self.set_default_size(1120, 720)
+        self.settings = Settings.load()
+        self.unraid = Unraid(self.settings)
+        self.inventory = Inventory()
+        self.keys = []
+        self.current_id = None
+        self.tail = None
+        self.tail_for = None
+        self.running = set()
+        self.states = {}
+
+        header = Gtk.HeaderBar(show_close_button=True, title="Pi-Wartung")
+        self.set_titlebar(header)
+        for label, handler in (("Pi hinzufügen", self.on_add_pi), ("Kategorie hinzufügen", self.on_add_category)):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", handler)
+            header.pack_start(b)
+        settings_btn = Gtk.Button(label="Einstellungen")
+        settings_btn.connect("clicked", self.on_settings)
+        header.pack_end(settings_btn)
+        refresh = Gtk.Button.new_from_icon_name("view-refresh-symbolic", Gtk.IconSize.BUTTON)
+        refresh.set_tooltip_text("Neu laden")
+        refresh.connect("clicked", lambda *_: self.reload())
+        header.pack_end(refresh)
+
+        paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        self.add(paned)
+
+        # columns: display text, kind, pi id, category path, status text
+        self.store = Gtk.TreeStore(str, int, str, str, str)
+        self.tree = Gtk.TreeView(model=self.store, headers_visible=False)
+        col = Gtk.TreeViewColumn()
+        name_cell = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END)
+        col.pack_start(name_cell, True)
+        col.add_attribute(name_cell, "markup", 0)
+        col.set_expand(True)
+        self.tree.append_column(col)
+        status_cell = Gtk.CellRendererText(xalign=1)
+        status_col = Gtk.TreeViewColumn("", status_cell, text=4)
+        self.tree.append_column(status_col)
+        self.tree.get_selection().connect("changed", self.on_select)
+        self.tree.connect("button-press-event", self.on_tree_button)
+        side = Gtk.ScrolledWindow()
+        side.set_size_request(300, -1)
+        side.add(self.tree)
+        paned.pack1(side, False, False)
+
+        self.stack = Gtk.Stack()
+        paned.pack2(self.stack, True, False)
+        self.empty_label = Gtk.Label(label="Links einen Pi auswählen oder einen neuen hinzufügen.")
+        self.stack.add_named(self.empty_label, "empty")
+        self.stack.add_named(self.build_detail(), "detail")
+        self.show_all()
+        self.stack.set_visible_child_name("empty")
+        self.reload()
+        GLib.timeout_add_seconds(20, self.poll_states)
+
+    # ------------------------------------------------------------ layout
+    def build_detail(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        top = Gtk.Box(spacing=8)
+        top.set_border_width(12)
+        self.title_label = Gtk.Label(xalign=0)
+        self.title_label.set_hexpand(True)
+        top.pack_start(self.title_label, True, True, 0)
+        self.backup_btn = Gtk.Button(label="Jetzt sichern")
+        self.backup_btn.get_style_context().add_class("suggested-action")
+        self.backup_btn.connect("clicked", self.on_backup)
+        self.cancel_btn = Gtk.Button(label="Abbrechen")
+        self.cancel_btn.connect("clicked", self.on_cancel)
+        terminal_btn = Gtk.Button(label="Terminal")
+        terminal_btn.connect("clicked", self.on_terminal)
+        for w in (terminal_btn, self.cancel_btn, self.backup_btn):
+            top.pack_end(w, False, False, 0)
+        box.pack_start(top, False, False, 0)
+
+        self.progress = Gtk.ProgressBar(show_text=True)
+        self.progress.set_margin_start(12)
+        self.progress.set_margin_end(12)
+        self.progress.set_margin_bottom(8)
+        self.progress.set_no_show_all(True)
+        box.pack_start(self.progress, False, False, 0)
+
+        self.notebook = Gtk.Notebook()
+        box.pack_start(self.notebook, True, True, 0)
+        self.notebook.append_page(self.build_overview(), Gtk.Label(label="Übersicht"))
+        self.notebook.append_page(self.build_images(), Gtk.Label(label="Sicherungen"))
+        self.form_holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.notebook.append_page(self.form_holder, Gtk.Label(label="Konfiguration"))
+        self.notebook.append_page(self.build_log(), Gtk.Label(label="Protokoll"))
+        self.notebook.connect("switch-page", self.on_tab)
+        return box
+
+    def build_overview(self):
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        outer.set_border_width(12)
+        self.status_grid = Gtk.Grid(column_spacing=14, row_spacing=6)
+        outer.pack_start(self.status_grid, False, False, 0)
+        btns = Gtk.Box(spacing=8)
+        b = Gtk.Button(label="Zustand abfragen")
+        b.connect("clicked", self.on_check)
+        btns.pack_start(b, False, False, 0)
+        b = Gtk.Button(label="Zugang einrichten")
+        b.set_tooltip_text("Legt den Unraid-Schlüssel auf dem Pi ab, damit das Unraid ihn sichern kann")
+        b.connect("clicked", self.on_setup_access)
+        btns.pack_start(b, False, False, 0)
+        outer.pack_start(btns, False, False, 8)
+        return outer
+
+    def build_images(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_border_width(12)
+        # columns: file, date, size, full size, info
+        self.image_store = Gtk.ListStore(str, str, str, str, str)
+        self.image_view = Gtk.TreeView(model=self.image_store)
+        for i, title in enumerate(("Datei", "Datum", "Größe", "Auf der Karte", "Quelle")):
+            c = Gtk.TreeViewColumn(title, Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END), text=i)
+            c.set_resizable(True)
+            c.set_expand(i in (0, 4))
+            self.image_view.append_column(c)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_shadow_type(Gtk.ShadowType.IN)
+        scroll.add(self.image_view)
+        box.pack_start(scroll, True, True, 0)
+        row = Gtk.Box(spacing=8)
+        for label, handler in (("In Pi Imager öffnen", self.on_imager), ("Ordner öffnen", self.on_open_folder),
+                               ("Pfad kopieren", self.on_copy_path), ("Löschen", self.on_delete_image)):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", handler)
+            row.pack_start(b, False, False, 0)
+        box.pack_start(row, False, False, 0)
+        return box
+
+    def build_log(self):
+        self.log_view = Gtk.TextView(editable=False, monospace=True, wrap_mode=Gtk.WrapMode.CHAR)
+        scroll = Gtk.ScrolledWindow()
+        scroll.add(self.log_view)
+        return scroll
+
+    # ------------------------------------------------------------ data
+    def error(self, message):
+        dlg = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.ERROR,
+                                buttons=Gtk.ButtonsType.CLOSE, text=message)
+        dlg.run()
+        dlg.destroy()
+
+    def confirm(self, text, detail=""):
+        dlg = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
+                                buttons=Gtk.ButtonsType.OK_CANCEL, text=text, secondary_text=detail)
+        ok = dlg.run() == Gtk.ResponseType.OK
+        dlg.destroy()
+        return ok
+
+    def reload(self):
+        def work():
+            self.unraid.deploy_engine()
+            inv = self.unraid.load_inventory()
+            keys = self.unraid.list_keys()
+            return inv, keys
+
+        def done(result):
+            self.inventory, self.keys = result
+            self.refresh_tree()
+            self.poll_states()
+
+        background(work, done, lambda e: self.error(f"Unraid nicht erreichbar:\n{e}"))
+
+    def refresh_tree(self):
+        selected = self.current_id
+        self.store.clear()
+        nodes = {"": None}
+        for cat in self.inventory.all_categories():
+            parent = cat.rsplit("/", 1)[0] if "/" in cat else ""
+            title = GLib.markup_escape_text(cat.rsplit("/", 1)[-1])
+            nodes[cat] = self.store.append(nodes.get(parent), [f"<b>{title}</b>", ROW_CATEGORY, "", cat, ""])
+        select_iter = None
+        for p in sorted(self.inventory.pis, key=lambda x: x.name.casefold()):
+            it = self.store.append(nodes.get(p.category), [GLib.markup_escape_text(p.name), ROW_PI, p.id,
+                                                           p.category, self.status_text(p.id)])
+            if p.id == selected:
+                select_iter = it
+        self.tree.expand_all()
+        if select_iter:
+            self.tree.get_selection().select_iter(select_iter)
+
+    def status_text(self, pi_id):
+        st = self.states.get(pi_id)
+        if not st:
+            return ""
+        if st.get("RUNNING") == "1":
+            return "läuft"
+        last = st.get("LAST_STATUS")
+        if last == "ok":
+            days = (time.time() - int(st.get("LAST_TIME", "0"))) / 86400
+            return "heute" if days < 1 else f"vor {int(days)} T"
+        return {"failed": "Fehler", "cancelled": "Abgebrochen"}.get(last, "nie")
+
+    def poll_states(self):
+        pis = list(self.inventory.pis)
+
+        def work():
+            out = {}
+            for p in pis:
+                try:
+                    out[p.id] = self.unraid.state(p)
+                except UnraidError:
+                    pass  # no folder yet, or a server hiccup; next poll will tell
+            return out
+
+        def done(states):
+            self.states = states
+            self.update_status_cells()
+            self.update_buttons()
+            self.attach_if_running()
+
+        background(work, done)
+        return True
+
+    def update_status_cells(self):
+        def visit(model, path, it):
+            if model[it][1] == ROW_PI:
+                model[it][4] = self.status_text(model[it][2])
+            return False
+        self.store.foreach(visit)
+
+    @property
+    def current(self):
+        return self.inventory.find(self.current_id) if self.current_id else None
+
+    # ------------------------------------------------------------ selection
+    def on_select(self, selection):
+        model, it = selection.get_selected()
+        if not it or model[it][1] != ROW_PI:
+            return
+        if model[it][2] == self.current_id:
+            return
+        self.current_id = model[it][2]
+        self.show_pi()
+
+    def show_pi(self):
+        pi = self.current
+        if not pi:
+            self.stack.set_visible_child_name("empty")
+            return
+        self.stack.set_visible_child_name("detail")
+        cat = f" · {pi.category}" if pi.category else ""
+        self.title_label.set_markup(
+            f"<big><b>{GLib.markup_escape_text(pi.name)}</b></big>"
+            f"<small>{GLib.markup_escape_text(cat)}\n{GLib.markup_escape_text(pi.user)}@"
+            f"{GLib.markup_escape_text(pi.host)}:{pi.port}</small>")
+        self.render_status({})
+        self.stop_tail()
+        self.log_view.get_buffer().set_text("")
+        self.progress.hide()
+        self.build_form(pi)
+        self.update_buttons()
+        self.load_images()
+        self.load_log()
+        self.attach_if_running()
+        self.on_check()
+
+    def build_form(self, pi):
+        for c in self.form_holder.get_children():
+            self.form_holder.remove(c)
+        self.form = PiForm(self.inventory, self.keys)
+        self.form.load(pi)
+        self.form_holder.pack_start(self.form, True, True, 0)
+        row = Gtk.Box(spacing=8)
+        row.set_border_width(10)
+        save = Gtk.Button(label="Speichern")
+        save.get_style_context().add_class("suggested-action")
+        save.connect("clicked", self.on_save_form)
+        delete = Gtk.Button(label="Pi entfernen")
+        delete.get_style_context().add_class("destructive-action")
+        delete.connect("clicked", self.on_delete_pi)
+        row.pack_end(save, False, False, 0)
+        row.pack_start(delete, False, False, 0)
+        self.form_holder.pack_start(row, False, False, 0)
+        self.form_holder.show_all()
+
+    def on_tab(self, nb, page, num):
+        if num == 1 and self.current:
+            self.load_images()
+
+    def update_buttons(self):
+        st = self.states.get(self.current_id, {})
+        running = st.get("RUNNING") == "1"
+        self.backup_btn.set_sensitive(not running)
+        self.cancel_btn.set_visible(running)
+
+    # ------------------------------------------------------------ overview
+    def render_status(self, info, error=None):
+        for c in self.status_grid.get_children():
+            self.status_grid.remove(c)
+        rows = []
+        if error:
+            rows.append(("Erreichbar", f"Nein: {error}"))
+        elif info:
+            rows += [("Erreichbar", "Ja"), ("Hostname", info.get("hostname", "")), ("Modell", info.get("model", "")),
+                     ("System", info.get("os", "")), ("Kernel", info.get("kernel", "")),
+                     ("Laufzeit", info.get("uptime", "")), ("Last", info.get("load", "")),
+                     ("Speicher Karte", info.get("disk", "")), ("Arbeitsspeicher", info.get("mem", "")),
+                     ("Temperatur", info.get("temp", "")), ("IP", info.get("ip", "")),
+                     ("sudo / rsync", f"{info.get('sudo', '?')} / {info.get('rsync', '?')}"),
+                     ("Neustart nötig", info.get("reboot", ""))]
+        else:
+            rows.append(("Zustand", "wird abgefragt …"))
+        st = self.states.get(self.current_id, {})
+        if st.get("LAST_TIME"):
+            when = time.strftime("%d.%m.%Y %H:%M", time.localtime(int(st["LAST_TIME"])))
+            result = {"ok": "erfolgreich", "failed": "fehlgeschlagen", "cancelled": "abgebrochen"}.get(st.get("LAST_STATUS"), "")
+            rows.append(("Letzte Sicherung", f"{when}, {result}"))
+            if st.get("LAST_ERROR"):
+                rows.append(("Fehler", st["LAST_ERROR"]))
+            if st.get("LAST_WARNINGS"):
+                rows.append(("Hinweis", st["LAST_WARNINGS"]))
+        if st.get("MIRROR_BYTES"):
+            rows.append(("Spiegel auf Unraid", human_size(int(st["MIRROR_BYTES"]))))
+        pi = self.current
+        if pi and pi.notes:
+            rows.append(("Notizen", pi.notes))
+        for i, (k, v) in enumerate(rows):
+            lab = Gtk.Label(label=k, xalign=1)
+            lab.get_style_context().add_class("dim-label")
+            val = Gtk.Label(label=v, xalign=0, selectable=True)
+            val.set_line_wrap(True)
+            self.status_grid.attach(lab, 0, i, 1, 1)
+            self.status_grid.attach(val, 1, i, 1, 1)
+        self.status_grid.show_all()
+
+    def on_check(self, *_):
+        pi = self.current
+        if not pi:
+            return
+        pid = pi.id
+        self.render_status({})
+
+        def done(info):
+            if self.current_id == pid:
+                self.render_status(info)
+
+        def fail(msg):
+            if self.current_id == pid:
+                self.render_status({}, error=msg)
+
+        background(lambda: self.unraid.status(pi), done, fail)
+
+    def on_setup_access(self, *_):
+        pi = self.current
+        if not pi:
+            return
+        if not self.confirm(f"Unraid-Zugang auf {pi.name} einrichten?",
+                            "Das Unraid bekommt einen eigenen Schlüssel, und sein öffentlicher Teil wird in "
+                            f"~/.ssh/authorized_keys von {pi.user}@{pi.host} eingetragen. Dafür nutzt die App deine "
+                            "eigene SSH-Anmeldung von diesem Rechner aus. Sonst wird am Pi nichts geändert."):
+            return
+
+        def work():
+            pub = self.unraid.ensure_key()
+            script = ("umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; "
+                      f"grep -qxF {shlex.quote(pub)} ~/.ssh/authorized_keys || "
+                      f"echo {shlex.quote(pub)} >> ~/.ssh/authorized_keys")
+            p = subprocess.run(pi.ssh_command()[:1] + ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
+                               + pi.ssh_command()[1:] + [script], capture_output=True, text=True, timeout=60)
+            if p.returncode != 0:
+                raise UnraidError(p.stderr.strip() or "Anmeldung am Pi fehlgeschlagen")
+            return None
+
+        def done(_):
+            fresh = copy.copy(pi)
+            fresh.key = core.DEFAULT_KEY
+            self.apply_pi(pi, fresh, lambda: self.on_check())
+
+        background(work, done, lambda e: self.error(
+            f"Zugang konnte nicht eingerichtet werden:\n{e}\n\nDer öffentliche Schlüssel lässt sich auch von Hand "
+            f"eintragen, er liegt auf dem Unraid unter {core.DEFAULT_KEY}.pub."))
+
+    def on_terminal(self, *_):
+        pi = self.current
+        if not pi:
+            return
+        terminal = next((t for t in ("x-terminal-emulator", "gnome-terminal", "xterm") if shutil.which(t)), None)
+        if not terminal:
+            self.error("Kein Terminalprogramm gefunden.")
+            return
+        cmd = pi.ssh_command()
+        args = [terminal, "--", *cmd] if terminal == "gnome-terminal" else [terminal, "-e", " ".join(map(shlex.quote, cmd))]
+        subprocess.Popen(args, start_new_session=True)
+
+    # ------------------------------------------------------------ backup
+    def on_backup(self, *_):
+        pi = self.current
+        if not pi:
+            return
+        self.backup_btn.set_sensitive(False)
+        self.states.setdefault(pi.id, {})["RUNNING"] = "1"
+
+        def work():
+            self.unraid.deploy_engine()
+            self.unraid.write_conf(pi)
+            return self.unraid.start_backup(pi)
+
+        def done(logfile):
+            self.log_view.get_buffer().set_text("")
+            self.notebook.set_current_page(3)
+            self.start_tail(pi.id, logfile)
+            self.update_buttons()
+            self.update_status_cells()
+
+        def fail(msg):
+            self.states[pi.id]["RUNNING"] = "0"
+            self.update_buttons()
+            self.error(f"Sicherung konnte nicht gestartet werden:\n{msg}")
+
+        background(work, done, fail)
+
+    def on_cancel(self, *_):
+        pi = self.current
+        if pi and self.confirm("Sicherung abbrechen?", "Vorhandene Images bleiben unverändert. Der Abgleich macht beim nächsten Mal dort weiter."):
+            background(lambda: self.unraid.cancel(pi), None, self.error)
+
+    def attach_if_running(self):
+        st = self.states.get(self.current_id, {})
+        if st.get("RUNNING") == "1" and self.tail_for != self.current_id and st.get("LOGFILE"):
+            self.log_view.get_buffer().set_text("")
+            self.start_tail(self.current_id, st["LOGFILE"])
+
+    def load_log(self):
+        pi = self.current
+        st = self.states.get(pi.id, {}) if pi else {}
+        path = st.get("LOGFILE")
+        if not path or st.get("RUNNING") == "1":
+            return
+        pid = pi.id
+
+        def done(text):
+            if self.current_id != pid or self.tail_for:
+                return
+            self.log_view.get_buffer().set_text("")
+            for line in text.splitlines():
+                self.handle_line(pid, line, replay=True)
+
+        background(lambda: self.unraid.run(f"tail -n 400 {shlex.quote(path)}"), done)
+
+    def start_tail(self, pi_id, logfile):
+        self.stop_tail()
+        self.tail_for = pi_id
+        self.progress.show()
+        self.progress.set_fraction(0)
+        self.progress.set_text("Startet …")
+        proc = self.unraid.tail_process(logfile)
+        self.tail = proc
+
+        def reader():
+            for line in proc.stdout:
+                GLib.idle_add(self.handle_line, pi_id, line.rstrip("\n"))
+        threading.Thread(target=reader, daemon=True).start()
+
+    def stop_tail(self):
+        if self.tail:
+            self.tail.terminate()
+        self.tail = None
+        self.tail_for = None
+
+    def handle_line(self, pi_id, line, replay=False):
+        if pi_id != self.current_id:
+            return False
+        if line.startswith("@@STEP"):
+            parts = line.split(" ", 3)
+            self.step_label = f"Schritt {parts[1]}/{parts[2]}: {parts[3]}"
+            self.progress.set_fraction(0)
+            self.progress.set_text(self.step_label)
+        elif line.startswith("@@PROGRESS"):
+            parts = line.split(" ", 2)
+            pct = min(int(parts[1]), 100) if parts[1].isdigit() else 0
+            self.progress.set_fraction(pct / 100)
+            self.progress.set_text(f"{getattr(self, 'step_label', '')}  {pct} %  {parts[2] if len(parts) > 2 else ''}")
+        elif line.startswith("@@DONE"):
+            if not replay:
+                self.finish_tail(pi_id, line.split()[-1])
+        else:
+            buf = self.log_view.get_buffer()
+            buf.insert(buf.get_end_iter(), line + "\n")
+            self.log_view.scroll_to_iter(buf.get_end_iter(), 0, False, 0, 0)
+        return False
+
+    def finish_tail(self, pi_id, status):
+        self.stop_tail()
+        self.progress.hide()
+        self.poll_states()
+        self.load_images()
+        if status == "failed":
+            self.error("Die Sicherung ist fehlgeschlagen. Details stehen im Protokoll.")
+
+    # ------------------------------------------------------------ images
+    def load_images(self):
+        pi = self.current
+        if not pi:
+            return
+        pid = pi.id
+
+        def done(rows):
+            if self.current_id != pid:
+                return
+            self.image_store.clear()
+            for r in rows:
+                info = r["info"]
+                raw = int(info["raw_bytes"]) if info.get("raw_bytes", "").isdigit() else 0
+                self.image_store.append([r["file"], time.strftime("%d.%m.%Y %H:%M", time.localtime(r["mtime"])),
+                                         human_size(r["size"]), human_size(raw) if raw else "",
+                                         info.get("os", "")])
+
+        background(lambda: self.unraid.images(pi), done, lambda e: self.image_store.clear())
+
+    def selected_image(self):
+        model, it = self.image_view.get_selection().get_selected()
+        return model[it][0] if it else None
+
+    def local_image_path(self, filename):
+        return self.settings.to_local(f"{self.unraid.pidir(self.current)}/{filename}")
+
+    def on_imager(self, *_):
+        f = self.selected_image()
+        if not f:
+            self.error("Bitte zuerst eine Sicherung auswählen.")
+            return
+        path = self.local_image_path(f)
+        if not os.path.exists(path):
+            self.error(f"Die Datei ist auf diesem Rechner nicht erreichbar:\n{path}\n\nPrüfe unter Einstellungen die Pfadzuordnung.")
+            return
+        if not shutil.which("rpi-imager"):
+            self.error("Raspberry Pi Imager ist nicht installiert.")
+            return
+        subprocess.Popen(["rpi-imager", path], start_new_session=True)
+
+    def on_open_folder(self, *_):
+        if self.current:
+            subprocess.Popen(["xdg-open", self.settings.to_local(self.unraid.pidir(self.current))], start_new_session=True)
+
+    def on_copy_path(self, *_):
+        f = self.selected_image()
+        if f:
+            Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(self.local_image_path(f), -1)
+
+    def on_delete_image(self, *_):
+        f = self.selected_image()
+        pi = self.current
+        if f and pi and self.confirm(f"{f} wirklich löschen?", "Das lässt sich nicht rückgängig machen."):
+            background(lambda: self.unraid.delete_image(pi, f), lambda _: self.load_images(), self.error)
+
+    # ------------------------------------------------------------ add, edit, remove
+    def apply_pi(self, old, new, then=None):
+        """Stores an edited or new Pi on the server and in the list."""
+        inv = self.inventory
+
+        def work():
+            if old:
+                self.unraid.move_pi(old, new)
+            if new.schedule != "off":
+                self.unraid.install_user_script()
+            pis = [new if p.id == new.id else p for p in inv.pis]
+            if not old:
+                pis.append(new)
+            cats = sorted(set(inv.categories) | ({new.category} if new.category else set()))
+            fresh = Inventory(categories=cats, pis=pis)
+            self.unraid.save_inventory(fresh)
+            self.unraid.write_conf(new)
+            return fresh
+
+        def done(fresh):
+            self.inventory = fresh
+            self.current_id = new.id
+            self.refresh_tree()
+            self.show_pi()
+            if then:
+                then()
+
+        background(work, done, lambda e: self.error(f"Speichern fehlgeschlagen:\n{e}"))
+
+    def on_save_form(self, *_):
+        old = self.current
+        new = self.form.result()
+        problem = validate(new, self.inventory)
+        if problem:
+            self.error(problem)
+            return
+        if old and (self.states.get(old.id, {}).get("RUNNING") == "1") and self.unraid.pidir(old) != self.unraid.pidir(new):
+            self.error("Während einer Sicherung lassen sich Name und Kategorie nicht ändern.")
+            return
+        self.apply_pi(old, new)
+
+    def on_add_pi(self, *_):
+        dlg = Gtk.Dialog(title="Pi hinzufügen", transient_for=self, modal=True)
+        dlg.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Hinzufügen", Gtk.ResponseType.OK)
+        dlg.set_default_size(620, 640)
+        form = PiForm(self.inventory, self.keys)
+        new = Pi()
+        form.load(new)
+        area = dlg.get_content_area()
+        hosts = core.ssh_config_hosts()
+        if hosts:
+            row = Gtk.Box(spacing=8)
+            row.set_border_width(10)
+            row.pack_start(Gtk.Label(label="Aus SSH-Konfiguration übernehmen:"), False, False, 0)
+            pick = Gtk.ComboBoxText()
+            pick.append("", "–")
+            for h in sorted(hosts):
+                pick.append(h, h)
+            pick.set_active_id("")
+
+            def on_pick(box):
+                h = hosts.get(box.get_active_id() or "")
+                if not h:
+                    return
+                form.name.set_text(box.get_active_id().capitalize())
+                form.host.set_text(h["host"])
+                form.port.set_value(h["port"])
+                form.user.set_text(h["user"])
+                # A key of the same file name on the server is most likely the matching one.
+                base = os.path.basename(h["identity"])
+                match = next((k for k in self.keys if os.path.basename(k) == base), None)
+                if match:
+                    form.key.get_child().set_text(match)
+
+            pick.connect("changed", on_pick)
+            row.pack_start(pick, True, True, 0)
+            area.pack_start(row, False, False, 0)
+        area.pack_start(form, True, True, 0)
+        sel_model, sel_it = self.tree.get_selection().get_selected()
+        if sel_it:
+            form.category.get_child().set_text(sel_model[sel_it][3])
+        dlg.show_all()
+        while dlg.run() == Gtk.ResponseType.OK:
+            pi = form.result()
+            problem = validate(pi, self.inventory)
+            if problem:
+                self.error(problem)
+                continue
+            dlg.destroy()
+            self.apply_pi(None, pi)
+            return
+        dlg.destroy()
+
+    def ask_text(self, title, label, initial=""):
+        dlg = Gtk.Dialog(title=title, transient_for=self, modal=True)
+        dlg.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "OK", Gtk.ResponseType.OK)
+        dlg.set_default_response(Gtk.ResponseType.OK)
+        entry = Gtk.Entry(text=initial, activates_default=True)
+        area = dlg.get_content_area()
+        area.set_spacing(8)
+        area.set_border_width(12)
+        area.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
+        area.pack_start(entry, False, False, 0)
+        dlg.show_all()
+        value = entry.get_text().strip() if dlg.run() == Gtk.ResponseType.OK else None
+        dlg.destroy()
+        return value
+
+    def save_inventory_async(self):
+        inv = self.inventory
+        background(lambda: self.unraid.save_inventory(inv), lambda _: self.refresh_tree(), self.error)
+
+    def on_add_category(self, *_):
+        model, it = self.tree.get_selection().get_selected()
+        prefix = model[it][3] + "/" if it and model[it][3] else ""
+        value = self.ask_text("Kategorie hinzufügen", "Name, Unterkategorien mit /, zum Beispiel Firma Müller/Standort Nord:", prefix)
+        if not value:
+            return
+        value = "/".join(s.strip() for s in value.split("/") if s.strip())
+        if not core.valid_category(value):
+            self.error("Der Name enthält ungültige Zeichen.")
+            return
+        if value not in self.inventory.categories:
+            self.inventory.categories.append(value)
+        self.save_inventory_async()
+
+    def on_tree_button(self, tree, event):
+        if event.button != 3:
+            return False
+        hit = tree.get_path_at_pos(int(event.x), int(event.y))
+        if not hit:
+            return False
+        row = self.store[hit[0]]
+        if row[1] != ROW_CATEGORY:
+            return False
+        cat = row[3]
+        menu = Gtk.Menu()
+        item = Gtk.MenuItem(label="Kategorie umbenennen")
+        item.connect("activate", lambda *_: self.rename_category(cat))
+        menu.append(item)
+        item = Gtk.MenuItem(label="Kategorie entfernen")
+        item.connect("activate", lambda *_: self.remove_category(cat))
+        menu.append(item)
+        menu.show_all()
+        menu.popup_at_pointer(event)
+        return True
+
+    def in_category(self, pi, cat):
+        return pi.category == cat or pi.category.startswith(cat + "/")
+
+    def rename_category(self, cat):
+        value = self.ask_text("Kategorie umbenennen", "Neuer Pfad:", cat)
+        if not value or value == cat:
+            return
+        value = "/".join(s.strip() for s in value.split("/") if s.strip())
+        if not core.valid_category(value):
+            self.error("Der Name enthält ungültige Zeichen.")
+            return
+        affected = [p for p in self.inventory.pis if self.in_category(p, cat)]
+        if any(self.states.get(p.id, {}).get("RUNNING") == "1" for p in affected):
+            self.error("In dieser Kategorie läuft gerade eine Sicherung.")
+            return
+        inv = self.inventory
+
+        def work():
+            for p in affected:
+                new = copy.copy(p)
+                new.category = value + p.category[len(cat):]
+                self.unraid.move_pi(p, new)
+                self.unraid.write_conf(new)
+                p.category = new.category
+            inv.categories = [value + c[len(cat):] if c == cat or c.startswith(cat + "/") else c for c in inv.categories]
+            self.unraid.save_inventory(inv)
+
+        background(work, lambda _: (self.refresh_tree(), self.show_pi()), self.error)
+
+    def remove_category(self, cat):
+        if any(self.in_category(p, cat) for p in self.inventory.pis):
+            self.error("In dieser Kategorie liegen noch Pis. Bitte erst verschieben oder entfernen.")
+            return
+        self.inventory.categories = [c for c in self.inventory.categories if not (c == cat or c.startswith(cat + "/"))]
+        self.save_inventory_async()
+
+    def on_delete_pi(self, *_):
+        pi = self.current
+        if not pi:
+            return
+        dlg = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.WARNING,
+                                text=f"{pi.name} aus der Liste entfernen?",
+                                secondary_text="Auf Wunsch werden auch alle Images und der Spiegel auf dem Unraid gelöscht. Das lässt sich nicht rückgängig machen.")
+        dlg.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Nur aus der Liste", 1, "Auch alle Daten löschen", 2)
+        answer = dlg.run()
+        dlg.destroy()
+        if answer not in (1, 2):
+            return
+        inv = self.inventory
+
+        def work():
+            inv.pis = [p for p in inv.pis if p.id != pi.id]
+            if answer == 2:
+                self.unraid.delete_pi_data(pi)
+            self.unraid.save_inventory(inv)
+
+        def done(_):
+            self.current_id = None
+            self.stop_tail()
+            self.refresh_tree()
+            self.stack.set_visible_child_name("empty")
+
+        background(work, done, self.error)
+
+    def on_settings(self, *_):
+        dlg = Gtk.Dialog(title="Einstellungen", transient_for=self, modal=True)
+        dlg.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Speichern", Gtk.ResponseType.OK)
+        grid = form_grid()
+        s = self.settings
+        ssh = Gtk.Entry(text=s.unraid_ssh)
+        r = add_row(grid, 0, "Unraid per SSH", ssh, "Eintrag aus ~/.ssh/config oder root@adresse.")
+        root = Gtk.Entry(text=s.root)
+        r = add_row(grid, r, "Sicherungsordner", root, "Pfad auf dem Unraid.")
+        remote = Gtk.Entry(text=s.remote_prefix)
+        r = add_row(grid, r, "Pfad auf Unraid", remote)
+        local = Gtk.Entry(text=s.local_prefix)
+        r = add_row(grid, r, "Hier eingehängt als", local, "Damit die App Images auf diesem Rechner findet.")
+        dlg.get_content_area().pack_start(grid, True, True, 0)
+        dlg.show_all()
+        if dlg.run() == Gtk.ResponseType.OK:
+            s.unraid_ssh, s.root = ssh.get_text().strip(), root.get_text().strip().rstrip("/")
+            s.remote_prefix, s.local_prefix = remote.get_text().strip().rstrip("/"), local.get_text().strip().rstrip("/")
+            s.save()
+            self.unraid = Unraid(s)
+            self.current_id = None
+            self.stop_tail()
+            self.stack.set_visible_child_name("empty")
+            self.reload()
+        dlg.destroy()
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="de.archonw.PiWartung")
+
+    def do_activate(self):
+        win = self.props.active_window or MainWindow(self)
+        win.present()
+
+
+def main():
+    return App().run(None)
