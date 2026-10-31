@@ -8,6 +8,8 @@
 #   pi-backup.sh images <pi-dir>    existing images, one tab separated line each
 #   pi-backup.sh state  <pi-dir>    running/last-run state as key=value
 #   pi-backup.sh cancel <pi-dir>    stop a running backup
+#   pi-backup.sh keygen <pi-dir>    create the key of this Pi if needed, print it
+#   pi-backup.sh install-key <pi-dir>  same, then install it using a password from stdin
 #   pi-backup.sh due    <root>      run every Pi whose schedule is due (for cron)
 #
 # How a backup works: rsync keeps a file level mirror of the Pi in an ext4
@@ -122,9 +124,9 @@ probe_pi() {
   FS_BS=$(awk -F': +' '/^Block size/{print $2}' "$STATE/fs.src")
   FS_ISIZE=$(awk -F': +' '/^Inode size/{print $2}' "$STATE/fs.src")
   # Copy the features of the source, a newer mke2fs would otherwise enable ones
-  # the kernel on an old Pi cannot read.
+  # the kernel on an old Pi cannot read. The filtered ones are runtime states.
   FS_FEATURES=$(awk -F': +' '/^Filesystem features/{print $2}' "$STATE/fs.src" \
-    | tr ' ' '\n' | grep -vE '^(needs_recovery|recover|mmp|$)' | paste -sd, -)
+    | tr ' ' '\n' | grep -vE '^(needs_recovery|recover|orphan_present|mmp|$)' | paste -sd, -)
   [ -n "$FS_UUID" ] && [ -n "$FS_BS" ] && [ -n "$FS_FEATURES" ] || die "Dateisystem-Daten unvollständig"
 
   USED_KB=$(on_pi "df -k --output=used / | tail -1" | tr -d ' ')
@@ -318,7 +320,7 @@ EOF
 }
 
 build_root() {
-  local img="$STATE/root.ext4" used_kb size_kb rc tries=0
+  local img="$STATE/root.ext4" used_kb size_kb rc tries=0 output
   used_kb=$(df -k --output=used "$MNT" | tail -1 | tr -d ' ')
   size_kb=$((used_kb * 13 / 10 + 524288))
   while :; do
@@ -326,10 +328,13 @@ build_root() {
     truncate -s "${size_kb}K" "$img"
     log "Dateisystem aufbauen: $((size_kb / 1024)) MiB"
     # shellcheck disable=SC2086
-    mke2fs -q -F -t ext4 -b "$FS_BS" -I "$FS_ISIZE" -i 16384 -m 5 -O "none,$FS_FEATURES" \
-      -U "$FS_UUID" ${FS_LABEL:+-L "$FS_LABEL"} -d "$MNT" "$img" 2>&1 | tail -5
-    rc=${PIPESTATUS[0]}
+    output=$(mke2fs -q -F -t ext4 -b "$FS_BS" -I "$FS_ISIZE" -i 16384 -m 5 -O "none,$FS_FEATURES" \
+      -U "$FS_UUID" ${FS_LABEL:+-L "$FS_LABEL"} -d "$MNT" "$img" 2>&1)
+    rc=$?
     [ "$rc" = 0 ] && break
+    printf '%s\n' "$output" | tail -5
+    # Only a lack of space is worth another try.
+    printf '%s' "$output" | grep -qiE 'no space|could not allocate|inode' || die "Dateisystem konnte nicht aufgebaut werden"
     tries=$((tries + 1))
     [ "$tries" -lt 3 ] || die "Dateisystem konnte nicht aufgebaut werden"
     log "Zu klein, nächster Versuch mit mehr Platz"
@@ -559,6 +564,40 @@ cmd_images() {
   done < <(ls -1t "$PIDIR/${NAME}_"*.img "$PIDIR/${NAME}_"*.img.xz "$PIDIR/${NAME}_"*.img.gz 2>/dev/null)
 }
 
+cmd_keygen() {
+  load_conf "$1"
+  mkdir -p "$(dirname "$KEY")"
+  [ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N '' -C "pi-wartung:$NAME" -f "$KEY" || exit 1
+  cat "$KEY.pub"
+}
+
+# Reads the password from stdin. It is used once and never stored or logged.
+cmd_install_key() {
+  load_conf "$1"
+  command -v sshpass >/dev/null || { echo "sshpass fehlt auf dem Unraid" >&2; exit 1; }
+  local pub script rc
+  pub=$(cmd_keygen "$PIDIR") || { echo "Schlüssel konnte nicht erzeugt werden" >&2; exit 1; }
+  IFS= read -r SSHPASS
+  export SSHPASS
+  script="umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; grep -qxF $(printf %q "$pub") ~/.ssh/authorized_keys || echo $(printf %q "$pub") >> ~/.ssh/authorized_keys"
+  sshpass -e ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR \
+    -o UserKnownHostsFile="$STATE/known_hosts" -o PubkeyAuthentication=no \
+    -o PreferredAuthentications=password,keyboard-interactive -o NumberOfPasswordPrompts=1 \
+    -p "$PORT" "$USER_NAME@$HOST" "$script"
+  rc=$?
+  unset SSHPASS
+  case "$rc" in
+    0) ;;
+    5) echo "Benutzername oder Passwort ist falsch" >&2; exit 1 ;;
+    6) echo "Der Host-Schlüssel des Pi wurde nicht akzeptiert" >&2; exit 1 ;;
+    *) echo "Anmeldung am Pi fehlgeschlagen (Code $rc). Ist die Passwort-Anmeldung dort erlaubt?" >&2; exit 1 ;;
+  esac
+  make_ssh_wrapper
+  trap 'rm -f "$SSHW"' EXIT
+  on_pi true || { echo "Schlüssel übertragen, aber die Anmeldung damit klappt nicht" >&2; exit 1; }
+  on_pi 'sudo -n true' 2>/dev/null && echo "sudo=ok" || echo "sudo=fehlt"
+}
+
 cmd_due() {
   local root=${1%/} conf now hour age need
   now=$(date +%s); hour=$((10#$(date +%H)))
@@ -583,8 +622,9 @@ cmd_due() {
 }
 
 case "${1:-}" in
-  backup|start|state|cancel|status|images) c=$1; shift; "cmd_$c" "$@" ;;
+  backup|start|state|cancel|status|images|keygen) c=$1; shift; "cmd_$c" "$@" ;;
+  install-key) shift; cmd_install_key "$@" ;;
   due) shift; exec 8>/tmp/pi-wartung-due.lock; flock -n 8 || exit 0; cmd_due "$@" ;;
   version) echo "$ENGINE_VERSION" ;;
-  *) sed -n '2,12p' "$SCRIPT"; exit 2 ;;
+  *) sed -n '2,14p' "$SCRIPT"; exit 2 ;;
 esac

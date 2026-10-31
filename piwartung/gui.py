@@ -19,6 +19,8 @@ from .core import Inventory, Pi, Settings, Unraid, UnraidError, human_size  # no
 FORMATS = [("xz", "Am kleinsten (.img.xz)"), ("gz", "Schneller (.img.gz)"), ("img", "Unkomprimiert (.img)")]
 SCHEDULES = [("off", "Aus"), ("daily", "Täglich"), ("weekly", "Wöchentlich"), ("monthly", "Monatlich")]
 ROW_CATEGORY, ROW_PI = 0, 1
+PASSWORD_HINT = ("Das Passwort des Benutzers auf dem Pi. Es wird nur einmal für die Übertragung genutzt "
+                 "und nirgends gespeichert.")
 
 
 def background(func, done=None, error=None):
@@ -41,6 +43,12 @@ def combo(options, active):
         box.append(value, label)
     box.set_active_id(active)
     return box
+
+
+def password_entry():
+    entry = Gtk.Entry(visibility=False, input_purpose=Gtk.InputPurpose.PASSWORD)
+    entry.set_placeholder_text("Leer lassen, um deine eigene SSH-Anmeldung zu nutzen")
+    return entry
 
 
 def form_grid():
@@ -88,9 +96,11 @@ def view_text(view):
 class PiForm(Gtk.ScrolledWindow):
     """All settings of one Pi; used in the tab and in the 'new Pi' dialog."""
 
-    def __init__(self, inventory, keys):
+    def __init__(self, inventory, keys, offer_new_key=False):
         super().__init__()
         self.pi = Pi()
+        self.new_key = None
+        self.password = None
         grid = form_grid()
         self.add(grid)
         r = 0
@@ -123,6 +133,14 @@ class PiForm(Gtk.ScrolledWindow):
         self.key = Gtk.ComboBoxText.new_with_entry()
         for k in keys:
             self.key.append_text(k)
+        if offer_new_key:
+            self.new_key = Gtk.CheckButton(label="Neuen Schlüssel für diesen Pi erzeugen und übertragen")
+            self.new_key.set_active(True)
+            r = add_row(grid, r, "Zugang", self.new_key)
+            self.password = password_entry()
+            r = add_row(grid, r, "Passwort", self.password, PASSWORD_HINT)
+            self.new_key.connect("toggled", self.on_new_key_toggled)
+            self.key.set_sensitive(False)
         r = add_row(grid, r, "SSH-Schlüssel", self.key, "Pfad auf dem Unraid.")
         self.jump = Gtk.Entry()
         self.jump.set_placeholder_text("benutzer@sprunghost, leer für direkte Verbindung")
@@ -155,6 +173,10 @@ class PiForm(Gtk.ScrolledWindow):
         r = add_row(grid, r, "Befehl nachher", self.post)
         self.set_size_request(-1, 420)
 
+    def on_new_key_toggled(self, button):
+        self.password.set_sensitive(button.get_active())
+        self.key.set_sensitive(not button.get_active())
+
     def load(self, pi):
         self.pi = pi
         self.name.set_text(pi.name)
@@ -186,6 +208,8 @@ class PiForm(Gtk.ScrolledWindow):
         p.port = self.port.get_value_as_int()
         p.user = self.user.get_text().strip()
         p.key = self.key.get_active_text().strip()
+        if self.new_key and self.new_key.get_active():
+            p.key = p.own_key_path()
         p.jump = self.jump.get_text().strip()
         p.jump_port = self.jump_port.get_value_as_int()
         p.compress = self.compress.get_active()
@@ -320,8 +344,8 @@ class MainWindow(Gtk.ApplicationWindow):
         b = Gtk.Button(label="Zustand abfragen")
         b.connect("clicked", self.on_check)
         btns.pack_start(b, False, False, 0)
-        b = Gtk.Button(label="Zugang einrichten")
-        b.set_tooltip_text("Legt den Unraid-Schlüssel auf dem Pi ab, damit das Unraid ihn sichern kann")
+        b = Gtk.Button(label="Neuen Schlüssel einrichten")
+        b.set_tooltip_text("Erzeugt einen neuen Schlüssel für diesen Pi und überträgt ihn, auf Wunsch mit Passwort")
         b.connect("clicked", self.on_setup_access)
         btns.pack_start(b, False, False, 0)
         outer.pack_start(btns, False, False, 8)
@@ -569,31 +593,55 @@ class MainWindow(Gtk.ApplicationWindow):
         pi = self.current
         if not pi:
             return
-        if not self.confirm(f"Unraid-Zugang auf {pi.name} einrichten?",
-                            "Das Unraid bekommt einen eigenen Schlüssel, und sein öffentlicher Teil wird in "
-                            f"~/.ssh/authorized_keys von {pi.user}@{pi.host} eingetragen. Dafür nutzt die App deine "
-                            "eigene SSH-Anmeldung von diesem Rechner aus. Sonst wird am Pi nichts geändert."):
+        dlg = Gtk.Dialog(title="Neuen SSH-Schlüssel einrichten", transient_for=self, modal=True)
+        dlg.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Einrichten", Gtk.ResponseType.OK)
+        dlg.set_default_response(Gtk.ResponseType.OK)
+        grid = form_grid()
+        info = Gtk.Label(xalign=0, label=f"Das Unraid bekommt einen eigenen Schlüssel für {pi.name}. Sein öffentlicher Teil "
+                                         f"wird bei {pi.user}@{pi.host} eingetragen. Sonst ändert sich am Pi nichts.")
+        info.set_line_wrap(True)
+        info.set_max_width_chars(60)
+        grid.attach(info, 0, 0, 2, 1)
+        user = Gtk.Entry(text=pi.user)
+        r = add_row(grid, 1, "Benutzer", user)
+        password = password_entry()
+        password.set_activates_default(True)
+        add_row(grid, r, "Passwort", password, PASSWORD_HINT)
+        dlg.get_content_area().pack_start(grid, True, True, 0)
+        dlg.show_all()
+        answer, username, secret = dlg.run(), user.get_text().strip(), password.get_text()
+        dlg.destroy()
+        if answer != Gtk.ResponseType.OK or not username:
             return
+        fresh = copy.copy(pi)
+        fresh.user = username
+        fresh.key = fresh.own_key_path()
+        self.install_key(pi, fresh, secret)
 
+    def install_key(self, old, fresh, secret):
+        """Installs the key of fresh; only then does the Pi use it from now on."""
         def work():
-            pub = self.unraid.ensure_key()
-            script = ("umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; "
-                      f"grep -qxF {shlex.quote(pub)} ~/.ssh/authorized_keys || "
-                      f"echo {shlex.quote(pub)} >> ~/.ssh/authorized_keys")
-            p = subprocess.run(pi.ssh_command()[:1] + ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
-                               + pi.ssh_command()[1:] + [script], capture_output=True, text=True, timeout=60)
-            if p.returncode != 0:
-                raise UnraidError(p.stderr.strip() or "Anmeldung am Pi fehlgeschlagen")
-            return None
+            if secret:
+                return self.unraid.install_key_with_password(fresh, secret)
+            return self.unraid.install_key_from_desktop(fresh)
 
-        def done(_):
-            fresh = copy.copy(pi)
-            fresh.key = core.DEFAULT_KEY
-            self.apply_pi(pi, fresh, lambda: self.on_check())
+        def done(result):
+            def after():
+                self.on_check()
+                if result.get("sudo") != "ok":
+                    self.error(f"Der Schlüssel funktioniert, aber {fresh.user} darf sudo nicht ohne Passwort nutzen. "
+                               "Für Sicherungen ist das nötig.")
+            self.apply_pi(old, fresh, after)
 
-        background(work, done, lambda e: self.error(
-            f"Zugang konnte nicht eingerichtet werden:\n{e}\n\nDer öffentliche Schlüssel lässt sich auch von Hand "
-            f"eintragen, er liegt auf dem Unraid unter {core.DEFAULT_KEY}.pub."))
+        def fail(message):
+            if old:
+                self.unraid_restore_conf(old)
+            self.error(f"Der Schlüssel konnte nicht eingerichtet werden:\n{message}")
+
+        background(work, done, fail)
+
+    def unraid_restore_conf(self, pi):
+        background(lambda: self.unraid.write_conf(pi))
 
     def on_terminal(self, *_):
         pi = self.current
@@ -813,7 +861,7 @@ class MainWindow(Gtk.ApplicationWindow):
         dlg = Gtk.Dialog(title="Pi hinzufügen", transient_for=self, modal=True)
         dlg.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Hinzufügen", Gtk.ResponseType.OK)
         dlg.set_default_size(620, 640)
-        form = PiForm(self.inventory, self.keys)
+        form = PiForm(self.inventory, self.keys, offer_new_key=True)
         new = Pi()
         form.load(new)
         area = dlg.get_content_area()
@@ -841,6 +889,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 match = next((k for k in self.keys if os.path.basename(k) == base), None)
                 if match:
                     form.key.get_child().set_text(match)
+                    form.new_key.set_active(False)
 
             pick.connect("changed", on_pick)
             row.pack_start(pick, True, True, 0)
@@ -856,8 +905,14 @@ class MainWindow(Gtk.ApplicationWindow):
             if problem:
                 self.error(problem)
                 continue
+            wants_key = form.new_key.get_active()
+            secret = form.password.get_text()
             dlg.destroy()
-            self.apply_pi(None, pi)
+            if wants_key:
+                # Saved first, so that a failed transfer can simply be repeated from the overview.
+                self.apply_pi(None, pi, lambda: self.install_key(pi, pi, secret))
+            else:
+                self.apply_pi(None, pi)
             return
         dlg.destroy()
 

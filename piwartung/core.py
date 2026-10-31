@@ -84,6 +84,10 @@ class Pi:
         lines += [f"{k}={shlex.quote(str(v))}" for k, v in values.items()]
         return "\n".join(lines) + "\n"
 
+    def own_key_path(self):
+        """Path of the key that belongs to this Pi alone, on the Unraid server."""
+        return f"/root/.ssh/pi-wartung-{self.id[:8]}"
+
     def ssh_command(self):
         """ssh call for this Pi as run from the desktop, for terminal and key setup."""
         cmd = ["ssh", "-p", str(self.port)]
@@ -269,11 +273,29 @@ class Unraid:
         self.run(f"rm -rf {shlex.quote(d)}", timeout=300)
 
     # ---- access
-    def ensure_key(self):
-        """Returns the public key of the Unraid backup key, creating it if needed."""
-        k = shlex.quote(DEFAULT_KEY)
-        self.run(f"[ -f {k} ] || ssh-keygen -q -t ed25519 -N '' -C pi-wartung@unraid -f {k}")
-        return self.run(f"cat {k}.pub").strip()
+    def install_key_with_password(self, pi, password):
+        """Creates the key of this Pi on the server and installs it with a one-time password."""
+        self.write_conf(pi)
+        out = self.run(f"bash {shlex.quote(self.engine)} install-key {shlex.quote(self.pidir(pi))}",
+                       stdin=password + "\n", timeout=90)
+        return parse_kv(out)
+
+    def install_key_from_desktop(self, pi):
+        """Same, but through the user's own ssh login, also on a jump host if there is one."""
+        self.write_conf(pi)
+        pub = self.engine_cmd("keygen", pi).strip()
+        script = ("umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; "
+                  f"grep -qxF {shlex.quote(pub)} ~/.ssh/authorized_keys || "
+                  f"echo {shlex.quote(pub)} >> ~/.ssh/authorized_keys")
+        logins = [pi.ssh_command()]
+        if pi.jump:
+            logins.insert(0, ["ssh", "-p", str(pi.jump_port), pi.jump])
+        for login in logins:
+            p = subprocess.run(login[:1] + ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15"] + login[1:] + [script],
+                               capture_output=True, text=True, timeout=60)
+            if p.returncode != 0:
+                raise UnraidError(p.stderr.strip() or "Anmeldung fehlgeschlagen")
+        return self.status(pi)
 
     def list_keys(self):
         out = self.run("ls -1 /root/.ssh/*.pub 2>/dev/null | sed 's/\\.pub$//'; true")

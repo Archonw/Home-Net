@@ -46,8 +46,17 @@ zum Beispiel NFS-Freigaben. Weitere Ausschlüsse gehen pro Pi in der Konfigurati
 Das Unraid baut die Verbindung auf, der Pi muss also von dort erreichbar sein: per DynDNS mit Portweiterleitung,
 per Tailscale oder über einen Sprunghost. Für langsame Leitungen gibt es Komprimierung und ein Bandbreitenlimit.
 
-**Zugang einrichten** erzeugt auf dem Unraid den Schlüssel `/root/.ssh/pi-wartung` und trägt ihn über deine
-eigene SSH-Anmeldung auf dem Pi ein. Einen Sprunghost muss der Schlüssel ebenfalls kennen.
+## SSH-Schlüssel
+
+Beim Hinzufügen eines Pi und unter **Neuen Schlüssel einrichten** erzeugt die App auf dem Unraid einen eigenen
+Schlüssel für diesen Pi und trägt ihn dort ein:
+
+- **Mit Passwort:** Benutzer und Passwort werden einmalig für die Übertragung genutzt und nirgends gespeichert.
+  Das Unraid meldet sich dabei selbst am Pi an.
+- **Ohne Passwort:** Die App nutzt deine eigene SSH-Anmeldung von diesem Rechner und richtet den Schlüssel
+  auch auf einem Sprunghost ein. Bei Pis hinter einem Sprunghost ist das der vorgesehene Weg.
+
+Danach prüft die App die Anmeldung und ob sudo ohne Passwort möglich ist.
 
 ## Ablage auf dem Unraid
 
