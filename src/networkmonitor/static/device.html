@@ -108,7 +108,22 @@ async function load() {
 }
 
 $("allow").onclick = () => act("allow");
-$("block").onclick = () => act("block");
+$("block").onclick = async () => {
+  const related = state.device.related || [];
+  if (related.length) {
+    const names = related.map(r => `${r.title} (${r.ip})`).join(", ");
+    const ok = await NM.dialog({
+      title: "Wirklich sperren?",
+      text: `Dieser Eintrag ist wahrscheinlich eine Repeater-Kopie von ${names}. ` +
+        (state.device.ip
+          ? `Die Sperre gilt für die IP ${state.device.ip}, das kann auch das echte Gerät treffen.`
+          : "Ohne IP bewirkt die Sperre nichts."),
+      ok: "Trotzdem sperren", danger: true,
+    });
+    if (!ok) return;
+  }
+  act("block");
+};
 document.addEventListener("click", async e => {
   const c = e.target.closest("[data-copy]");
   if (c) {

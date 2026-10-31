@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from networkmonitor.config import Settings
-from networkmonitor.notify import HomeAssistantNotifier, TelegramNotifier, build_notifiers
+from networkmonitor.notify import (
+    HomeAssistantNotifier,
+    TelegramNotifier,
+    build_notifiers,
+    describe,
+)
 from networkmonitor.store import Status, Store
 
 
@@ -128,3 +133,10 @@ def test_ntfy_links_into_app():
         type(n).__name__
         for n in build_notifiers(Settings(notify=("ntfy",), ntfy_url="http://n", ntfy_topic="t"))
     ] == ["NtfyNotifier"]
+
+
+def test_describe_shows_hint_only_when_set():
+    _, device = make_device()
+    assert "Hinweis" not in describe(device)
+    device.hint = "Könnte das gesperrte Gerät iPhone über einen Repeater sein"
+    assert "Hinweis: Könnte das gesperrte Gerät iPhone" in describe(device)

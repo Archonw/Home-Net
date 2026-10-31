@@ -284,6 +284,7 @@ fun DetailScreen(api: Api, mac: String, style: AppStyle, onBack: () -> Unit) {
     var busy by remember(mac) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    var confirmBlock by remember { mutableStateOf(false) }
 
     LaunchedEffect(mac) {
         try {
@@ -314,7 +315,7 @@ fun DetailScreen(api: Api, mac: String, style: AppStyle, onBack: () -> Unit) {
         message = message,
         busy = busy,
         onAllow = { act(true) },
-        onBlock = { act(false) },
+        onBlock = { if (device?.related.isNullOrEmpty()) act(false) else confirmBlock = true },
         onBack = onBack,
         onCopy = { label, value ->
             clipboard.setText(AnnotatedString(value))
@@ -324,6 +325,31 @@ fun DetailScreen(api: Api, mac: String, style: AppStyle, onBack: () -> Unit) {
     when (style) {
         AppStyle.SOFT -> SoftDetail(ui)
         AppStyle.TILES -> TilesDetail(ui)
+    }
+    val blocking = device
+    if (confirmBlock && blocking != null) {
+        AlertDialog(
+            onDismissRequest = { confirmBlock = false },
+            title = { Text("Wirklich sperren?") },
+            text = {
+                Text(
+                    "Dieser Eintrag ist wahrscheinlich eine Repeater-Kopie von " +
+                        blocking.related.joinToString(", ") + ". " +
+                        if (blocking.ip.isBlank()) {
+                            "Ohne IP bewirkt die Sperre nichts."
+                        } else {
+                            "Die Sperre gilt für die IP ${blocking.ip}, das kann auch das echte Gerät treffen."
+                        },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmBlock = false
+                    act(false)
+                }) { Text("Trotzdem sperren") }
+            },
+            dismissButton = { TextButton(onClick = { confirmBlock = false }) { Text("Abbrechen") } },
+        )
     }
 }
 

@@ -248,3 +248,84 @@ def test_blocking_device_outside_host_filter_gives_clear_error():
     result = monitor.poll_once()
     assert len(result.errors) == 1
     assert "fest eingestellter IP" in result.errors[0]
+
+
+REAL = Host("3C:A6:2F:D4:4B:78", "192.168.178.1", "fritz.box", "", True)
+COPY = Host("02:0F:B5:D4:4B:78", "", "PC-02-0F-B5-D4-4B-78", "802.11", True)
+
+
+def _known(*hosts):
+    router, store, monitor = make(hosts=list(hosts))
+    monitor.poll_once()
+    return router, store, monitor
+
+
+def test_repeater_copy_without_ip_is_not_reported():
+    router, store, monitor = _known(REAL)
+    router.hosts = [COPY, REAL]
+    assert monitor.poll_once().new_devices == []
+    assert store.get(COPY.mac) is None
+
+
+def test_repeater_copy_ignored_when_listed_before_original_in_first_scan():
+    _, store, _ = _known(COPY, REAL)
+    assert store.get(COPY.mac) is None
+    assert store.get(REAL.mac) is not None
+
+
+def test_repeater_copy_with_ip_is_reported():
+    router, _, monitor = _known(REAL)
+    router.hosts = [REAL, Host(COPY.mac, "192.168.178.77", "", "802.11", True)]
+    assert [d.mac for d in monitor.poll_once().new_devices] == [COPY.mac]
+
+
+def test_address_without_ip_and_without_relative_is_reported():
+    router, _, monitor = _known(REAL)
+    other = Host("02:0F:B5:11:22:33", "", "", "802.11", True)
+    router.hosts = [REAL, other]
+    assert [d.mac for d in monitor.poll_once().new_devices] == [other.mac]
+
+
+def test_global_mac_without_ip_is_not_treated_as_copy():
+    router, _, monitor = _known(REAL)
+    other = Host("AC:BB:CC:D4:4B:78", "", "", "Ethernet", True)
+    router.hosts = [REAL, other]
+    assert [d.mac for d in monitor.poll_once().new_devices] == [other.mac]
+
+
+def test_known_copy_stays_in_the_list():
+    router, store, monitor = _known(REAL)
+    store.record_sighting(COPY.mac, ip="", hostname="", interface="", online=False)
+    router.hosts = [REAL, COPY]
+    monitor.poll_once()
+    assert store.get(COPY.mac).online
+
+
+def test_new_device_gets_hint_about_blocked_relative():
+    phone = Host("02:0F:B5:64:1F:96", "192.168.178.37", "iPhone", "802.11", True)
+    router, _, monitor = _known(phone)
+    monitor.set_status(phone.mac, Status.BLOCKED)
+    router.hosts = [Host("62:70:96:64:1F:96", "192.168.178.93", "iPhone", "802.11", True)]
+    new = monitor.poll_once().new_devices
+    assert "gesperrte Gerät iPhone" in new[0].hint
+
+
+def test_new_device_has_no_hint_for_allowed_relative():
+    router, _, monitor = _known(REAL)
+    router.hosts = [Host(COPY.mac, "192.168.178.77", "", "802.11", True)]
+    assert monitor.poll_once().new_devices[0].hint == ""
+
+
+def test_api_names_related_devices_only_for_random_mac():
+    router = FakeRouter([REAL])
+    store = Store(":memory:")
+    settings = Settings(db_path=":memory:", ui_password="geheimnis1")
+    app = create_app(settings, router=router, store=store, start_poller=False, notifiers=[])
+    app.state.monitor.poll_once()
+    store.record_sighting(COPY.mac, ip="", hostname="", interface="", online=False)
+    client = TestClient(app)
+    client.auth = ("", "geheimnis1")
+    related = client.get(f"/api/devices/{COPY.mac}").json()["related"]
+    assert related == [{"mac": REAL.mac, "title": "fritz.box", "ip": REAL.ip}]
+    assert client.get(f"/api/devices/{REAL.mac}").json()["related"] == []
+    assert client.post(f"/api/devices/{COPY.mac}/block").json()["related"] == related
