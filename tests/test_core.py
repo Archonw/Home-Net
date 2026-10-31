@@ -18,6 +18,7 @@ class Conf(unittest.TestCase):
         out = subprocess.run(["bash", "-c", 'source /dev/stdin; printf "%s|%s|%s" "$NAME" "$PRE_CMD" "$EXCLUDES"'],
                              input=pi.conf_text(), capture_output=True, text=True, check=True).stdout
         self.assertEqual(out, "Küche|sudo systemctl stop 'a b'; echo $HOME|/data/*\n/x y")
+        self.assertIn("NOTIFY=errors", pi.conf_text())
 
 
 class Names(unittest.TestCase):

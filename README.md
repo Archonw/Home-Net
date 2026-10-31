@@ -77,6 +77,12 @@ PiWartung/
 Wird bei einem Pi ein Zeitplan gewählt, legt die App das User Script `PiWartung-Geplant` an. Es läuft stündlich
 und sichert jeden Pi, der fällig ist. Ist ein Pi gerade nicht erreichbar, folgt der nächste Versuch eine Stunde später.
 
+## Benachrichtigungen
+
+Pro Pi lässt sich wählen: nur bei Fehlern, auch bei Erfolg oder aus. Die Nachricht geht über das Benachrichtigungssystem
+des Unraid, wohin sie geht, stellst du dort unter *Settings → Notifications* ein. Bei einem dauerhaften Problem kommt eine
+Nachricht beim ersten Fehler, dann höchstens eine pro Tag und eine, sobald es wieder klappt.
+
 ## Entwicklung
 
 ```bash

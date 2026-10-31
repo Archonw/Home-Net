@@ -33,7 +33,7 @@ load_conf() {
   # Defaults, in case of a pi.conf from an older app version.
   NAME="" HOST="" PORT=22 USER_NAME=pi KEY=/root/.ssh/pi-wartung JUMP="" JUMP_PORT=22
   KEEP=3 FORMAT=xz EXPAND=1 EXCLUDES="" BWLIMIT=0 COMPRESS=0 PRE_CMD="" POST_CMD=""
-  SCHEDULE=off HOUR=3 MARGIN_MB=512
+  SCHEDULE=off HOUR=3 MARGIN_MB=512 NOTIFY=errors
   # shellcheck disable=SC1091
   . "$PIDIR/pi.conf"
   STATE="$PIDIR/.state"
@@ -65,6 +65,31 @@ on_pi() { "$SSHW" "$TARGET" "$@"; }
 ERROR=""
 MNT="" LOOPDEV_ROOT="" PRE_DONE=0 FINISHED=0 CANCELLED=0 WARNINGS=""
 
+# One message when a Pi starts failing, a reminder per day while it stays broken,
+# and one when it recovers. Hourly retries would otherwise flood the inbox.
+send_notification() {
+  local status=$1 prev now notified=0 sender=/usr/local/emhttp/webGui/scripts/notify
+  [ "$NOTIFY" != off ] && [ -x "$sender" ] || return 0
+  prev=$(sed -n 's/^LAST_STATUS=//p' "$STATE/last" 2>/dev/null)
+  now=$(date +%s)
+  [ -f "$STATE/notified" ] && notified=$(cat "$STATE/notified")
+  case "$status" in
+    failed)
+      if [ "$prev" != failed ] || [ $((now - notified)) -ge 86400 ]; then
+        "$sender" -e "Pi-Wartung" -s "Sicherung von $NAME fehlgeschlagen" -d "$ERROR" -i alert >/dev/null 2>&1
+        echo "$now" > "$STATE/notified"
+      fi ;;
+    ok)
+      if [ "$prev" = failed ]; then
+        "$sender" -e "Pi-Wartung" -s "Sicherung von $NAME klappt wieder" -d "Neues Image: ${OUT_NAME:-}" -i normal >/dev/null 2>&1
+      elif [ "$NOTIFY" = always ]; then
+        "$sender" -e "Pi-Wartung" -s "Sicherung von $NAME erfolgreich" -d "Neues Image: ${OUT_NAME:-}" -i normal >/dev/null 2>&1
+      fi
+      rm -f "$STATE/notified" ;;
+  esac
+  return 0
+}
+
 cleanup() {
   local rc=$?
   trap - EXIT INT TERM HUP
@@ -81,6 +106,7 @@ cleanup() {
   [ "$FINISHED" = 1 ] && status=ok
   [ "$CANCELLED" = 1 ] && status=cancelled
   [ "$status" = failed ] && [ -z "$ERROR" ] && ERROR="Abbruch mit Code $rc"
+  send_notification "$status"
   {
     echo "LAST_STATUS=$status"
     echo "LAST_TIME=$(date +%s)"

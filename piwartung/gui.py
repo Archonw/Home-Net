@@ -18,6 +18,7 @@ from .core import Inventory, Pi, Settings, Unraid, UnraidError, human_size  # no
 
 FORMATS = [("xz", "Am kleinsten (.img.xz)"), ("gz", "Schneller (.img.gz)"), ("img", "Unkomprimiert (.img)")]
 SCHEDULES = [("off", "Aus"), ("daily", "Täglich"), ("weekly", "Wöchentlich"), ("monthly", "Monatlich")]
+NOTIFY_OPTIONS = [("errors", "Nur bei Fehlern"), ("always", "Auch bei Erfolg"), ("off", "Aus")]
 ROW_CATEGORY, ROW_PI = 0, 1
 GREEN, RED, AMBER, BLUE, GRAY = "#2e9e5b", "#d64545", "#d98a1f", "#2f6fed", "#8a8f98"
 PASSWORD_HINT = ("Das Passwort des Benutzers auf dem Pi. Es wird nur einmal für die Übertragung genutzt "
@@ -189,6 +190,9 @@ class PiForm(Gtk.ScrolledWindow):
         r = add_row(grid, r, "Zeitplan", self.schedule, "Läuft auf dem Unraid über User Scripts, auch wenn dieser Rechner aus ist.")
         self.hour = Gtk.SpinButton.new_with_range(0, 23, 1)
         r = add_row(grid, r, "Frühestens ab Stunde", self.hour)
+        self.notify = combo(NOTIFY_OPTIONS, "errors")
+        r = add_row(grid, r, "Benachrichtigung", self.notify,
+                    "Über das Unraid, also per Mail oder Push, je nachdem wie es dort eingerichtet ist.")
         self.excludes_view, excludes = text_view()
         r = add_row(grid, r, "Ausschlüsse", excludes, "Ein rsync-Muster je Zeile, zusätzlich zu Swap, Caches und /tmp.")
         self.pre = Gtk.Entry()
@@ -221,6 +225,7 @@ class PiForm(Gtk.ScrolledWindow):
         self.expand.set_active(pi.expand)
         self.schedule.set_active_id(pi.schedule)
         self.hour.set_value(pi.hour)
+        self.notify.set_active_id(pi.notify)
         self.excludes_view.get_buffer().set_text(pi.excludes)
         self.pre.set_text(pi.pre_cmd)
         self.post.set_text(pi.post_cmd)
@@ -245,6 +250,7 @@ class PiForm(Gtk.ScrolledWindow):
         p.expand = self.expand.get_active()
         p.schedule = self.schedule.get_active_id()
         p.hour = self.hour.get_value_as_int()
+        p.notify = self.notify.get_active_id()
         p.excludes = view_text(self.excludes_view).strip()
         p.pre_cmd = self.pre.get_text().strip()
         p.post_cmd = self.post.get_text().strip()

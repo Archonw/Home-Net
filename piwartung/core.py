@@ -69,6 +69,7 @@ class Pi:
     post_cmd: str = ""
     schedule: str = "off"        # off, daily, weekly, monthly
     hour: int = 3
+    notify: str = "errors"       # errors, always or off
     notes: str = ""
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
@@ -79,6 +80,7 @@ class Pi:
             "FORMAT": self.format, "EXPAND": int(self.expand), "EXCLUDES": self.excludes,
             "BWLIMIT": self.bwlimit, "COMPRESS": int(self.compress), "PRE_CMD": self.pre_cmd,
             "POST_CMD": self.post_cmd, "SCHEDULE": self.schedule, "HOUR": self.hour,
+            "NOTIFY": self.notify,
         }
         lines = ["# Von Pi-Wartung erzeugt, Änderungen bitte in der App vornehmen."]
         lines += [f"{k}={shlex.quote(str(v))}" for k, v in values.items()]
