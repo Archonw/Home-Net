@@ -22,7 +22,7 @@ from .config import EDITABLE, Settings, apply_overrides, coerce, public_view
 from .fritzbox import FritzBox, Router
 from .monitor import BlockNotPossible, Monitor
 from .notify import TEST_DEVICE, Notifier, TelegramNotifier, build_notifiers
-from .store import Status, Store
+from .store import Device, Status, Store
 
 log = logging.getLogger(__name__)
 
@@ -348,12 +348,22 @@ def create_app(
     def device_page(mac: str) -> str:
         return DEVICE_HTML
 
+    def device_details(device: Device) -> dict:
+        # Bekannte Geräte, von denen dieser Eintrag eine Repeater-Kopie sein könnte
+        related = store.relatives(device.mac) if device.random_mac else []
+        return {
+            **asdict(device),
+            "related": [
+                {"mac": r.mac, "title": r.name or r.hostname or r.mac, "ip": r.ip} for r in related
+            ],
+        }
+
     @app.get("/api/devices/{mac}", dependencies=[Depends(require_login)])
     def get_device(mac: str) -> dict:
         device = store.get(mac)
         if device is None:
             raise HTTPException(404, "Gerät nicht gefunden")
-        return asdict(device)
+        return device_details(device)
 
     @app.get("/api/devices", dependencies=[Depends(require_login)])
     def list_devices() -> list[dict]:
@@ -368,7 +378,7 @@ def create_app(
             raise HTTPException(502, f"FritzBox-Fehler: {exc}") from exc
         if device is None:
             raise HTTPException(404, "Gerät nicht gefunden")
-        return asdict(device)
+        return device_details(device)
 
     @app.post("/api/devices/remove-offline", dependencies=[Depends(require_login)])
     def remove_offline() -> dict:

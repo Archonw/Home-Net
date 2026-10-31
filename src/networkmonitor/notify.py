@@ -34,6 +34,8 @@ def describe(device: Device) -> str:
         f"IP: {device.ip or 'keine'}",
         f"Verbindung: {device.interface or '?'}",
     ]
+    if device.hint:
+        lines.append(f"Hinweis: {device.hint}")
     return "\n".join(lines)
 
 

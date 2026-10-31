@@ -57,6 +57,8 @@ class Device:
     notes: str
     first_seen: str
     last_seen: str
+    # Nur für die Benachrichtigung über ein neues Gerät, wird nicht gespeichert
+    hint: str = ""
 
 
 def normalize_mac(mac: str) -> str:
@@ -72,6 +74,11 @@ def is_random_mac(mac: str) -> bool:
         return bool(int(mac.split(":")[0], 16) & 0x02)
     except ValueError:
         return False
+
+
+def mac_tail(mac: str) -> str:
+    """Die letzten drei Bytes; WLAN-Repeater lassen sie beim Umschreiben der MAC stehen."""
+    return normalize_mac(mac)[-8:]
 
 
 def _now() -> str:
@@ -142,6 +149,14 @@ class Store:
             "SELECT * FROM device ORDER BY "
             "CASE status WHEN 'unknown' THEN 0 WHEN 'blocked' THEN 1 ELSE 2 END, "
             "online DESC, last_seen DESC"
+        ).fetchall()
+        return [self._row_to_device(r) for r in rows]
+
+    def relatives(self, mac: str) -> list[Device]:
+        """Andere Geräte mit IP, deren MAC auf dieselben drei Bytes endet."""
+        rows = self._db.execute(
+            "SELECT * FROM device WHERE substr(mac, -8) = ? AND mac != ? AND ip != ''",
+            (mac_tail(mac), normalize_mac(mac)),
         ).fetchall()
         return [self._row_to_device(r) for r in rows]
 

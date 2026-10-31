@@ -10,6 +10,7 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md) · Zugriff von unterwegs: [do
 - Geräte aus dem ersten Scan gelten als **erlaubt**, alle später auftauchenden als **unbekannt**.
 - Weboberfläche (Port 8085) im Stil der Android-App: Designs „Soft“ und „Kacheln“, hell/dunkel, Akzentfarben, Suche, Filter, Sortierung, Einzelgeräte-Seite mit „Erlauben“, „Sperren“, „Umbenennen“ und kopierbaren Werten. Funktioniert auf Handy und Desktop.
 - **Sperren** trennt das Gerät vom **Internet** (FritzBox-Kindersicherung per TR-064). Im Heimnetz bleibt es erreichbar, denn den WLAN-MAC-Filter kann die FritzBox über TR-064 nicht pflegen.
+- **WLAN-Repeater** schreiben MAC-Adressen um und lassen dabei die letzten drei Bytes stehen. Einträge ohne IP mit lokal verwalteter MAC, deren letzte drei Bytes zu einem bekannten Gerät mit IP passen, gelten als Kopie und werden nicht angelegt. Bekommt so ein Eintrag eine IP, wird er normal gemeldet. Vor dem Sperren einer möglichen Kopie fragen Weboberfläche und App nach, und eine Meldung weist darauf hin, wenn ein neues Gerät zu einem gesperrten passt.
 - Optional: `QUARANTINE_UNKNOWN=true` trennt unbekannte Geräte sofort vom Internet, bis sie erlaubt werden.
 
 ## 1. FritzBox vorbereiten
