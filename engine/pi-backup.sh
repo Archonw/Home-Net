@@ -109,13 +109,13 @@ probe_pi() {
   [ -n "$BOOTDEV" ] || die "Boot-Partition nicht gefunden"
   [ "$(on_pi "lsblk -rno FSTYPE $BOOTDEV")" = vfat ] || die "Boot-Partition ist nicht vfat"
 
-  on_pi "sudo -n sfdisk -d $DISK" > "$STATE/table.src" || die "Partitionstabelle nicht lesbar"
+  on_pi "sudo -n env LC_ALL=C sfdisk -d $DISK" > "$STATE/table.src" || die "Partitionstabelle nicht lesbar"
   grep -q '^label: dos' "$STATE/table.src" || die "Nur MBR-Partitionstabellen werden unterstützt"
   [ "$(grep -c '^/dev/' "$STATE/table.src")" = 2 ] || die "Nur das Standardlayout mit Boot und Root wird unterstützt"
   grep -qF "$BOOTDEV :" "$STATE/table.src" && grep -qF "$ROOTDEV :" "$STATE/table.src" \
     || die "Partitionstabelle passt nicht zu den Einhängepunkten"
 
-  on_pi "sudo -n dumpe2fs -h $ROOTDEV 2>/dev/null" > "$STATE/fs.src" || die "Dateisystem-Daten nicht lesbar"
+  on_pi "sudo -n env LC_ALL=C dumpe2fs -h $ROOTDEV 2>/dev/null" > "$STATE/fs.src" || die "Dateisystem-Daten nicht lesbar"
   FS_UUID=$(awk -F': +' '/^Filesystem UUID/{print $2}' "$STATE/fs.src")
   FS_LABEL=$(awk -F': +' '/^Filesystem volume name/{print $2}' "$STATE/fs.src")
   [ "$FS_LABEL" = "<none>" ] && FS_LABEL=""
@@ -163,8 +163,21 @@ open_mirror() {
   mount -o loop,noatime "$container" "$MNT" || die "Spiegel-Container nicht einhängbar"
 }
 
+# The fstab of the restored Pi still mounts these, so the empty folders must exist.
+restore_mountpoints() {
+  local m
+  for m in "$@"; do
+    log "Netzwerk-Einhängepunkt bleibt leer: $m"
+    mkdir -p "$MNT$m"
+    chown --reference="$(dirname "$MNT$m")" "$MNT$m"
+  done
+}
+
 sync_mirror() {
-  local excl="$STATE/excludes" rc try
+  local excl="$STATE/excludes" rc try netmounts=() line
+  while IFS= read -r line; do
+    [ -n "$line" ] && netmounts+=("$(printf '%b' "$line")")
+  done < <(on_pi "findmnt -rno TARGET -t nfs,nfs4,cifs,smb3,fuse.sshfs,fuse.rclone,davfs")
   {
     cat <<'EOF'
 /lost+found
@@ -179,6 +192,10 @@ sync_mirror() {
 /home/*/.local/share/Trash/*
 EOF
     printf '%s\n' "$EXCLUDES"
+    # Network mounts are not on the card. Naming them keeps a stale mount from
+    # raising an I/O error, which would make rsync skip all deletions.
+    local m
+    for m in "${netmounts[@]}"; do printf '%s\n' "$m"; done
   } | grep -v '^$' > "$excl"
 
   local opts=(-aHAXS --numeric-ids -x --delete --delete-excluded --force --timeout=600
@@ -199,9 +216,11 @@ EOF
       NF { print; fflush() }'
     rc=${PIPESTATUS[0]}
     case "$rc" in
-      0) return 0 ;;
-      24) log "Hinweis: Dateien sind während der Sicherung verschwunden (normal im laufenden Betrieb)"; return 0 ;;
-      23) WARNINGS="Einige Dateien konnten nicht gelesen werden, siehe Protokoll"; log "WARNUNG: $WARNINGS"; return 0 ;;
+      0) restore_mountpoints "${netmounts[@]}"; return 0 ;;
+      24) log "Hinweis: Dateien sind während der Sicherung verschwunden (normal im laufenden Betrieb)"
+          restore_mountpoints "${netmounts[@]}"; return 0 ;;
+      23) WARNINGS="Einige Dateien konnten nicht gelesen werden, siehe Protokoll"; log "WARNUNG: $WARNINGS"
+          restore_mountpoints "${netmounts[@]}"; return 0 ;;
       10|11|12|30|35|255) log "Verbindung abgebrochen (Code $rc), neuer Versuch in 30 s"; sleep 30 ;;
       *) die "rsync fehlgeschlagen (Code $rc)" ;;
     esac
