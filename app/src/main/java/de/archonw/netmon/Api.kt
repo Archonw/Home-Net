@@ -20,6 +20,8 @@ data class Device(
     val randomMac: Boolean,
     val firstSeen: String,
     val lastSeen: String,
+    /** Bekannte Geräte, von denen dieser Eintrag eine Repeater-Kopie sein könnte. */
+    val related: List<String> = emptyList(),
 ) {
     val title: String get() = name.ifBlank { hostname.ifBlank { "Unbekanntes Gerät" } }
 
@@ -35,6 +37,11 @@ data class Device(
             randomMac = o.optBoolean("random_mac"),
             firstSeen = o.optString("first_seen"),
             lastSeen = o.optString("last_seen"),
+            related = o.optJSONArray("related")?.let { arr ->
+                (0 until arr.length()).map { i ->
+                    arr.getJSONObject(i).let { "${it.optString("title")} (${it.optString("ip")})" }
+                }
+            }.orEmpty(),
         )
     }
 }
