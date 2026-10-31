@@ -441,7 +441,7 @@ compress_image() {
   local raw="$STATE/image.raw" stamp ext comp
   stamp=$(date +%Y-%m-%d_%H%M)
   case "$FORMAT" in
-    xz)   ext=img.xz; comp=(xz -T0 -6 -c) ;;
+    xz)   ext=img.xz; comp=(xz -T0 -9 -c) ;;
     gz)   ext=img.gz; comp=(gzip -6 -c); command -v pigz >/dev/null && comp=(pigz -6 -c) ;;
     img)  ext=img;    comp=(cat) ;;
     *)    die "Unbekanntes Format $FORMAT" ;;

@@ -23,7 +23,7 @@ aus ist. Auf dem Pi wird nichts installiert, er braucht nur ssh, sudo ohne Passw
 2. **Neues Dateisystem:** Aus dem Spiegel entsteht ein frisches ext4 mit gleicher UUID, gleichem Label und
    gleichen Funktionen wie auf dem Pi, ohne freien Platz und ohne Reste gelöschter Dateien.
 3. **Image:** Boot-Partition und neues Dateisystem werden mit der originalen Partitions-ID zusammengesetzt.
-4. **Komprimieren und prüfen:** Das Ergebnis wird als `.img.xz` gespeichert und vor dem Ablegen getestet.
+4. **Komprimieren und prüfen:** Das Ergebnis wird mit höchster Stufe als `.img.xz` gespeichert und vor dem Ablegen getestet.
    Ein fehlgeschlagener Lauf lässt vorhandene Images unberührt.
 
 Beim ersten Start eines zurückgeschriebenen Image vergrößert ein einmaliger Dienst die Partition auf die
