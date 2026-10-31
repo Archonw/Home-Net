@@ -16,6 +16,6 @@ ssh "$UNRAID" "grep -qF '$PUB' /root/.ssh/authorized_keys || printf '%s\n' '$LIN
 tar czf - piwartung/__init__.py piwartung/core.py service/server.py service/Dockerfile |
   ssh "$UNRAID" "docker build -q -t pi-wartung-service:local -f service/Dockerfile -"
 ssh "$UNRAID" "docker rm -f pi-wartung-service >/dev/null 2>&1; docker run -d --name pi-wartung-service --restart unless-stopped \
-  --label net.unraid.docker.icon=https://raw.githubusercontent.com/Archonw/Home-Net/main/assets/icons/pi-wartung.png \
+  --label net.unraid.docker.managed=dockerman --label net.unraid.docker.icon=https://raw.githubusercontent.com/Archonw/Home-Net/main/assets/icons/pi-wartung.png \
   -p $PORT:8080 -v $CONFIG:/config -e UNRAID_HOST=$HOST -e BACKUP_ROOT=$ROOT pi-wartung-service:local"
 echo "Dienst läuft auf http://$HOST:$PORT. Das Passwort legst du in der App unter Einstellungen fest."

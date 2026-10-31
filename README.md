@@ -86,6 +86,14 @@ Nachricht beim ersten Fehler, dann höchstens eine pro Tag und eine, sobald es w
 Zusätzlich kann die App über einen eigenen ntfy-Server benachrichtigen. Server, Thema und optional ein Token stehen unter
 **Einstellungen**, dort gibt es auch eine Testnachricht. Das Thema musst du einmal in der ntfy-App abonnieren.
 
+## Handy-Dienst
+
+`service/install.sh` installiert auf dem Unraid den Container `pi-wartung-service` (Port 8092) für die App
+[Home-Net](https://github.com/Archonw/Home-Net). Er läuft vom PC aus. Sein SSH-Schlüssel kann nur die in `cmd_api` der Engine
+erlaubten Befehle ausführen. Das Passwort setzt du in der PC-App unter Einstellungen → Handy-Zugang.
+
+`service/set-templates.sh` gibt den Containern Unraid-Vorlagen, damit Logos und der Autostart-Regler funktionieren.
+
 ## Entwicklung
 
 ```bash
