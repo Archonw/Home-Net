@@ -20,6 +20,11 @@ Damit Updates ankommen, muss im Networkmonitor unter *Einstellungen* das Reposit
 Signiert wird mit den Secrets `NETMON_KEYSTORE_BASE64`, `NETMON_KEYSTORE_PASSWORD`, `NETMON_KEY_ALIAS` und
 `NETMON_KEY_PASSWORD`.
 
+## Logos
+
+In `assets/icons` liegen die Logos als SVG und PNG: `home-net` für die App und die Gruppe auf dem Unraid, `netzwerk` und
+`pi-wartung` für die beiden Dienste. Die Container auf dem Unraid laden sie von hier.
+
 ## Eine weitere App hinzufügen
 
 Eine neue Kachel kommt in `HomeScreen`, dazu ein Eintrag in `Screen` und die Adresse in `Settings`.

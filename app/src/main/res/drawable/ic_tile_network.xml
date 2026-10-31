@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="512" android:viewportHeight="512">
+    <!-- assets/icons/netzwerk.svg -->
+    <path android:fillColor="#1A7F37" android:pathData="M0,0 H512 V512 H0 Z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M256,72 L404,126 V248 C404,342 337,416 256,450 C175,416 108,342 108,248 V126 Z" />
+    <path android:strokeColor="#1A7F37" android:strokeWidth="16" android:strokeLineJoin="round"
+        android:pathData="M256,190 L188,310 H324 Z" />
+    <path android:fillColor="#1A7F37"
+        android:pathData="M256,190 m-33,0 a33,33 0 1,0 66,0 a33,33 0 1,0 -66,0 M188,310 m-33,0 a33,33 0 1,0 66,0 a33,33 0 1,0 -66,0 M324,310 m-33,0 a33,33 0 1,0 66,0 a33,33 0 1,0 -66,0" />
+</vector>

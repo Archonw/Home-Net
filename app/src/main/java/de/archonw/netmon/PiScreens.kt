@@ -1,9 +1,10 @@
 package de.archonw.netmon
 
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -35,7 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -201,21 +202,21 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ServiceTile("Netzwerk", network, networkAlert, NavIcons.devices, onNetwork)
-            ServiceTile("Pi-Wartung", pi, piAlert, NavIcons.backup, onPi)
+            ServiceTile("Netzwerk", network, networkAlert, R.drawable.ic_tile_network, onNetwork)
+            ServiceTile("Pi-Wartung", pi, piAlert, R.drawable.ic_tile_pi, onPi)
         }
     }
 }
 
 @Composable
-private fun ServiceTile(title: String, status: String, alert: Boolean, icon: ImageVector, onClick: () -> Unit) {
+private fun ServiceTile(title: String, status: String, alert: Boolean, @DrawableRes icon: Int, onClick: () -> Unit) {
     val p = LocalPalette.current
     HubCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(p.accentSoft),
-                contentAlignment = Alignment.Center,
-            ) { Icon(icon, contentDescription = null, tint = p.accentText) }
+            Image(
+                painterResource(icon), contentDescription = null,
+                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)),
+            )
             Spacer(Modifier.size(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, color = p.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
