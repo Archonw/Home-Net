@@ -22,7 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-const val SOURCE_URL = "https://github.com/Archonw/Networkmonitor"
+const val SOURCE_URL = "https://github.com/Archonw/Home-Net"
 
 /** Bibliotheken, die in der App stecken; alle unter der Apache-Lizenz 2.0. */
 private val LIBRARIES = listOf(
@@ -42,7 +42,7 @@ fun AboutContent() {
     }
     var showLicenses by remember { mutableStateOf(false) }
 
-    Text("Netzwerkmonitor $version", color = p.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+    Text("Home-Net $version", color = p.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
     Spacer(Modifier.height(8.dp))
     Text(
         "Datenschutz: Die App spricht nur mit deinem eigenen Monitor. Adresse und Passwort liegen " +
@@ -53,7 +53,7 @@ fun AboutContent() {
     )
     Spacer(Modifier.height(8.dp))
     Text(
-        "Netzwerkmonitor ist freie Software unter der Apache-Lizenz 2.0.",
+        "Home-Net ist freie Software unter der Apache-Lizenz 2.0.",
         color = p.muted,
         fontSize = 13.sp,
     )
@@ -69,7 +69,7 @@ fun AboutContent() {
             title = { Text("Open-Source-Lizenzen") },
             text = {
                 Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
-                    Text("Netzwerkmonitor steht unter der Apache-Lizenz 2.0 ($SOURCE_URL).")
+                    Text("Home-Net steht unter der Apache-Lizenz 2.0 ($SOURCE_URL).")
                     Spacer(Modifier.height(8.dp))
                     Text("Die App verwendet außerdem folgende Bibliotheken unter derselben Lizenz:")
                     Spacer(Modifier.height(8.dp))

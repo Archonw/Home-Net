@@ -28,6 +28,22 @@ class Settings(context: Context) {
         get() = prefs.getString("password", "") ?: ""
         set(value) = prefs.edit().putString("password", value).apply()
 
+    var piUrl: String
+        get() = prefs.getString("pi_url", "") ?: ""
+        set(value) = prefs.edit().putString("pi_url", value.trim()).apply()
+
+    var piExternalUrl: String
+        get() = prefs.getString("pi_external_url", "") ?: ""
+        set(value) = prefs.edit().putString("pi_external_url", value.trim()).apply()
+
+    var piPassword: String
+        get() = prefs.getString("pi_password", "") ?: ""
+        set(value) = prefs.edit().putString("pi_password", value).apply()
+
+    val isPiConfigured: Boolean get() = piUrl.isNotBlank()
+
+    fun piApi() = PiApi(piUrl, piPassword, piExternalUrl)
+
     var sortOrder: SortOrder
         get() = enumOr(prefs.getString("sort", null), SortOrder.NAME_ASC)
         set(value) = prefs.edit().putString("sort", value.name).apply()

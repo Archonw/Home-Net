@@ -423,14 +423,14 @@ fun SettingsScreen(
 
 /** Untere Leiste mit „Geräte“ und „Einstellungen“ in der Form des gewählten Designs. */
 @Composable
-fun NavBar(style: AppStyle, settingsActive: Boolean, onList: () -> Unit, onSettings: () -> Unit) {
+fun NavBar(style: AppStyle, settingsActive: Boolean, onHome: () -> Unit, onSettings: () -> Unit) {
     val p = LocalPalette.current
     Row(
         Modifier.fillMaxWidth().background(if (style == AppStyle.SOFT) p.card else p.bg)
             .navigationBarsPadding().padding(horizontal = 24.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceAround,
     ) {
-        NavItem("Geräte", NavIcons.devices, !settingsActive, onList)
+        NavItem("Start", NavIcons.home, !settingsActive, onHome)
         NavItem("Einstellungen", NavIcons.settings, settingsActive, onSettings)
     }
 }
@@ -557,7 +557,7 @@ fun LockedScreen(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Netzwerkmonitor", color = p.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text("Home-Net", color = p.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(6.dp))
         Text("Gesperrt", color = p.muted)
         if (error != null) {

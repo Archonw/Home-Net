@@ -34,9 +34,13 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 
 sealed interface Screen {
+    data object Home : Screen
     data object List : Screen
     data class Detail(val mac: String) : Screen
     data object Setup : Screen
+    data object PiOverview : Screen
+    data class PiDetail(val id: String) : Screen
+    data object PiSetup : Screen
 }
 
 class MainActivity : FragmentActivity() {
@@ -44,7 +48,7 @@ class MainActivity : FragmentActivity() {
     private lateinit var settings: Settings
     private var unlocked by mutableStateOf(false)
     private var authError by mutableStateOf<String?>(null)
-    private var screen by mutableStateOf<Screen>(Screen.List)
+    private var screen by mutableStateOf<Screen>(Screen.Home)
     private var backgroundSince = 0L
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var useBiometrics by mutableStateOf(false)
@@ -103,8 +107,12 @@ class MainActivity : FragmentActivity() {
     @OptIn(ExperimentalLayoutApi::class)
     @Composable
     private fun Content(p: Palette) {
-        BackHandler(enabled = screen != Screen.List && settings.isConfigured) {
-            screen = Screen.List
+        BackHandler(enabled = screen != Screen.Home && settings.isConfigured) {
+            screen = when (screen) {
+                is Screen.Detail -> Screen.List
+                is Screen.PiDetail, Screen.PiSetup -> if (settings.isPiConfigured) Screen.PiOverview else Screen.Home
+                else -> Screen.Home
+            }
         }
         // Bei offener Tastatur schrumpft der Inhalt, damit sich alle Felder darüber scrollen lassen
         Column(Modifier.fillMaxSize().background(p.bg).imePadding()) {
@@ -130,7 +138,29 @@ class MainActivity : FragmentActivity() {
                         },
                         useBiometrics = useBiometrics,
                         onLockModeChange = ::setLockMode,
-                        onSaved = { screen = Screen.List },
+                        onSaved = { screen = Screen.Home },
+                    )
+                    Screen.Home -> HomeScreen(
+                        settings = settings,
+                        api = settings.api(),
+                        onNetwork = { screen = Screen.List },
+                        onPi = { screen = if (settings.isPiConfigured) Screen.PiOverview else Screen.PiSetup },
+                    )
+                    Screen.PiOverview -> PiOverviewScreen(
+                        api = settings.piApi(),
+                        onOpen = { screen = Screen.PiDetail(it) },
+                        onSetup = { screen = Screen.PiSetup },
+                        onBack = { screen = Screen.Home },
+                    )
+                    is Screen.PiDetail -> PiDetailScreen(
+                        api = settings.piApi(),
+                        id = s.id,
+                        onBack = { screen = Screen.PiOverview },
+                    )
+                    Screen.PiSetup -> PiSetupScreen(
+                        settings = settings,
+                        onSaved = { screen = Screen.PiOverview },
+                        onBack = { screen = if (settings.isPiConfigured) Screen.PiOverview else Screen.Home },
                     )
                     Screen.List -> ListScreen(
                         api = settings.api(),
@@ -150,7 +180,7 @@ class MainActivity : FragmentActivity() {
                 NavBar(
                     style = appStyle,
                     settingsActive = screen == Screen.Setup,
-                    onList = { screen = Screen.List },
+                    onHome = { screen = Screen.Home },
                     onSettings = { screen = Screen.Setup },
                 )
             } else {
@@ -241,7 +271,7 @@ class MainActivity : FragmentActivity() {
         )
         prompt.authenticate(
             BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Netzwerkmonitor entsperren")
+                .setTitle("Home-Net entsperren")
                 .setSubtitle("Bestätige mit deinem Fingerabdruck")
                 .setAllowedAuthenticators(authenticators)
                 .build(),
