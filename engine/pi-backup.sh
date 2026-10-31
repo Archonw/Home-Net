@@ -538,7 +538,7 @@ cmd_status() {
   load_conf "$1"
   make_ssh_wrapper
   trap 'rm -f "$SSHW"' EXIT
-  on_pi 'echo "hostname=$(hostname)"
+  on_pi 'export LC_ALL=C; echo "hostname=$(hostname)"
     echo "model=$(tr -d "\0" < /proc/device-tree/model 2>/dev/null)"
     . /etc/os-release; echo "os=$PRETTY_NAME"
     echo "kernel=$(uname -r)"

@@ -19,8 +19,33 @@ from .core import Inventory, Pi, Settings, Unraid, UnraidError, human_size  # no
 FORMATS = [("xz", "Am kleinsten (.img.xz)"), ("gz", "Schneller (.img.gz)"), ("img", "Unkomprimiert (.img)")]
 SCHEDULES = [("off", "Aus"), ("daily", "Täglich"), ("weekly", "Wöchentlich"), ("monthly", "Monatlich")]
 ROW_CATEGORY, ROW_PI = 0, 1
+GREEN, RED, AMBER, BLUE, GRAY = "#2e9e5b", "#d64545", "#d98a1f", "#2f6fed", "#8a8f98"
 PASSWORD_HINT = ("Das Passwort des Benutzers auf dem Pi. Es wird nur einmal für die Übertragung genutzt "
                  "und nirgends gespeichert.")
+
+
+def load_css():
+    provider = Gtk.CssProvider()
+    provider.load_from_path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "style.css"))
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+
+def styled(widget, *classes):
+    ctx = widget.get_style_context()
+    for c in classes:
+        ctx.add_class(c)
+    return widget
+
+
+def progress_detail(parts):
+    """Turns the detail of a progress line, like '1,234,567 2.93MB/s', into readable text."""
+    if len(parts) < 3:
+        return ""
+    words = parts[2].split()
+    if words and words[0].replace(",", "").isdigit():
+        words[0] = human_size(int(words[0].replace(",", "")))
+    return "  ·  " + "  ·  ".join(words)
 
 
 def background(func, done=None, error=None):
@@ -52,14 +77,12 @@ def password_entry():
 
 
 def form_grid():
-    grid = Gtk.Grid(column_spacing=12, row_spacing=8)
-    grid.set_border_width(16)
-    return grid
+    return Gtk.Grid(column_spacing=14, row_spacing=10)
 
 
 def add_row(grid, row, label, widget, hint=None):
-    lab = Gtk.Label(label=label, xalign=1)
-    lab.get_style_context().add_class("dim-label")
+    lab = styled(Gtk.Label(label=label, xalign=1), "row-label")
+    lab.set_size_request(150, -1)
     grid.attach(lab, 0, row, 1, 1)
     widget.set_hexpand(True)
     grid.attach(widget, 1, row, 1, 1)
@@ -77,7 +100,7 @@ def add_row(grid, row, label, widget, hint=None):
 
 
 def text_view(text=""):
-    view = Gtk.TextView()
+    view = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
     view.get_buffer().set_text(text)
     view.set_left_margin(6)
     view.set_top_margin(4)
@@ -101,17 +124,20 @@ class PiForm(Gtk.ScrolledWindow):
         self.pi = Pi()
         self.new_key = None
         self.password = None
-        grid = form_grid()
-        self.add(grid)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        outer.set_border_width(22)
+        self.add(outer)
+        grid = None
         r = 0
 
         def section(title):
-            nonlocal r
-            lab = Gtk.Label(xalign=0)
-            lab.set_markup(f"<b>{title}</b>")
-            lab.set_margin_top(10 if r else 0)
-            grid.attach(lab, 0, r, 2, 1)
-            r += 1
+            nonlocal grid, r
+            card = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), "card")
+            card.pack_start(styled(Gtk.Label(label=title, xalign=0), "card-title"), False, False, 0)
+            grid = form_grid()
+            card.pack_start(grid, False, False, 0)
+            outer.pack_start(card, False, False, 0)
+            r = 0
 
         section("Allgemein")
         self.name = Gtk.Entry()
@@ -242,7 +268,9 @@ def validate(pi, inventory):
 class MainWindow(Gtk.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Pi-Wartung")
-        self.set_default_size(1120, 720)
+        self.set_default_size(1180, 760)
+        self.set_icon_name("drive-harddisk")
+        load_css()
         self.settings = Settings.load()
         self.unraid = Unraid(self.settings)
         self.inventory = Inventory()
@@ -255,11 +283,15 @@ class MainWindow(Gtk.ApplicationWindow):
 
         header = Gtk.HeaderBar(show_close_button=True, title="Pi-Wartung")
         self.set_titlebar(header)
-        for label, handler in (("Pi hinzufügen", self.on_add_pi), ("Kategorie hinzufügen", self.on_add_category)):
-            b = Gtk.Button(label=label)
-            b.connect("clicked", handler)
-            header.pack_start(b)
-        settings_btn = Gtk.Button(label="Einstellungen")
+        add_pi = styled(Gtk.Button(label="Pi hinzufügen"), "suggested-action")
+        add_pi.connect("clicked", self.on_add_pi)
+        header.pack_start(add_pi)
+        add_cat = Gtk.Button(label="Kategorie")
+        add_cat.set_tooltip_text("Kategorie hinzufügen")
+        add_cat.connect("clicked", self.on_add_category)
+        header.pack_start(add_cat)
+        settings_btn = Gtk.Button.new_from_icon_name("emblem-system-symbolic", Gtk.IconSize.BUTTON)
+        settings_btn.set_tooltip_text("Einstellungen")
         settings_btn.connect("clicked", self.on_settings)
         header.pack_end(settings_btn)
         refresh = Gtk.Button.new_from_icon_name("view-refresh-symbolic", Gtk.IconSize.BUTTON)
@@ -274,25 +306,30 @@ class MainWindow(Gtk.ApplicationWindow):
         self.store = Gtk.TreeStore(str, int, str, str, str)
         self.tree = Gtk.TreeView(model=self.store, headers_visible=False)
         col = Gtk.TreeViewColumn()
-        name_cell = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END)
+        name_cell = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, ypad=7)
         col.pack_start(name_cell, True)
         col.add_attribute(name_cell, "markup", 0)
         col.set_expand(True)
         self.tree.append_column(col)
-        status_cell = Gtk.CellRendererText(xalign=1)
-        status_col = Gtk.TreeViewColumn("", status_cell, text=4)
+        status_cell = Gtk.CellRendererText(xalign=1, xpad=10)
+        status_col = Gtk.TreeViewColumn("", status_cell, markup=4)
         self.tree.append_column(status_col)
         self.tree.get_selection().connect("changed", self.on_select)
         self.tree.connect("button-press-event", self.on_tree_button)
-        side = Gtk.ScrolledWindow()
+        scroll = Gtk.ScrolledWindow()
+        scroll.add(self.tree)
+        side = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL), "sidebar-pane")
         side.set_size_request(300, -1)
-        side.add(self.tree)
+        side.pack_start(styled(Gtk.Label(label="RASPBERRY PIS", xalign=0), "sidebar-heading"), False, False, 0)
+        side.pack_start(scroll, True, True, 0)
         paned.pack1(side, False, False)
 
-        self.stack = Gtk.Stack()
+        self.stack = styled(Gtk.Stack(), "content-pane")
         paned.pack2(self.stack, True, False)
-        self.empty_label = Gtk.Label(label="Links einen Pi auswählen oder einen neuen hinzufügen.")
-        self.stack.add_named(self.empty_label, "empty")
+        empty = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, valign=Gtk.Align.CENTER)
+        empty.pack_start(styled(Gtk.Label(label="Kein Pi ausgewählt"), "empty-title"), False, False, 0)
+        empty.pack_start(styled(Gtk.Label(label="Wähle links einen Pi aus oder füge einen neuen hinzu."), "empty-sub"), False, False, 0)
+        self.stack.add_named(empty, "empty")
         self.stack.add_named(self.build_detail(), "detail")
         self.show_all()
         self.stack.set_visible_child_name("empty")
@@ -302,44 +339,60 @@ class MainWindow(Gtk.ApplicationWindow):
     # ------------------------------------------------------------ layout
     def build_detail(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        top = Gtk.Box(spacing=8)
-        top.set_border_width(12)
-        self.title_label = Gtk.Label(xalign=0)
-        self.title_label.set_hexpand(True)
-        top.pack_start(self.title_label, True, True, 0)
-        self.backup_btn = Gtk.Button(label="Jetzt sichern")
-        self.backup_btn.get_style_context().add_class("suggested-action")
+        hero = styled(Gtk.Box(spacing=10), "hero")
+        titles = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        title_row = Gtk.Box(spacing=12)
+        self.title_label = styled(Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END), "hero-title")
+        title_row.pack_start(self.title_label, False, False, 0)
+        self.pill = styled(Gtk.Label(valign=Gtk.Align.CENTER), "pill", "pill-muted")
+        title_row.pack_start(self.pill, False, False, 0)
+        titles.pack_start(title_row, False, False, 0)
+        self.subtitle_label = styled(Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END), "hero-sub")
+        titles.pack_start(self.subtitle_label, False, False, 0)
+        hero.pack_start(titles, True, True, 0)
+        self.backup_btn = styled(Gtk.Button(label="Jetzt sichern", valign=Gtk.Align.CENTER), "suggested-action")
         self.backup_btn.connect("clicked", self.on_backup)
-        self.cancel_btn = Gtk.Button(label="Abbrechen")
+        self.cancel_btn = Gtk.Button(label="Abbrechen", valign=Gtk.Align.CENTER)
         self.cancel_btn.connect("clicked", self.on_cancel)
-        terminal_btn = Gtk.Button(label="Terminal")
+        terminal_btn = Gtk.Button(label="Terminal", valign=Gtk.Align.CENTER)
         terminal_btn.connect("clicked", self.on_terminal)
-        for w in (terminal_btn, self.cancel_btn, self.backup_btn):
-            top.pack_end(w, False, False, 0)
-        box.pack_start(top, False, False, 0)
+        for w in (self.backup_btn, self.cancel_btn, terminal_btn):
+            hero.pack_end(w, False, False, 0)
+        box.pack_start(hero, False, False, 0)
 
-        self.progress = Gtk.ProgressBar(show_text=True)
-        self.progress.set_margin_start(12)
-        self.progress.set_margin_end(12)
-        self.progress.set_margin_bottom(8)
-        self.progress.set_no_show_all(True)
-        box.pack_start(self.progress, False, False, 0)
+        self.run_box = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), "card", "run-box")
+        self.run_label = styled(Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END), "card-title")
+        self.progress = Gtk.ProgressBar()
+        self.run_box.pack_start(self.run_label, False, False, 0)
+        self.run_box.pack_start(self.progress, False, False, 0)
+        self.run_box.set_no_show_all(True)
+        self.run_label.show()
+        self.progress.show()
+        box.pack_start(self.run_box, False, False, 0)
 
-        self.notebook = Gtk.Notebook()
-        box.pack_start(self.notebook, True, True, 0)
-        self.notebook.append_page(self.build_overview(), Gtk.Label(label="Übersicht"))
-        self.notebook.append_page(self.build_images(), Gtk.Label(label="Sicherungen"))
+        self.pages = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, transition_duration=120)
+        switcher = styled(Gtk.StackSwitcher(stack=self.pages, halign=Gtk.Align.START), "page-switcher")
+        box.pack_start(switcher, False, False, 0)
+        box.pack_start(self.pages, True, True, 0)
+        self.pages.add_titled(self.build_overview(), "overview", "Übersicht")
+        self.pages.add_titled(self.build_images(), "images", "Sicherungen")
         self.form_holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.notebook.append_page(self.form_holder, Gtk.Label(label="Konfiguration"))
-        self.notebook.append_page(self.build_log(), Gtk.Label(label="Protokoll"))
-        self.notebook.connect("switch-page", self.on_tab)
+        self.pages.add_titled(self.form_holder, "config", "Konfiguration")
+        self.pages.add_titled(self.build_log(), "log", "Protokoll")
+        self.pages.connect("notify::visible-child-name", self.on_page)
         return box
 
     def build_overview(self):
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        outer.set_border_width(12)
-        self.status_grid = Gtk.Grid(column_spacing=14, row_spacing=6)
-        outer.pack_start(self.status_grid, False, False, 0)
+        scroll = Gtk.ScrolledWindow()
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        outer.set_border_width(26)
+        outer.set_margin_top(6)
+        scroll.add(outer)
+        self.tiles = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, column_spacing=12, row_spacing=12,
+                                 homogeneous=True, min_children_per_line=2, max_children_per_line=4)
+        outer.pack_start(self.tiles, False, False, 0)
+        self.details_card = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), "card")
+        outer.pack_start(self.details_card, False, False, 0)
         btns = Gtk.Box(spacing=8)
         b = Gtk.Button(label="Zustand abfragen")
         b.connect("clicked", self.on_check)
@@ -348,12 +401,13 @@ class MainWindow(Gtk.ApplicationWindow):
         b.set_tooltip_text("Erzeugt einen neuen Schlüssel für diesen Pi und überträgt ihn, auf Wunsch mit Passwort")
         b.connect("clicked", self.on_setup_access)
         btns.pack_start(b, False, False, 0)
-        outer.pack_start(btns, False, False, 8)
-        return outer
+        outer.pack_start(btns, False, False, 0)
+        return scroll
 
     def build_images(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_border_width(12)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_border_width(26)
+        box.set_margin_top(6)
         # columns: file, date, size, full size, info
         self.image_store = Gtk.ListStore(str, str, str, str, str)
         self.image_view = Gtk.TreeView(model=self.image_store)
@@ -376,10 +430,15 @@ class MainWindow(Gtk.ApplicationWindow):
         return box
 
     def build_log(self):
-        self.log_view = Gtk.TextView(editable=False, monospace=True, wrap_mode=Gtk.WrapMode.CHAR)
+        self.log_view = styled(Gtk.TextView(editable=False, monospace=True, wrap_mode=Gtk.WrapMode.CHAR), "log-view")
         scroll = Gtk.ScrolledWindow()
+        scroll.set_shadow_type(Gtk.ShadowType.IN)
         scroll.add(self.log_view)
-        return scroll
+        frame = Gtk.Box()
+        frame.set_border_width(26)
+        frame.set_margin_top(6)
+        frame.pack_start(scroll, True, True, 0)
+        return frame
 
     # ------------------------------------------------------------ data
     def error(self, message):
@@ -416,7 +475,7 @@ class MainWindow(Gtk.ApplicationWindow):
         for cat in self.inventory.all_categories():
             parent = cat.rsplit("/", 1)[0] if "/" in cat else ""
             title = GLib.markup_escape_text(cat.rsplit("/", 1)[-1])
-            nodes[cat] = self.store.append(nodes.get(parent), [f"<b>{title}</b>", ROW_CATEGORY, "", cat, ""])
+            nodes[cat] = self.store.append(nodes.get(parent), [f'<span weight="600">{title}</span>', ROW_CATEGORY, "", cat, ""])
         select_iter = None
         for p in sorted(self.inventory.pis, key=lambda x: x.name.casefold()):
             it = self.store.append(nodes.get(p.category), [GLib.markup_escape_text(p.name), ROW_PI, p.id,
@@ -432,12 +491,17 @@ class MainWindow(Gtk.ApplicationWindow):
         if not st:
             return ""
         if st.get("RUNNING") == "1":
-            return "läuft"
+            return f'<span foreground="{BLUE}">● läuft</span>'
         last = st.get("LAST_STATUS")
         if last == "ok":
             days = (time.time() - int(st.get("LAST_TIME", "0"))) / 86400
-            return "heute" if days < 1 else f"vor {int(days)} T"
-        return {"failed": "Fehler", "cancelled": "Abgebrochen"}.get(last, "nie")
+            age = "heute" if days < 1 else f"vor {int(days)} T"
+            return f'<span foreground="{GREEN}">● {age}</span>'
+        if last == "failed":
+            return f'<span foreground="{RED}">● Fehler</span>'
+        if last == "cancelled":
+            return f'<span foreground="{AMBER}">● Abbruch</span>'
+        return f'<span foreground="{GRAY}">○ nie</span>'
 
     def poll_states(self):
         pis = list(self.inventory.pis)
@@ -487,15 +551,12 @@ class MainWindow(Gtk.ApplicationWindow):
             self.stack.set_visible_child_name("empty")
             return
         self.stack.set_visible_child_name("detail")
-        cat = f" · {pi.category}" if pi.category else ""
-        self.title_label.set_markup(
-            f"<big><b>{GLib.markup_escape_text(pi.name)}</b></big>"
-            f"<small>{GLib.markup_escape_text(cat)}\n{GLib.markup_escape_text(pi.user)}@"
-            f"{GLib.markup_escape_text(pi.host)}:{pi.port}</small>")
+        self.title_label.set_text(pi.name)
+        self.subtitle_label.set_text(f"{pi.category or 'Ohne Kategorie'}  ·  {pi.user}@{pi.host}:{pi.port}")
         self.render_status({})
         self.stop_tail()
         self.log_view.get_buffer().set_text("")
-        self.progress.hide()
+        self.run_box.hide()
         self.build_form(pi)
         self.update_buttons()
         self.load_images()
@@ -509,8 +570,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.form = PiForm(self.inventory, self.keys)
         self.form.load(pi)
         self.form_holder.pack_start(self.form, True, True, 0)
-        row = Gtk.Box(spacing=8)
-        row.set_border_width(10)
+        row = styled(Gtk.Box(spacing=8), "action-bar")
         save = Gtk.Button(label="Speichern")
         save.get_style_context().add_class("suggested-action")
         save.connect("clicked", self.on_save_form)
@@ -522,8 +582,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self.form_holder.pack_start(row, False, False, 0)
         self.form_holder.show_all()
 
-    def on_tab(self, nb, page, num):
-        if num == 1 and self.current:
+    def on_page(self, stack, _param):
+        if stack.get_visible_child_name() == "images" and self.current:
             self.load_images()
 
     def update_buttons(self):
@@ -531,46 +591,112 @@ class MainWindow(Gtk.ApplicationWindow):
         running = st.get("RUNNING") == "1"
         self.backup_btn.set_sensitive(not running)
         self.cancel_btn.set_visible(running)
+        self.update_pill(st)
 
     # ------------------------------------------------------------ overview
+    def update_pill(self, st):
+        ctx = self.pill.get_style_context()
+        for c in ("pill-ok", "pill-bad", "pill-warn", "pill-info", "pill-muted"):
+            ctx.remove_class(c)
+        last = st.get("LAST_STATUS")
+        if st.get("RUNNING") == "1":
+            text, cls = "Sicherung läuft", "pill-info"
+        elif last == "ok":
+            text, cls = "Gesichert", "pill-ok"
+        elif last == "failed":
+            text, cls = "Letzte Sicherung fehlgeschlagen", "pill-bad"
+        elif last == "cancelled":
+            text, cls = "Abgebrochen", "pill-warn"
+        else:
+            text, cls = "Noch nicht gesichert", "pill-muted"
+        self.pill.set_text(text)
+        ctx.add_class(cls)
+
+    def add_tile(self, label, value, detail="", tone=None, level=None):
+        card = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4), "card")
+        card.pack_start(styled(Gtk.Label(label=label, xalign=0), "card-label"), False, False, 0)
+        val = styled(Gtk.Label(label=value, xalign=0, ellipsize=Pango.EllipsizeMode.END), "card-value")
+        if tone:
+            styled(val, f"value-{tone}")
+        card.pack_start(val, False, False, 0)
+        if level is not None:
+            bar = Gtk.LevelBar(min_value=0, max_value=100, value=level)
+            bar.set_margin_top(4)
+            card.pack_start(bar, False, False, 0)
+        if detail:
+            card.pack_start(styled(Gtk.Label(label=detail, xalign=0, ellipsize=Pango.EllipsizeMode.END,
+                                             tooltip_text=detail), "card-detail"), False, False, 0)
+        child = Gtk.FlowBoxChild(can_focus=False)
+        child.add(card)
+        self.tiles.add(child)
+
     def render_status(self, info, error=None):
-        for c in self.status_grid.get_children():
-            self.status_grid.remove(c)
-        rows = []
+        for c in self.tiles.get_children():
+            self.tiles.remove(c)
+        for c in self.details_card.get_children():
+            self.details_card.remove(c)
+        st = self.states.get(self.current_id, {})
+
         if error:
-            rows.append(("Erreichbar", f"Nein: {error}"))
+            self.add_tile("Erreichbarkeit", "Offline", error, tone="bad")
         elif info:
-            rows += [("Erreichbar", "Ja"), ("Hostname", info.get("hostname", "")), ("Modell", info.get("model", "")),
-                     ("System", info.get("os", "")), ("Kernel", info.get("kernel", "")),
-                     ("Laufzeit", info.get("uptime", "")), ("Last", info.get("load", "")),
-                     ("Speicher Karte", info.get("disk", "")), ("Arbeitsspeicher", info.get("mem", "")),
-                     ("Temperatur", info.get("temp", "")), ("IP", info.get("ip", "")),
+            self.add_tile("Erreichbarkeit", "Online", info.get("ip", ""), tone="ok")
+        else:
+            self.add_tile("Erreichbarkeit", "Wird abgefragt …")
+
+        if st.get("LAST_TIME"):
+            when = time.strftime("%d.%m.%Y, %H:%M", time.localtime(int(st["LAST_TIME"])))
+            label, tone = {"ok": ("Erfolgreich", "ok"), "failed": ("Fehlgeschlagen", "bad"),
+                           "cancelled": ("Abgebrochen", "warn")}.get(st.get("LAST_STATUS"), ("Unbekannt", None))
+            detail = when
+            if st.get("LAST_STATUS") == "failed" and st.get("LAST_ERROR"):
+                detail = st["LAST_ERROR"]
+            elif st.get("LAST_WARNINGS"):
+                detail = st["LAST_WARNINGS"]
+            self.add_tile("Letzte Sicherung", label, detail, tone=tone)
+        else:
+            self.add_tile("Letzte Sicherung", "Noch keine")
+
+        if info:
+            parts = info.get("disk", "").split()
+            pct = int(parts[2].rstrip("%")) if len(parts) == 3 and parts[2].rstrip("%").isdigit() else None
+            detail = f"{parts[0]} von {parts[1]} belegt" if pct is not None else ""
+            self.add_tile("SD-Karte", f"{pct} %" if pct is not None else "?", detail, level=pct)
+            temp = info.get("temp", "")
+            digits = temp.split(" ")[0]
+            tone = None
+            if digits.isdigit():
+                tone = "bad" if int(digits) >= 80 else "warn" if int(digits) >= 70 else None
+            self.add_tile("Temperatur", temp or "?", f"Last {info.get('load', '')}", tone=tone)
+
+        rows = []
+        if info:
+            rows += [("Modell", info.get("model", "")), ("System", info.get("os", "")), ("Kernel", info.get("kernel", "")),
+                     ("Hostname", info.get("hostname", "")), ("Laufzeit", info.get("uptime", "")),
+                     ("Arbeitsspeicher", info.get("mem", "")),
                      ("sudo / rsync", f"{info.get('sudo', '?')} / {info.get('rsync', '?')}"),
                      ("Neustart nötig", info.get("reboot", ""))]
-        else:
-            rows.append(("Zustand", "wird abgefragt …"))
-        st = self.states.get(self.current_id, {})
-        if st.get("LAST_TIME"):
-            when = time.strftime("%d.%m.%Y %H:%M", time.localtime(int(st["LAST_TIME"])))
-            result = {"ok": "erfolgreich", "failed": "fehlgeschlagen", "cancelled": "abgebrochen"}.get(st.get("LAST_STATUS"), "")
-            rows.append(("Letzte Sicherung", f"{when}, {result}"))
-            if st.get("LAST_ERROR"):
-                rows.append(("Fehler", st["LAST_ERROR"]))
-            if st.get("LAST_WARNINGS"):
-                rows.append(("Hinweis", st["LAST_WARNINGS"]))
         if st.get("MIRROR_BYTES"):
             rows.append(("Spiegel auf Unraid", human_size(int(st["MIRROR_BYTES"]))))
         pi = self.current
         if pi and pi.notes:
             rows.append(("Notizen", pi.notes))
-        for i, (k, v) in enumerate(rows):
-            lab = Gtk.Label(label=k, xalign=1)
-            lab.get_style_context().add_class("dim-label")
-            val = Gtk.Label(label=v, xalign=0, selectable=True)
-            val.set_line_wrap(True)
-            self.status_grid.attach(lab, 0, i, 1, 1)
-            self.status_grid.attach(val, 1, i, 1, 1)
-        self.status_grid.show_all()
+        if rows:
+            self.details_card.pack_start(styled(Gtk.Label(label="Details", xalign=0), "card-title"), False, False, 0)
+            grid = Gtk.Grid(column_spacing=18, row_spacing=7)
+            for i, (k, v) in enumerate(rows):
+                lab = styled(Gtk.Label(label=k, xalign=0), "row-label")
+                lab.set_valign(Gtk.Align.START)
+                val = Gtk.Label(label=v, xalign=0, selectable=True, wrap=True)
+                val.set_hexpand(True)
+                grid.attach(lab, 0, i, 1, 1)
+                grid.attach(val, 1, i, 1, 1)
+            self.details_card.pack_start(grid, False, False, 0)
+            self.details_card.show_all()
+            self.details_card.show()
+        else:
+            self.details_card.hide()
+        self.tiles.show_all()
 
     def on_check(self, *_):
         pi = self.current
@@ -670,7 +796,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         def done(logfile):
             self.log_view.get_buffer().set_text("")
-            self.notebook.set_current_page(3)
+            self.pages.set_visible_child_name("log")
             self.start_tail(pi.id, logfile)
             self.update_buttons()
             self.update_status_cells()
@@ -713,9 +839,9 @@ class MainWindow(Gtk.ApplicationWindow):
     def start_tail(self, pi_id, logfile):
         self.stop_tail()
         self.tail_for = pi_id
-        self.progress.show()
+        self.run_box.show()
         self.progress.set_fraction(0)
-        self.progress.set_text("Startet …")
+        self.run_label.set_text("Startet …")
         proc = self.unraid.tail_process(logfile)
         self.tail = proc
 
@@ -735,14 +861,14 @@ class MainWindow(Gtk.ApplicationWindow):
             return False
         if line.startswith("@@STEP"):
             parts = line.split(" ", 3)
-            self.step_label = f"Schritt {parts[1]}/{parts[2]}: {parts[3]}"
+            self.step_label = f"Schritt {parts[1]} von {parts[2]}: {parts[3]}"
             self.progress.set_fraction(0)
-            self.progress.set_text(self.step_label)
+            self.run_label.set_text(self.step_label)
         elif line.startswith("@@PROGRESS"):
             parts = line.split(" ", 2)
             pct = min(int(parts[1]), 100) if parts[1].isdigit() else 0
             self.progress.set_fraction(pct / 100)
-            self.progress.set_text(f"{getattr(self, 'step_label', '')}  {pct} %  {parts[2] if len(parts) > 2 else ''}")
+            self.run_label.set_text(f"{getattr(self, 'step_label', '')}  ·  {pct} %{progress_detail(parts)}")
         elif line.startswith("@@DONE"):
             if not replay:
                 self.finish_tail(pi_id, line.split()[-1])
@@ -754,7 +880,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def finish_tail(self, pi_id, status):
         self.stop_tail()
-        self.progress.hide()
+        self.run_box.hide()
         self.poll_states()
         self.load_images()
         if status == "failed":
