@@ -14,7 +14,7 @@ Type=Application
 Name=Pi-Wartung
 Comment=Raspberry Pis verwalten und als Image sichern
 Exec=$DEST/pi-wartung
-Icon=drive-harddisk
+Icon=$DEST/piwartung/icon.png
 Terminal=false
 Categories=System;Utility;
 EOF

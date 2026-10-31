@@ -276,7 +276,7 @@ class MainWindow(Gtk.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Pi-Wartung")
         self.set_default_size(1180, 760)
-        self.set_icon_name("drive-harddisk")
+        self.set_icon_from_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png"))
         load_css()
         self.settings = Settings.load()
         self.unraid = Unraid(self.settings)
