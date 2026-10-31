@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ersteinrichtung – Netzwerkmonitor</title>
+<link rel="stylesheet" href="/assets/app.css">
+<script src="/assets/app.js"></script>
+</head>
+<body>
+<div class="page narrow">
+<h1 class="page-title">Willkommen</h1>
+<section class="group">
+  <h2>Eigenes Passwort festlegen</h2>
+  <div class="box">
+  <p class="hint" style="margin-top:0">Du bist mit dem Standardpasswort angemeldet. Lege zuerst ein eigenes Passwort fest. Danach geht es mit den Einstellungen für FritzBox und Benachrichtigungen weiter.</p>
+  <form id="form">
+    <label class="field"><span>Neues Passwort (mindestens 8 Zeichen)</span><input type="password" id="pw1" autocomplete="new-password" required minlength="8"></label>
+    <label class="field"><span>Passwort wiederholen</span><input type="password" id="pw2" autocomplete="new-password" required></label>
+    <button type="submit" class="btn primary wide">Passwort speichern</button>
+    <div class="result" id="result"></div>
+  </form>
+  <p class="hint" style="margin:12px 0 0">Nach dem Speichern fragt der Browser noch einmal nach den Zugangsdaten: Benutzername beliebig, dazu dein neues Passwort. Dasselbe Passwort trägst du später auch in der Android-App ein.</p>
+  </div>
+</section>
+</div>
+<script>
+const result = document.getElementById("result");
+document.getElementById("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const pw1 = document.getElementById("pw1").value, pw2 = document.getElementById("pw2").value;
+  if (pw1 !== pw2) { result.className = "result bad"; result.textContent = "Die Passwörter stimmen nicht überein."; return; }
+  const r = await fetch("api/setup/password", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw1 }),
+  });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) { result.className = "result bad"; result.textContent = body.detail || r.statusText; return; }
+  result.className = "result ok";
+  result.textContent = "Gespeichert. Weiter zu den Einstellungen …";
+  setTimeout(() => location.href = "settings?setup=1", 800);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- Unraid-Vorlage: nach /boot/config/plugins/dockerMan/templates-user/my-networkmonitor.xml kopieren -->
+<Container version="2">
+  <Name>networkmonitor</Name>
+  <Repository>ghcr.io/archonw/networkmonitor:latest</Repository>
+  <Network>host</Network>
+  <Privileged>false</Privileged>
+  <ExtraParams>--cap-add=NET_RAW --cap-add=NET_ADMIN --restart=unless-stopped</ExtraParams>
+  <WebUI>http://[IP]:8085/</WebUI>
+  <Overview>Überwacht das Heimnetz über die FritzBox, meldet neue Geräte und lässt sie erlauben oder sperren. Alle Einstellungen erfolgen in der Weboberfläche; erste Anmeldung mit dem Passwort „netzwerkmonitor“.</Overview>
+  <Category>Network:Management Tools:</Category>
+  <Config Name="Daten" Target="/data" Default="/mnt/user/appdata/networkmonitor" Mode="rw" Type="Path" Display="always" Required="true">/mnt/user/appdata/networkmonitor</Config>
+  <Config Name="Port" Target="PORT" Default="8085" Type="Variable" Display="advanced" Required="false">8085</Config>
+</Container>

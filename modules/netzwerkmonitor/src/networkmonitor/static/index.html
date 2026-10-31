@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Netzwerkmonitor</title>
+<link rel="stylesheet" href="/assets/app.css">
+<script src="/assets/app.js"></script>
+</head>
+<body>
+<div class="page">
+  <header class="topbar" id="topbar"></header>
+  <main id="main"><div class="loading"><div class="nm-spinner"></div></div></main>
+</div>
+<script>
+const SORTS = {
+  name_asc: "Name A–Z", name_desc: "Name Z–A", ip_asc: "IP aufsteigend", ip_desc: "IP absteigend",
+  online_first: "Online zuerst",
+  offline_first: "Offline zuerst", allowed_first: "Erlaubte zuerst", not_allowed_first: "Nicht erlaubte zuerst",
+};
+// Schnellfilter wie in der App: Pillen (Soft) bzw. Zählkacheln (Kacheln)
+const FILTERS = {
+  all: ["Alle", () => true],
+  online: ["Online", d => d.online],
+  unknown: ["Unbekannt", d => d.status === "unknown"],
+  blocked: ["Gesperrt", d => d.status === "blocked"],
+};
+const collator = new Intl.Collator("de", { sensitivity: "base" });
+const byName = (a, b) => collator.compare(NM.title(a), NM.title(b)) || a.mac.localeCompare(b.mac);
+// IPv4 als Zahl, damit .9 vor .10 kommt; ohne IP null
+function ipKey(ip) {
+  const p = String(ip || "").trim().split(".");
+  if (p.length !== 4 || !p.every(x => /^\d{1,3}$/.test(x) && +x <= 255)) return null;
+  return p.reduce((n, x) => n * 256 + +x, 0);
+}
+// Geräte ohne IP stehen in beiden Richtungen am Ende
+const byIp = dir => (a, b) => {
+  const x = ipKey(a.ip), y = ipKey(b.ip);
+  if (x === null || y === null) return ((x === null) - (y === null)) || byName(a, b);
+  return dir * (x - y) || byName(a, b);
+};
+const RANK = { unknown: 0, blocked: 1, allowed: 2 };
+const COMPARE = {
+  name_asc: byName,
+  name_desc: (a, b) => byName(b, a),
+  ip_asc: byIp(1),
+  ip_desc: byIp(-1),
+  online_first: (a, b) => (b.online - a.online) || byName(a, b),
+  offline_first: (a, b) => (a.online - b.online) || byName(a, b),
+  allowed_first: (a, b) => ((a.status !== "allowed") - (b.status !== "allowed")) || byName(a, b),
+  not_allowed_first: (a, b) => (RANK[a.status] - RANK[b.status]) || byName(a, b),
+};
+
+const state = { devices: null, health: null, error: null, info: null, query: "", searching: false, menu: null };
+const $ = id => document.getElementById(id);
+if (!SORTS[NM.prefs.sort]) NM.prefs.sort = "name_asc";
+if (!FILTERS[NM.prefs.filter]) NM.prefs.filter = "all";
+
+function search(list) {
+  const q = state.query.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter(d => [d.name, d.hostname, d.ip, d.mac].some(v => (v || "").toLowerCase().includes(q)));
+}
+const count = f => (state.devices || []).filter(FILTERS[f][1]).length;
+const shown = () => search(state.devices || []).filter(FILTERS[NM.prefs.filter][1]).sort(COMPARE[NM.prefs.sort]);
+const offlineCount = () => (state.devices || []).filter(d => !d.online && d.status !== "blocked").length;
+const lastPoll = () => state.health && state.health.last_poll
+  ? "letzte Abfrage " + new Date(state.health.last_poll).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "";
+
+function menu(id, items) {
+  if (state.menu !== id) return "";
+  return `<div class="menu" role="menu">${items.map(([act, label, enabled = true]) =>
+    `<button role="menuitem" data-act="${act}" ${enabled ? "" : "disabled"}>${NM.esc(label)}</button>`).join("")}</div>`;
+}
+const sortMenu = () => `<div class="menu-wrap"><button class="sort-btn" data-act="menu:sort" aria-haspopup="true">${SORTS[NM.prefs.sort]} ▾</button>
+  ${menu("sort", Object.entries(SORTS).map(([k, label]) => ["sort:" + k, (k === NM.prefs.sort ? "✓ " : "") + label]))}</div>`;
+const moreMenu = () => `<div class="menu-wrap"><button class="icon-btn" data-act="menu:more" aria-label="Weitere Aktionen" aria-haspopup="true">${NM.icon("more")}</button>
+  ${menu("more", [["refresh", "Aktualisieren"], ["remove-offline", "Offline-Geräte entfernen", offlineCount() > 0]])}</div>`;
+
+function renderTop() {
+  const top = $("topbar");
+  if (state.searching) {
+    const had = document.activeElement && document.activeElement.id === "q";
+    if (!had) {
+      top.innerHTML = `<div class="grow"><input class="search" id="q" type="search" placeholder="Name, IP oder MAC"
+          autocomplete="off" value="${NM.esc(state.query)}"></div>
+        <button class="icon-btn" data-act="search" aria-label="Suche schließen">${NM.icon("close")}</button>`;
+      $("q").focus();
+    }
+    return;
+  }
+  top.innerHTML = NM.prefs.style === "soft"
+    ? `<button class="icon-btn" data-act="search" aria-label="Suchen">${NM.icon("search")}</button>
+       <div class="grow brand">Netz<b>werk</b></div>${moreMenu()}`
+    : `<div class="grow brand">Geräte</div>
+       <button class="icon-btn" data-act="search" aria-label="Suchen">${NM.icon("search")}</button>${moreMenu()}`;
+}
+
+function softRow(d) {
+  return `<a class="soft-row" href="device/${encodeURIComponent(d.mac)}">
+    <span class="avatar">${NM.esc(NM.title(d).slice(0, 1).toUpperCase())}</span>
+    <span class="row-main"><div class="row-title">${NM.esc(NM.title(d))}</div>
+      <div class="row-sub">${NM.esc(d.ip || "keine IP")} · ${d.online ? "online" : "offline"}</div></span>
+    <span class="status-pill ${d.status}">${NM.statusLabel(d.status)}</span></a>`;
+}
+
+function flatRow(d) {
+  return `<a class="flat-row ${d.status === "unknown" ? "unknown" : ""}" href="device/${encodeURIComponent(d.mac)}">
+    <span class="dot ${d.online ? "on" : ""} ${d.status}-c" title="${d.online ? "online" : "offline"}"></span>
+    <span class="row-main"><div class="row-title">${NM.esc(NM.title(d))}</div>
+      <div class="row-sub">${NM.esc(d.ip || "keine IP")} · ${NM.esc(NM.ifaceLabel(d.interface))}</div></span>
+    ${d.status !== "allowed" ? `<span class="tag ${d.status}-c">${NM.statusLabel(d.status)}</span>` : ""}
+    ${NM.icon("chevron", "chevron")}</a>`;
+}
+
+function messages() {
+  const err = state.error || (state.health && state.health.error ? "Fehler: " + state.health.error : null);
+  return (err ? `<div class="error">${NM.esc(err)}</div>` : "") + (state.info ? `<div class="info">${NM.esc(state.info)}</div>` : "");
+}
+
+function renderMain() {
+  const list = shown();
+  const loading = state.devices === null && !state.error;
+  const body = loading ? `<div class="loading"><div class="nm-spinner"></div></div>`
+    : !list.length && state.devices ? `<div class="empty">Keine Geräte für diesen Filter.</div>` : null;
+  const total = (state.devices || []).length;
+  if (NM.prefs.style === "soft") {
+    $("main").innerHTML = `
+      <section class="hero"><div>Dein Netzwerk${lastPoll() ? ` <span class="muted-hero">· ${lastPoll()}</span>` : ""}</div>
+        <div class="stats">
+          <div class="stat"><b>${count("online")}</b><span>online von ${total}</span></div>
+          <div class="stat"><b>${count("unknown")}</b><span>unbekannt</span></div>
+          <div class="stat"><b>${count("blocked")}</b><span>gesperrt</span></div>
+        </div></section>
+      ${messages()}
+      <div class="list-head"><h2>Geräte</h2>${sortMenu()}</div>
+      <div class="chips">${Object.entries(FILTERS).map(([k, [label]]) =>
+        `<button class="chip ${k === NM.prefs.filter ? "on" : ""}" data-act="filter:${k}">${label}</button>`).join("")}</div>
+      ${body ?? `<div class="soft-list">${list.map(softRow).join("")}</div>`}`;
+  } else {
+    const label = NM.prefs.filter === "all" ? "Alle Geräte" : FILTERS[NM.prefs.filter][0];
+    $("main").innerHTML = `
+      <div class="count-line">${total} Geräte${lastPoll() ? " · " + lastPoll() : ""}</div>
+      <div class="tiles">${[["online", "Online"], ["unknown", "Unbekannt"], ["blocked", "Gesperrt"]].map(([k, l]) =>
+        `<button class="tile ${k} ${NM.prefs.filter === k ? "on" : ""}" data-act="tile:${k}" aria-pressed="${NM.prefs.filter === k}">
+          <b>${count(k)}</b><span>${l}</span></button>`).join("")}</div>
+      ${messages()}
+      <div class="list-head"><div class="section-label">${label}</div>${sortMenu()}</div>
+      ${body ?? `<div class="flat-list">${list.map(flatRow).join("")}</div>`}`;
+  }
+}
+
+function render() { renderTop(); renderMain(); }
+
+async function load() {
+  try {
+    const [devices, health] = await Promise.all([NM.api("/api/devices"), NM.api("/health")]);
+    state.devices = devices;
+    state.health = health;
+    state.error = null;
+  } catch (err) {
+    state.error = "Fehler: " + err.message;
+  }
+  renderMain();
+  if (state.menu) renderTop();
+}
+
+async function removeOffline() {
+  const n = offlineCount();
+  const ok = await NM.dialog({
+    title: "Offline-Geräte entfernen?",
+    text: `${n} Geräte, die gerade offline sind, werden aus der Liste gelöscht. Kommen sie wieder ins Netz, gelten sie als neu und du musst sie erneut bestätigen.\n\nGesperrte Geräte bleiben in der Liste, damit ihre Sperre erhalten bleibt.`,
+    ok: "Entfernen",
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    const r = await NM.api("/api/devices/remove-offline", { method: "POST" });
+    state.info = `${r.removed} Geräte entfernt.`;
+  } catch (err) { state.error = "Fehler: " + err.message; }
+  await load();
+}
+
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-act]");
+  const act = b ? b.dataset.act : null;
+  const wasMenu = state.menu;
+  if (state.menu && !(act && act.startsWith("menu:"))) state.menu = null;
+  if (!act) { if (wasMenu) render(); return; }
+  const [kind, value] = act.split(":");
+  if (kind === "menu") state.menu = state.menu === value ? null : value;
+  else if (kind === "search") { state.searching = !state.searching; if (!state.searching) state.query = ""; }
+  else if (kind === "sort") NM.set({ sort: value });
+  else if (kind === "filter") NM.set({ filter: value });
+  else if (kind === "tile") NM.set({ filter: NM.prefs.filter === value ? "all" : value });
+  else if (kind === "refresh") { state.info = null; await load(); NM.toast("Aktualisiert"); }
+  else if (kind === "remove-offline") { render(); await removeOffline(); }
+  render();
+});
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && (state.menu || state.searching)) {
+    if (state.menu) state.menu = null; else { state.searching = false; state.query = ""; }
+    render();
+  } else if (e.key === "/" && !state.searching && !e.target.closest("input, textarea, dialog")) {
+    e.preventDefault();
+    state.searching = true;
+    render();
+  }
+});
+document.addEventListener("input", e => {
+  if (e.target.id === "q") { state.query = e.target.value; renderMain(); }
+});
+document.addEventListener("nm:prefs", render);
+
+NM.tabbar("devices");
+NM.pullToRefresh(async () => { state.info = null; await load(); });
+render();
+load();
+setInterval(() => { if (!document.hidden) load(); }, 15000);
+</script>
+</body>
+</html>

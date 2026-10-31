@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gerät – Netzwerkmonitor</title>
+<link rel="stylesheet" href="/assets/app.css">
+<script src="/assets/app.js"></script>
+</head>
+<body>
+<div class="page narrow">
+  <header class="topbar" id="topbar"></header>
+  <main id="main"><div class="loading"><div class="nm-spinner"></div></div></main>
+  <div class="actions" id="actions" hidden>
+    <button class="allow" id="allow">Erlauben</button>
+    <button class="block" id="block">Sperren</button>
+  </div>
+</div>
+<script>
+const mac = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop());
+const $ = id => document.getElementById(id);
+const state = { device: null, error: null, message: null, busy: false };
+
+function renderTop() {
+  $("topbar").innerHTML = NM.prefs.style === "soft"
+    ? `<a class="back-link" href="/">${NM.icon("back")}Alle Geräte</a>`
+    : `<a class="icon-btn" href="/" aria-label="Zurück zu allen Geräten">${NM.icon("back")}</a>
+       <span class="muted" style="font-weight:600">Gerät</span>`;
+}
+
+const copyBtn = (label, value) =>
+  `<button class="copy" data-copy="${NM.esc(value)}" data-label="${NM.esc(label)}">Kopieren</button>`;
+
+function render() {
+  renderTop();
+  const d = state.device;
+  $("actions").hidden = !d;
+  if (!d) {
+    $("main").innerHTML = state.error ? `<div class="error">${NM.esc(state.error)}</div>`
+      : `<div class="loading"><div class="nm-spinner"></div></div>`;
+    return;
+  }
+  document.title = `${NM.title(d)} – Netzwerkmonitor`;
+  const where = `${d.online ? "gerade online" : "offline"} · ${NM.esc(NM.ifaceLabel(d.interface))}`;
+  const name = NM.esc(d.name || d.hostname || "Unbekanntes Gerät");
+  const rename = `<button class="rename" data-act="rename">Umbenennen</button>`;
+  const msg = `<div class="msg" role="status">${NM.esc(state.message || "")}</div>`;
+  if (NM.prefs.style === "soft") {
+    const rows = [
+      ["Gerätename", d.hostname || "–", false],
+      ["IP-Adresse", d.ip || "–", !!d.ip],
+      ["MAC-Adresse", d.mac, true],
+      ["Verbindung", NM.ifaceLabel(d.interface), false],
+      ["Zuerst gesehen", NM.fmt(d.first_seen), false],
+      ["Zuletzt gesehen", NM.fmt(d.last_seen), false],
+    ];
+    $("main").innerHTML = `<div class="detail-stack">
+      <section class="hero"><span class="status-pill ${d.status}">${NM.statusLabel(d.status)}</span>
+        <h1>${name}</h1><div class="sub">${where}</div>${rename}</section>
+      <div class="facts">${rows.map(([k, v, c]) => `<div class="fact"><span class="k">${k}</span>
+        <span class="v">${NM.esc(v)}</span>${c ? copyBtn(k, v) : ""}</div>`).join("")}</div>
+      ${d.random_mac ? `<div class="random-hint">Zufällige (private) MAC-Adresse: Das kann auch ein bekanntes Handy mit neuer Adresse sein.</div>` : ""}
+      ${msg}</div>`;
+  } else {
+    const tile = (k, v, { mono = false, size = 15, copy = false, full = false } = {}) =>
+      `<div class="fact-tile ${full ? "full" : ""}"><div class="head"><span class="k">${k}</span>${copy ? copyBtn(k, v) : ""}</div>
+        <div class="v ${mono ? "mono" : ""}" style="font-size:${size}px">${NM.esc(v)}</div></div>`;
+    $("main").innerHTML = `<div class="detail-stack">
+      <section class="status-card ${d.status}"><div class="label ${d.status}-c">${NM.statusLabel(d.status)}</div>
+        <h1>${name}</h1><div class="sub">${where}</div>${rename}</section>
+      <div class="fact-grid">
+        ${tile("IP-Adresse", d.ip || "–", { mono: true, size: 18, copy: !!d.ip, full: true })}
+        ${tile("MAC-Adresse", d.mac, { mono: true, size: 16, copy: true, full: true })}
+        ${tile("Verbindung", NM.ifaceLabel(d.interface))}
+        ${tile("Gerätename", d.hostname || "–")}
+        ${tile("Zuerst", NM.fmt(d.first_seen))}
+        ${tile("Zuletzt", NM.fmt(d.last_seen))}
+      </div>
+      ${d.random_mac ? `<div class="random-hint">Zufällige MAC-Adresse: Das kann auch ein bekanntes Handy mit neuer Adresse sein.</div>` : ""}
+      ${msg}</div>`;
+  }
+  $("allow").disabled = state.busy || d.status === "allowed";
+  $("block").disabled = state.busy || d.status === "blocked";
+}
+
+const url = path => `/api/devices/${encodeURIComponent(mac)}${path}`;
+
+async function act(action) {
+  state.busy = true;
+  state.message = null;
+  render();
+  try {
+    state.device = await NM.api(url("/" + action), { method: "POST" });
+    state.message = action === "allow" ? "Gerät ist erlaubt." : "Gerät ist gesperrt.";
+  } catch (e) { state.message = e.message; }
+  state.busy = false;
+  render();
+}
+
+async function load() {
+  try {
+    state.device = await NM.api(url(""));
+    state.error = null;
+  } catch (e) {
+    if (!state.device) state.error = "Gerät nicht gefunden: " + e.message;
+  }
+  render();
+}
+
+$("allow").onclick = () => act("allow");
+$("block").onclick = async () => {
+  const related = state.device.related || [];
+  if (related.length) {
+    const names = related.map(r => `${r.title} (${r.ip})`).join(", ");
+    const ok = await NM.dialog({
+      title: "Wirklich sperren?",
+      text: `Dieser Eintrag ist wahrscheinlich eine Repeater-Kopie von ${names}. ` +
+        (state.device.ip
+          ? `Die Sperre gilt für die IP ${state.device.ip}, das kann auch das echte Gerät treffen.`
+          : "Ohne IP bewirkt die Sperre nichts."),
+      ok: "Trotzdem sperren", danger: true,
+    });
+    if (!ok) return;
+  }
+  act("block");
+};
+document.addEventListener("click", async e => {
+  const c = e.target.closest("[data-copy]");
+  if (c) {
+    const ok = await NM.copy(c.dataset.copy);
+    NM.toast(ok ? `${c.dataset.label} kopiert.` : "Kopieren nicht möglich");
+    return;
+  }
+  if (e.target.closest('[data-act="rename"]')) {
+    const name = await NM.dialog({ title: "Gerät umbenennen", input: state.device.name || "", ok: "Speichern" });
+    if (name === null) return;
+    try {
+      state.device = await NM.api(url(""), {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }),
+      });
+      state.message = "Name gespeichert.";
+    } catch (err) { state.message = err.message; }
+    render();
+  }
+});
+document.addEventListener("nm:prefs", render);
+
+NM.tabbar("devices");
+NM.pullToRefresh(load);
+render();
+load();
+</script>
+</body>
+</html>

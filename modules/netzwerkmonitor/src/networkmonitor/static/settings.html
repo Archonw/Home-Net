@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Einstellungen – Netzwerkmonitor</title>
+<link rel="stylesheet" href="/assets/app.css">
+<script src="/assets/app.js"></script>
+</head>
+<body>
+<div class="page narrow">
+<h1 class="page-title">Einstellungen</h1>
+<section class="group" id="welcome" hidden>
+  <h2>Fast geschafft</h2>
+  <div class="box"><div class="hint" style="margin:0">Trage jetzt den FritzBox-Zugang ein und prüfe ihn mit „Verbindung testen“. Erst danach beginnt die Überwachung. Benachrichtigungen kannst du auch später einrichten. Zum Schluss „Speichern“.</div></div>
+</section>
+
+<section class="group">
+  <h2>Design</h2>
+  <div class="segmented" id="style" role="radiogroup" aria-label="Design"></div>
+</section>
+<section class="group">
+  <h2>Darstellung</h2>
+  <div class="segmented" id="theme" role="radiogroup" aria-label="Darstellung"></div>
+</section>
+<section class="group">
+  <h2>Akzentfarbe</h2>
+  <div class="swatches" id="accent" role="radiogroup" aria-label="Akzentfarbe"></div>
+  <div class="hint" style="margin:8px 0 0">Design, Darstellung und Farbe gelten für diesen Browser, wie in der App für dein Handy.</div>
+</section>
+
+<form id="form" autocomplete="off">
+<section class="group">
+  <h2>FritzBox</h2>
+  <div class="box">
+  <label class="field"><span>Adresse</span><input type="text" name="fritz_address"></label>
+  <label class="field"><span>Benutzer</span><input type="text" name="fritz_user"></label>
+  <label class="field"><span>Passwort</span><input type="password" name="fritz_password" data-secret></label>
+  <button type="button" class="btn" data-test="fritzbox">Verbindung testen</button>
+  <div class="result" id="test-fritzbox"></div>
+  </div>
+</section>
+
+<section class="group">
+  <h2>Überwachung</h2>
+  <div class="box">
+  <label class="field"><span>Abfrageintervall in Sekunden (10–3600)</span><input type="number" name="poll_interval" min="10" max="3600"></label>
+  <div class="check"><input type="checkbox" id="quarantine_unknown" name="quarantine_unknown"><label for="quarantine_unknown">Unbekannte Geräte sofort vom Internet trennen, bis ich sie erlaube</label></div>
+  <div class="check"><input type="checkbox" id="trust_initial_devices" name="trust_initial_devices"><label for="trust_initial_devices">Geräte aus dem allerersten Scan als erlaubt übernehmen</label></div>
+  </div>
+</section>
+
+<section class="group">
+  <h2>Benachrichtigungen</h2>
+  <div class="box">
+  <div class="check"><input type="checkbox" id="ch-ntfy" data-channel="ntfy"><label for="ch-ntfy">ntfy (Android-App)</label></div>
+  <div class="check"><input type="checkbox" id="ch-telegram" data-channel="telegram"><label for="ch-telegram">Telegram</label></div>
+  <div class="check"><input type="checkbox" id="ch-homeassistant" data-channel="homeassistant"><label for="ch-homeassistant">Home Assistant</label></div>
+  <label class="field" style="margin-top:12px"><span>Adresse dieser Weboberfläche (für Links in Nachrichten)</span><input type="url" name="public_url"></label>
+
+  <div class="channel" data-for="ntfy">
+    <h3>ntfy</h3>
+    <label class="field"><span>ntfy-Server</span><input type="url" name="ntfy_url" placeholder="http://192.168.178.20:8091"></label>
+    <label class="field"><span>Thema</span><input type="text" name="ntfy_topic"></label>
+    <label class="field"><span>Zugriffstoken (optional)</span><input type="password" name="ntfy_token" data-secret></label>
+  </div>
+  <div class="channel" data-for="telegram">
+    <h3>Telegram</h3>
+    <label class="field"><span>Bot-Token</span><input type="password" name="telegram_bot_token" data-secret></label>
+    <label class="field"><span>Chat-ID</span><input type="text" name="telegram_chat_id"></label>
+  </div>
+  <div class="channel" data-for="homeassistant">
+    <h3>Home Assistant</h3>
+    <label class="field"><span>Home-Assistant-Adresse</span><input type="url" name="ha_url"></label>
+    <label class="field"><span>Langlebiges Zugriffstoken</span><input type="password" name="ha_token" data-secret></label>
+    <label class="field"><span>notify-Dienst</span><input type="text" name="ha_notify_service" placeholder="mobile_app_…"></label>
+  </div>
+  <button type="button" class="btn" data-test="notify">Testnachricht senden</button>
+  <div class="hint" style="margin:6px 0 0">Gesendet wird an die gespeicherten Kanäle, also vorher speichern.</div>
+  <div class="result" id="test-notify"></div>
+  </div>
+</section>
+
+<section class="group">
+  <h2>Android-App</h2>
+  <div class="box">
+  <div class="hint" style="margin:0 0 10px">Der Monitor stellt die App unter <a id="app-link" href="/app">/app</a> bereit. Diese Adresse in Obtainium als Quelle eintragen, dann kommen Updates automatisch aufs Handy. Neue Versionen holt sich der Monitor alle 6 Stunden aus den GitHub-Releases.</div>
+  <label class="field"><span>GitHub-Repository (leer = nicht automatisch suchen)</span><input type="text" name="app_update_repo" placeholder="Archonw/Networkmonitor"></label>
+  <label class="field"><span>GitHub-Token (nur für ein privates Repository nötig, Rechte: Contents lesen)</span><input type="password" name="app_update_token" data-secret></label>
+  <button type="button" class="btn" id="app-check">Jetzt nach Update suchen</button>
+  <div class="hint" style="margin:6px 0 0">Repository und Token werden dabei gespeichert.</div>
+  <div class="result" id="app-status"></div>
+  </div>
+</section>
+
+<section class="group">
+  <h2>Weboberfläche</h2>
+  <div class="box">
+  <label class="field"><span>Neues Passwort</span><input type="password" name="ui_password" data-secret></label>
+  <div class="hint" style="margin:0">Nach einer Änderung fragt der Browser neu nach dem Passwort. In der Android-App musst du es unter Einstellungen ebenfalls ändern.</div>
+  </div>
+</section>
+
+<div class="save-bar">
+  <button type="submit" class="btn primary">Speichern</button>
+  <span class="result" id="save"></span>
+</div>
+</form>
+
+<div class="hint" style="margin:16px 0 0;text-align:center">Netzwerkmonitor ist freie Software unter der <a href="https://github.com/Archonw/Networkmonitor/blob/main/LICENSE" target="_blank" rel="noopener">Apache-Lizenz 2.0</a> · <a href="https://github.com/Archonw/Networkmonitor" target="_blank" rel="noopener">Quellcode auf GitHub</a></div>
+</div>
+
+<script>
+// ---- Aussehen (je Browser) ----
+function segmented(id, options, selected, onPick) {
+  const el = document.getElementById(id);
+  el.innerHTML = Object.entries(options).map(([k, label]) =>
+    `<button type="button" role="radio" aria-checked="${k === selected}" class="${k === selected ? "on" : ""}" data-k="${k}">${label}</button>`).join("");
+  el.onclick = e => { const b = e.target.closest("[data-k]"); if (b) onPick(b.dataset.k); };
+}
+function renderAppearance() {
+  const styles = Object.fromEntries(Object.entries(NM.STYLES).map(([k, s]) => [k, s.label]));
+  segmented("style", styles, NM.prefs.style, k => NM.set({ style: k }));
+  const { light, dark, system } = NM.THEMES;
+  segmented("theme", { light, dark, system }, NM.prefs.theme, k => NM.set({ theme: k }));
+  const accent = document.getElementById("accent");
+  accent.innerHTML = NM.STYLES[NM.prefs.style].accents.map(k => {
+    const [label, color] = NM.ACCENTS[k], on = k === NM.prefs.accent;
+    return `<button type="button" role="radio" aria-checked="${on}" class="swatch ${on ? "on" : ""}" data-k="${k}"
+      style="--c:${color}"><i></i>${label}</button>`;
+  }).join("");
+  accent.onclick = e => { const b = e.target.closest("[data-k]"); if (b) NM.set({ accent: b.dataset.k }); };
+}
+document.addEventListener("nm:prefs", renderAppearance);
+renderAppearance();
+NM.tabbar("settings");
+
+const form = document.getElementById("form");
+const appLink = document.getElementById("app-link");
+appLink.href = new URL("app", location.href).href;
+appLink.textContent = appLink.href;
+const firstRun = new URLSearchParams(location.search).has("setup");
+document.getElementById("welcome").hidden = !firstRun;
+if (firstRun) document.querySelector(".page-title").textContent = "Einrichten";
+let loaded = null;
+
+async function call(path, opts = {}) {
+  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || r.statusText);
+  return body;
+}
+
+function showResult(id, ok, text) {
+  const el = document.getElementById(id);
+  el.className = "result " + (ok ? "ok" : "bad");
+  el.textContent = text;
+}
+
+function toggleChannels() {
+  for (const box of form.querySelectorAll("[data-channel]")) {
+    form.querySelector(`.channel[data-for="${box.dataset.channel}"]`).hidden = !box.checked;
+  }
+}
+
+function render(data) {
+  loaded = data;
+  for (const [name, value] of Object.entries(data.values)) {
+    const input = form.elements[name];
+    if (!input) continue;
+    if (input.type === "checkbox") input.checked = value; else input.value = value;
+  }
+  for (const box of form.querySelectorAll("[data-channel]")) {
+    box.checked = data.values.notify.includes(box.dataset.channel);
+  }
+  for (const input of form.querySelectorAll("[data-secret]")) {
+    input.value = "";
+    const isSet = data.secrets[input.name];
+    input.placeholder = isSet ? "gespeichert – leer lassen, um es zu behalten" : "nicht gesetzt";
+    let clear = input.parentElement.querySelector(".clear");
+    if (isSet && input.name !== "ui_password" && input.name !== "fritz_password") {
+      if (!clear) {
+        clear = document.createElement("span");
+        clear.className = "clear";
+        clear.innerHTML = `<input type="checkbox" data-clear="${input.name}"> entfernen`;
+        input.parentElement.append(clear);
+      }
+      clear.querySelector("input").checked = false;
+    } else if (clear) {
+      clear.remove();
+    }
+  }
+  toggleChannels();
+  if (firstRun && data.values.public_url === "http://localhost:8085/") {
+    form.elements.public_url.value = location.origin + "/";
+  }
+}
+
+function collectChanges() {
+  const changes = {};
+  for (const [name, old] of Object.entries(loaded.values)) {
+    if (name === "notify") continue;
+    const input = form.elements[name];
+    if (!input) continue;
+    let value = input.type === "checkbox" ? input.checked : input.value.trim();
+    if (input.type === "number") value = Number(value);
+    if (value !== old) changes[name] = value;
+  }
+  const notify = [...form.querySelectorAll("[data-channel]")].filter(b => b.checked).map(b => b.dataset.channel);
+  if (notify.join(",") !== loaded.values.notify.join(",")) changes.notify = notify;
+  for (const input of form.querySelectorAll("[data-secret]")) {
+    if (input.value) changes[input.name] = input.value;
+  }
+  for (const box of form.querySelectorAll("[data-clear]")) {
+    if (box.checked) changes[box.dataset.clear] = null;
+  }
+  return changes;
+}
+
+form.addEventListener("change", e => { if (e.target.dataset.channel) toggleChannels(); });
+
+form.addEventListener("submit", async e => {
+  e.preventDefault();
+  const changes = collectChanges();
+  if (!Object.keys(changes).length) return showResult("save", true, "Keine Änderungen.");
+  try {
+    render(await call("api/settings", { method: "PUT", body: JSON.stringify(changes) }));
+    showResult("save", true, "Gespeichert und übernommen.");
+  } catch (err) {
+    showResult("save", false, err.message);
+  }
+});
+
+for (const btn of form.querySelectorAll("[data-test]")) {
+  btn.addEventListener("click", async () => {
+    const id = "test-" + btn.dataset.test;
+    showResult(id, true, "…");
+    try {
+      const r = await call(`api/settings/test-${btn.dataset.test}`, { method: "POST" });
+      const lines = r.results ? r.results.map(x => `${x.channel}: ${x.message}`) : [];
+      showResult(id, r.ok, [r.message, ...lines].filter(Boolean).join("\n"));
+    } catch (err) {
+      showResult(id, false, err.message);
+    }
+  });
+}
+
+function showApp(r) {
+  const parts = [r.version ? `Bereitgestellt: Version ${r.version}` : "Noch keine App bereitgestellt", r.message];
+  showResult("app-status", r.ok !== false, parts.filter(Boolean).join("\n"));
+}
+
+document.getElementById("app-check").addEventListener("click", async () => {
+  showResult("app-status", true, "…");
+  try {
+    // Eingetragenes Repository/Token zuerst speichern, sonst sucht der Monitor mit den alten Werten
+    const changes = {};
+    for (const name of ["app_update_repo", "app_update_token"]) {
+      const value = form.elements[name].value.trim();
+      if (name === "app_update_token" ? value : value !== loaded.values[name]) changes[name] = value;
+    }
+    if (Object.keys(changes).length) {
+      // Nur diese beiden Felder übernehmen, andere ungespeicherte Eingaben bleiben stehen
+      const saved = await call("api/settings", { method: "PUT", body: JSON.stringify(changes) });
+      loaded.values.app_update_repo = saved.values.app_update_repo;
+      loaded.secrets.app_update_token = saved.secrets.app_update_token;
+      const token = form.elements.app_update_token;
+      token.value = "";
+      token.placeholder = "gespeichert – leer lassen, um es zu behalten";
+    }
+    showApp(await call("api/app/check", { method: "POST" }));
+  } catch (err) {
+    showResult("app-status", false, err.message);
+  }
+});
+
+call("api/app").then(showApp).catch(() => {});
+call("api/settings").then(render).catch(err => showResult("save", false, err.message));
+</script>
+</body>
+</html>
