@@ -129,6 +129,58 @@ def parse_shell_kv(text):
     return out
 
 
+def parse_summary(text):
+    """Result of the engine's summary command, with Pis and their runs keyed by folder."""
+    out = {"avail": 0, "total": 0, "pis": {}, "runs": []}
+    for line in text.splitlines():
+        f = line.split("\t")
+        if f[0] == "DISK" and len(f) >= 3:
+            out["avail"], out["total"] = int(f[1]), int(f[2])
+        elif f[0] == "PI" and len(f) >= 11:
+            out["pis"][f[1]] = {"running": f[2] == "1", "status": f[3], "time": int(f[4] or 0), "ok_time": int(f[5] or 0),
+                                "count": int(f[6]), "bytes": int(f[7]), "mirror": int(f[8]), "schedule": f[9],
+                                "newest": int(f[10]), "warnings": f[11] if len(f) > 11 else ""}
+        elif f[0] == "RUN" and len(f) >= 4:
+            out["runs"].append({"dir": f[1], "stamp": f[2], "status": f[3], "error": f[4] if len(f) > 4 else ""})
+    return out
+
+
+def attention_items(inventory_pis, dirs, summary, devices, now, disk_warn_pct=85, temp_warn=75, stale_days=14):
+    """What needs a look, most serious first. Returns (severity, pi name, text) with severity 0 or 1."""
+    items = []
+    for pi in inventory_pis:
+        row = summary["pis"].get(dirs[pi.id], {})
+        dev = devices.get(pi.id)
+        status, ok_time = row.get("status", ""), row.get("ok_time", 0)
+        if status == "failed":
+            items.append((0, pi.name, "Letzte Sicherung ist fehlgeschlagen"))
+        if dev is not None and not dev:
+            items.append((0, pi.name, "Nicht erreichbar"))
+        if not row.get("count"):
+            items.append((1, pi.name, "Noch kein Image vorhanden"))
+        elif ok_time and (now - ok_time) / 86400 >= stale_days:
+            items.append((1, pi.name, f"Letztes erfolgreiches Backup vor {int((now - ok_time) / 86400)} Tagen"))
+        if row.get("schedule", pi.schedule) == "off":
+            items.append((1, pi.name, "Kein Zeitplan aktiv"))
+        if row.get("warnings"):
+            items.append((1, pi.name, row["warnings"]))
+        if dev:
+            parts = dev.get("disk", "").split()
+            pct = parts[2].rstrip("%") if len(parts) == 3 else ""
+            if pct.isdigit() and int(pct) >= disk_warn_pct:
+                items.append((1, pi.name, f"SD-Karte zu {pct} % voll"))
+            temp = dev.get("temp", "").split(" ")[0]
+            if temp.isdigit() and int(temp) >= temp_warn:
+                items.append((1, pi.name, f"Temperatur {temp} °C"))
+            if dev.get("reboot") == "ja":
+                items.append((1, pi.name, "Neustart nötig"))
+            if dev.get("sudo") == "fehlt" or dev.get("rsync") == "fehlt":
+                items.append((0, pi.name, "sudo ohne Passwort oder rsync fehlt, Sicherung nicht möglich"))
+    if summary["total"] and summary["avail"] / summary["total"] < 0.1:
+        items.append((0, "Unraid", "Weniger als 10 % Speicher frei"))
+    return sorted(items, key=lambda i: i[0])
+
+
 def ssh_config_hosts(path="~/.ssh/config"):
     """Hosts from the user's ssh config, to prefill a new Pi."""
     hosts, current = {}, []
@@ -251,6 +303,10 @@ class Unraid:
 
     def cancel(self, pi):
         return self.engine_cmd("cancel", pi)
+
+    def summary(self):
+        text = self.run(f"bash {shlex.quote(self.engine)} summary {shlex.quote(self.s.root)}", timeout=120)
+        return parse_summary(text)
 
     def images(self, pi):
         rows = []

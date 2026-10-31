@@ -11,6 +11,7 @@
 #   pi-backup.sh keygen <pi-dir>    create the key of this Pi if needed, print it
 #   pi-backup.sh install-key <pi-dir>  same, then install it using a password from stdin
 #   pi-backup.sh due    <root>      run every Pi whose schedule is due (for cron)
+#   pi-backup.sh summary <root>     facts about all Pis as tab separated lines
 #
 # How a backup works: rsync keeps a file level mirror of the Pi in an ext4
 # container, so repeat runs only transfer changes. The image is then built new
@@ -624,6 +625,38 @@ cmd_install_key() {
   on_pi 'sudo -n true' 2>/dev/null && echo "sudo=ok" || echo "sudo=fehlt"
 }
 
+cmd_summary() {
+  local root=${1%/} conf
+  printf 'DISK\t%s\t%s\n' "$(df -B1 --output=avail "$root" | tail -1 | tr -d ' ')" "$(df -B1 --output=size "$root" | tail -1 | tr -d ' ')"
+  while IFS= read -r conf; do
+    (
+      load_conf "$(dirname "$conf")"
+      running=0
+      ( flock -n 9 ) 9>"$LOCK" || running=1
+      LAST_STATUS="" LAST_TIME=0 LAST_OK_TIME=0 LAST_WARNINGS=""
+      [ -f "$STATE/last" ] && . "$STATE/last"
+      count=0 bytes=0 newest=0
+      while IFS= read -r f; do
+        [ -f "$f" ] || continue
+        count=$((count + 1))
+        bytes=$((bytes + $(stat -c %s "$f")))
+        m=$(stat -c %Y "$f")
+        [ "$m" -gt "$newest" ] && newest=$m
+      done < <(ls -1 "$PIDIR/${NAME}_"*.img "$PIDIR/${NAME}_"*.img.xz "$PIDIR/${NAME}_"*.img.gz 2>/dev/null)
+      mirror=0
+      [ -f "$STATE/mirror.ext4" ] && mirror=$(du -B1 "$STATE/mirror.ext4" | cut -f1)
+      printf 'PI\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$PIDIR" "$running" "$LAST_STATUS" "$LAST_TIME" \
+        "${LAST_OK_TIME:-0}" "$count" "$bytes" "$mirror" "$SCHEDULE" "$newest" "$LAST_WARNINGS"
+      for log in "$PIDIR"/logs/*.log; do
+        [ -f "$log" ] || continue
+        result=$(grep -a ' Ende: ' "$log" | tail -1 | sed 's/.* Ende: //')
+        error=$(grep -a ' FEHLER: ' "$log" | tail -1 | sed 's/.* FEHLER: //')
+        printf 'RUN\t%s\t%s\t%s\t%s\n' "$PIDIR" "$(basename "$log" .log)" "$result" "$error"
+      done
+    )
+  done < <(find "$root" -mindepth 2 -name pi.conf -not -path '*/.state/*' -not -path '*/.engine/*')
+}
+
 cmd_due() {
   local root=${1%/} conf now hour age need
   now=$(date +%s); hour=$((10#$(date +%H)))
@@ -650,7 +683,8 @@ cmd_due() {
 case "${1:-}" in
   backup|start|state|cancel|status|images|keygen) c=$1; shift; "cmd_$c" "$@" ;;
   install-key) shift; cmd_install_key "$@" ;;
+  summary) shift; cmd_summary "$@" ;;
   due) shift; exec 8>/tmp/pi-wartung-due.lock; flock -n 8 || exit 0; cmd_due "$@" ;;
   version) echo "$ENGINE_VERSION" ;;
-  *) sed -n '2,14p' "$SCRIPT"; exit 2 ;;
+  *) sed -n '2,15p' "$SCRIPT"; exit 2 ;;
 esac

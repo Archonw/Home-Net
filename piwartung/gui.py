@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import gi
 gi.require_version("Gtk", "3.0")
@@ -14,7 +15,7 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
 from . import core  # noqa: E402
-from .core import Inventory, Pi, Settings, Unraid, UnraidError, human_size  # noqa: E402
+from .core import Inventory, Pi, Settings, Unraid, UnraidError, attention_items, human_size  # noqa: E402
 
 FORMATS = [("xz", "Am kleinsten (.img.xz)"), ("gz", "Schneller (.img.gz)"), ("img", "Unkomprimiert (.img)")]
 SCHEDULES = [("off", "Aus"), ("daily", "Täglich"), ("weekly", "Wöchentlich"), ("monthly", "Monatlich")]
@@ -286,6 +287,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self.tail_for = None
         self.running = set()
         self.states = {}
+        self.summary = None
+        self.devices = {}
+        self.devices_time = 0
 
         header = Gtk.HeaderBar(show_close_button=True, title="Pi-Wartung")
         self.set_titlebar(header)
@@ -326,21 +330,229 @@ class MainWindow(Gtk.ApplicationWindow):
         scroll.add(self.tree)
         side = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL), "sidebar-pane")
         side.set_size_request(300, -1)
+        dash_btn = styled(Gtk.Button(label="Übersicht aller Pis", relief=Gtk.ReliefStyle.NONE), "sidebar-home")
+        dash_btn.connect("clicked", lambda *_: self.show_dashboard())
+        side.pack_start(dash_btn, False, False, 0)
         side.pack_start(styled(Gtk.Label(label="RASPBERRY PIS", xalign=0), "sidebar-heading"), False, False, 0)
         side.pack_start(scroll, True, True, 0)
         paned.pack1(side, False, False)
 
         self.stack = styled(Gtk.Stack(), "content-pane")
         paned.pack2(self.stack, True, False)
-        empty = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, valign=Gtk.Align.CENTER)
-        empty.pack_start(styled(Gtk.Label(label="Kein Pi ausgewählt"), "empty-title"), False, False, 0)
-        empty.pack_start(styled(Gtk.Label(label="Wähle links einen Pi aus oder füge einen neuen hinzu."), "empty-sub"), False, False, 0)
-        self.stack.add_named(empty, "empty")
+        self.stack.add_named(self.build_dashboard(), "dashboard")
         self.stack.add_named(self.build_detail(), "detail")
         self.show_all()
-        self.stack.set_visible_child_name("empty")
+        self.stack.set_visible_child_name("dashboard")
         self.reload()
         GLib.timeout_add_seconds(20, self.poll_states)
+        GLib.timeout_add_seconds(60, self.tick_dashboard)
+
+    # ------------------------------------------------------------ dashboard
+    def build_dashboard(self):
+        scroll = Gtk.ScrolledWindow()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        box.set_border_width(26)
+        scroll.add(box)
+        top = Gtk.Box(spacing=10)
+        top.pack_start(styled(Gtk.Label(label="Übersicht", xalign=0), "hero-title"), True, True, 0)
+        self.dash_stamp = styled(Gtk.Label(xalign=1), "hero-sub")
+        top.pack_start(self.dash_stamp, False, False, 0)
+        check = Gtk.Button(label="Jetzt prüfen")
+        check.connect("clicked", lambda *_: self.refresh_dashboard(check_devices=True))
+        top.pack_start(check, False, False, 0)
+        box.pack_start(top, False, False, 0)
+
+        self.dash_tiles = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, column_spacing=12, row_spacing=12,
+                                      homogeneous=True, min_children_per_line=2, max_children_per_line=6)
+        box.pack_start(self.dash_tiles, False, False, 0)
+
+        attention = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6), "card")
+        attention.pack_start(styled(Gtk.Label(label="Braucht Aufmerksamkeit", xalign=0), "card-title"), False, False, 0)
+        self.attention_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        attention.pack_start(self.attention_box, False, False, 0)
+        box.pack_start(attention, False, False, 0)
+
+        # columns: name, category, state, last ok, images, size, schedule, online, card, pi id
+        self.pi_store = Gtk.ListStore(str, str, str, str, str, str, str, str, str, str)
+        self.pi_view = Gtk.TreeView(model=self.pi_store, activate_on_single_click=True)
+        for i, title in enumerate(("Pi", "Kategorie", "Zustand", "Letztes Backup", "Images", "Belegt",
+                                   "Zeitplan", "Erreichbar", "SD-Karte")):
+            cell = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, ypad=4)
+            col = Gtk.TreeViewColumn(title, cell, markup=i) if i == 2 else Gtk.TreeViewColumn(title, cell, text=i)
+            col.set_resizable(True)
+            col.set_expand(i in (0, 1))
+            col.set_min_width({2: 140, 3: 130}.get(i, -1))
+            self.pi_view.append_column(col)
+        self.pi_view.connect("row-activated", self.on_dash_pi)
+        card = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6), "card")
+        card.pack_start(styled(Gtk.Label(label="Alle Pis", xalign=0), "card-title"), False, False, 0)
+        card.pack_start(self.pi_view, False, False, 0)
+        box.pack_start(card, False, False, 0)
+
+        # columns: time, pi, message
+        self.error_store = Gtk.ListStore(str, str, str)
+        errors = Gtk.TreeView(model=self.error_store)
+        for i, title in enumerate(("Zeitpunkt", "Pi", "Fehler")):
+            col = Gtk.TreeViewColumn(title, Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, ypad=4), text=i)
+            col.set_expand(i == 2)
+            errors.append_column(col)
+        card = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6), "card")
+        card.pack_start(styled(Gtk.Label(label="Letzte Fehler", xalign=0), "card-title"), False, False, 0)
+        self.no_errors = styled(Gtk.Label(label="Keine Fehler in den gespeicherten Protokollen.", xalign=0), "card-detail")
+        self.no_errors.set_no_show_all(True)
+        card.pack_start(self.no_errors, False, False, 0)
+        card.pack_start(errors, False, False, 0)
+        box.pack_start(card, False, False, 0)
+        return scroll
+
+    def show_dashboard(self, force=False):
+        self.current_id = None
+        self.stop_tail()
+        self.tree.get_selection().unselect_all()
+        self.stack.set_visible_child_name("dashboard")
+        self.refresh_dashboard(check_devices=force or time.time() - self.devices_time > 300)
+
+    def tick_dashboard(self):
+        if self.stack.get_visible_child_name() == "dashboard":
+            self.refresh_dashboard(check_devices=time.time() - self.devices_time > 300)
+        return True
+
+    def refresh_dashboard(self, check_devices=False):
+        pis = list(self.inventory.pis)
+
+        def one(pi):
+            try:
+                return pi.id, self.unraid.status(pi)
+            except UnraidError:
+                return pi.id, {}
+
+        def work():
+            devices = None
+            if check_devices and pis:
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    devices = dict(pool.map(one, pis))
+            return self.unraid.summary(), devices
+
+        def done(result):
+            self.summary, devices = result
+            if devices is not None:
+                self.devices = devices
+                self.devices_time = time.time()
+            self.render_dashboard()
+
+        background(work, done, lambda e: self.dash_stamp.set_text(f"Unraid nicht erreichbar: {e}"))
+
+    def dash_tile(self, label, value, detail="", tone=None, level=None):
+        card = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4), "card")
+        card.pack_start(styled(Gtk.Label(label=label, xalign=0), "card-label"), False, False, 0)
+        val = styled(Gtk.Label(label=value, xalign=0, ellipsize=Pango.EllipsizeMode.END), "card-value")
+        if tone:
+            styled(val, f"value-{tone}")
+        card.pack_start(val, False, False, 0)
+        if level is not None:
+            bar = Gtk.LevelBar(min_value=0, max_value=100, value=level)
+            bar.set_margin_top(4)
+            card.pack_start(bar, False, False, 0)
+        if detail:
+            card.pack_start(styled(Gtk.Label(label=detail, xalign=0, ellipsize=Pango.EllipsizeMode.END,
+                                             tooltip_text=detail), "card-detail"), False, False, 0)
+        child = Gtk.FlowBoxChild(can_focus=False)
+        child.add(card)
+        self.dash_tiles.add(child)
+
+    def render_dashboard(self):
+        s = self.summary
+        if not s:
+            return
+        now = time.time()
+        pis = self.inventory.pis
+        dirs = {p.id: self.unraid.pidir(p) for p in pis}
+        rows = {p.id: s["pis"].get(dirs[p.id], {}) for p in pis}
+        count = sum(r.get("count", 0) for r in rows.values())
+        size = sum(r.get("bytes", 0) for r in rows.values())
+        mirror = sum(r.get("mirror", 0) for r in rows.values())
+        newest = max((r.get("newest", 0) for r in rows.values()), default=0)
+        known = [self.devices[p.id] for p in pis if p.id in self.devices]
+        online = sum(1 for d in known if d)
+        running = sum(1 for r in rows.values() if r.get("running"))
+        items = attention_items(pis, dirs, s, self.devices, now)
+        serious = sum(1 for i in items if i[0] == 0)
+
+        for c in self.dash_tiles.get_children():
+            self.dash_tiles.remove(c)
+        self.dash_tile("Pis", str(len(pis)), f"{online} von {len(known)} erreichbar" if known else "Wird geprüft …",
+                       tone="bad" if known and online < len(known) else None)
+        self.dash_tile("Images", str(count), f"neuestes {time.strftime('%d.%m. %H:%M', time.localtime(newest))}" if newest else "Noch keine")
+        self.dash_tile("Speicher Images", human_size(size), f"Durchschnitt {human_size(size // count)}" if count else "")
+        self.dash_tile("Speicher Spiegel", human_size(mirror), "Für schnelle Folgesicherungen")
+        used_pct = 100 - s["avail"] * 100 // s["total"] if s["total"] else 0
+        self.dash_tile("Unraid frei", human_size(s["avail"]), f"von {human_size(s['total'])}", level=used_pct,
+                       tone="bad" if used_pct >= 90 else None)
+        if running:
+            self.dash_tile("Laufende Sicherungen", str(running), "Gerade aktiv")
+        self.dash_tile("Probleme", str(serious), f"{len(items) - serious} Hinweise" if items else "Alles in Ordnung",
+                       tone="bad" if serious else "ok")
+        self.dash_tiles.show_all()
+
+        for c in self.attention_box.get_children():
+            self.attention_box.remove(c)
+        if not items:
+            self.attention_box.pack_start(styled(Gtk.Label(label="Nichts zu tun.", xalign=0), "card-detail"), False, False, 0)
+        for severity, name, text in items:
+            row = Gtk.Box(spacing=8)
+            mark = "Problem" if severity == 0 else "Hinweis"
+            pill = styled(Gtk.Label(label=mark), "pill", "pill-bad" if severity == 0 else "pill-warn")
+            row.pack_start(pill, False, False, 0)
+            who = Gtk.Label(xalign=0)
+            who.set_markup(f"<b>{GLib.markup_escape_text(name)}</b>")
+            row.pack_start(who, False, False, 0)
+            row.pack_start(Gtk.Label(label=text, xalign=0, wrap=True), False, False, 0)
+            self.attention_box.pack_start(row, False, False, 0)
+        self.attention_box.show_all()
+
+        self.pi_store.clear()
+        schedule_names = dict(SCHEDULES)
+        for p in sorted(pis, key=lambda x: (x.category.casefold(), x.name.casefold())):
+            r = rows[p.id]
+            state = self.status_text_from(r)
+            ok = r.get("ok_time", 0)
+            last = time.strftime("%d.%m.%Y %H:%M", time.localtime(ok)) if ok else "Noch nie"
+            dev = self.devices.get(p.id)
+            reach = "Wird geprüft" if dev is None else "Online" if dev else "Offline"
+            parts = dev.get("disk", "").split() if dev else []
+            card = parts[2] if len(parts) == 3 else ""
+            self.pi_store.append([p.name, p.category, state, last, str(r.get("count", 0)), human_size(r.get("bytes", 0)),
+                                  schedule_names.get(r.get("schedule", p.schedule), "Aus"), reach, card, p.id])
+
+        self.error_store.clear()
+        by_dir = {dirs[p.id]: p.name for p in pis}
+        failures = sorted((x for x in s["runs"] if x["status"] == "failed"), key=lambda x: x["stamp"], reverse=True)
+        for run in failures[:10]:
+            when = re.sub(r"(\d+)-(\d+)-(\d+)_(\d\d)(\d\d)\d\d", r"\3.\2.\1 \4:\5", run["stamp"])
+            self.error_store.append([when, by_dir.get(run["dir"], run["dir"].rsplit("/", 1)[-1]), run["error"] or "Unbekannt"])
+        self.no_errors.set_visible(not failures)
+        self.dash_stamp.set_text("Stand " + time.strftime("%H:%M"))
+
+    def status_text_from(self, row):
+        if row.get("running"):
+            return f'<span foreground="{BLUE}">● Sicherung läuft</span>'
+        status = row.get("status")
+        if status == "ok":
+            return f'<span foreground="{GREEN}">● Gesichert</span>'
+        if status == "failed":
+            return f'<span foreground="{RED}">● Fehler</span>'
+        if status == "cancelled":
+            return f'<span foreground="{AMBER}">● Abgebrochen</span>'
+        return f'<span foreground="{GRAY}">○ Nie gesichert</span>'
+
+    def on_dash_pi(self, view, path, _column):
+        pi_id = self.pi_store[path][9]
+        def visit(model, tree_path, it):
+            if model[it][2] == pi_id:
+                self.tree.get_selection().select_iter(it)
+                return True
+            return False
+        self.store.foreach(visit)
 
     # ------------------------------------------------------------ layout
     def build_detail(self):
@@ -471,6 +683,8 @@ class MainWindow(Gtk.ApplicationWindow):
             self.inventory, self.keys = result
             self.refresh_tree()
             self.poll_states()
+            if not self.current_id:
+                self.show_dashboard(force=True)
 
         background(work, done, lambda e: self.error(f"Unraid nicht erreichbar:\n{e}"))
 
@@ -554,7 +768,7 @@ class MainWindow(Gtk.ApplicationWindow):
     def show_pi(self):
         pi = self.current
         if not pi:
-            self.stack.set_visible_child_name("empty")
+            self.show_dashboard()
             return
         self.stack.set_visible_child_name("detail")
         self.title_label.set_text(pi.name)
@@ -1162,7 +1376,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.current_id = None
             self.stop_tail()
             self.refresh_tree()
-            self.stack.set_visible_child_name("empty")
+            self.show_dashboard()
 
         background(work, done, self.error)
 
@@ -1188,7 +1402,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.unraid = Unraid(s)
             self.current_id = None
             self.stop_tail()
-            self.stack.set_visible_child_name("empty")
+            self.show_dashboard()
             self.reload()
         dlg.destroy()
 

@@ -125,5 +125,38 @@ class UserScript(unittest.TestCase):
                 self.assertIn("pi-backup.sh due", f.read().replace("' due", " due").replace("pi-backup.sh'", "pi-backup.sh"))
 
 
+class Dashboard(unittest.TestCase):
+    TEXT = ("DISK\t100\t1000\n"
+            "PI\t/r/A/x\t0\tfailed\t50\t10\t2\t300\t40\toff\t10\t\n"
+            "RUN\t/r/A/x\t2026-01-01_120000\tfailed\tKaputt\n"
+            "RUN\t/r/A/x\t2026-01-02_120000\tok\t\n")
+
+    def test_parse(self):
+        s = core.parse_summary(self.TEXT)
+        self.assertEqual((s["avail"], s["total"]), (100, 1000))
+        self.assertEqual(s["pis"]["/r/A/x"]["bytes"], 300)
+        self.assertEqual(s["runs"][0]["error"], "Kaputt")
+        self.assertEqual(s["runs"][1]["error"], "")
+
+    def test_attention(self):
+        pi = Pi(name="x")
+        s = core.parse_summary(self.TEXT)
+        now = 10 + 20 * 86400
+        items = core.attention_items([pi], {pi.id: "/r/A/x"}, s, {pi.id: {"disk": "9G 10G 90%", "temp": "80 °C", "reboot": "ja"}}, now)
+        texts = [i[2] for i in items]
+        self.assertEqual(items[0][2], "Letzte Sicherung ist fehlgeschlagen")
+        for part in ("20 Tagen", "90 %", "80 °C", "Neustart", "Kein Zeitplan"):
+            self.assertTrue(any(part in t for t in texts), part)
+
+    def test_unreachable_and_full_share(self):
+        pi = Pi(name="x")
+        s = core.parse_summary("DISK\t5\t100\n")
+        items = core.attention_items([pi], {pi.id: "/d"}, s, {pi.id: {}}, 0)
+        names = [(i[1], i[2]) for i in items]
+        self.assertIn(("x", "Nicht erreichbar"), names)
+        self.assertIn(("Unraid", "Weniger als 10 % Speicher frei"), names)
+        self.assertIn(("x", "Noch kein Image vorhanden"), names)
+
+
 if __name__ == "__main__":
     unittest.main()
