@@ -1,0 +1,47 @@
+name: Module
+
+on:
+  push:
+    paths:
+      - "modules/**"
+      - "core/**"
+      - ".github/workflows/modules.yml"
+  pull_request:
+    paths:
+      - "modules/**"
+      - "core/**"
+      - ".github/workflows/modules.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  netzwerkmonitor:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/netzwerkmonitor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev]'
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest -q
+      - run: docker build -q -t netzwerkmonitor:test .
+
+  pi-wartung:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/pi-wartung
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover tests
+      - run: bash -n engine/pi-backup.sh
+      - run: docker build -q -f service/Dockerfile -t pi-wartung-service:test .

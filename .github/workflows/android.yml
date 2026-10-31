@@ -1,8 +1,14 @@
-name: CI
+name: Android
 
 on:
   push:
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
   pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
   # Von Hand starten (Actions → CI → Run workflow), z. B. für eine Test-Version der App
   workflow_dispatch:
 
@@ -15,6 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    defaults:
+      run:
+        working-directory: android
     steps:
       - uses: actions/checkout@v4
       # Die Nummern laufen oberhalb der letzten Version aus dem Networkmonitor-Repo weiter (app-48).
@@ -50,10 +59,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: netzwerkmonitor-apk
-          path: netzwerkmonitor.apk
+          path: android/netzwerkmonitor.apk
       - if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: app-${{ env.APP_BUILD }}
           name: Home-Net ${{ env.APP_BUILD }}
-          files: netzwerkmonitor.apk
+          files: android/netzwerkmonitor.apk

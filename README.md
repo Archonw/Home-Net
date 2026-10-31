@@ -1,15 +1,18 @@
 # Home-Net
 
-Android-App als gemeinsame Oberfläche für die Dienste im Heimnetz. Die Startseite zeigt eine Kachel je Dienst:
+Ein Baukasten für Dienste im Heimnetz, lauffähig auf jedem Linux mit Docker. Du wählst bei der Installation oder später,
+welche Module du nutzt. Der Plan steht in [docs/PLAN.md](docs/PLAN.md).
 
-- **Netzwerk:** [Networkmonitor](https://github.com/Archonw/Networkmonitor), überwacht die Geräte im Netz
-- **Pi-Wartung:** Pi-Wartung, sichert Raspberry Pis als Images auf dem Unraid
+| Ordner | Inhalt |
+| --- | --- |
+| `android/` | Android-App, zeigt eine Kachel je Modul |
+| `modules/netzwerkmonitor/` | Überwacht die Geräte im Netz |
+| `modules/pi-wartung/` | Sichert Raspberry Pis als Images, die sich auf SD-Karten schreiben lassen |
+| `tools/` | Hilfsprogramme, zum Beispiel die Sicherung der Einstellungen |
+| `assets/icons/` | Logos |
+| `docs/` | Plan und Anleitung zur Neuinstallation |
 
-Die Dienste laufen auf dem Server, die App spricht über deren Schnittstellen mit ihnen. Der Code stammt aus dem
-Ordner `android/` des Networkmonitor-Repos und wurde mit seiner Git-Geschichte übernommen. Die Paketkennung
-`de.archonw.netmon` bleibt gleich, damit Updates über die bestehende Installation laufen.
-
-## Installation und Updates
+## Android-App: Installation und Updates
 
 GitHub Actions baut bei jedem Push die APK. Nach einem Push auf `main` liegt sie unter **Releases** als
 `netzwerkmonitor.apk`. Der Dateiname bleibt, weil der Monitor neue Versionen darüber erkennt und ans Handy weitergibt.
@@ -27,7 +30,7 @@ In `assets/icons` liegen die Logos als SVG und PNG: `home-net` für die App und 
 
 ## Eine weitere App hinzufügen
 
-Eine neue Kachel kommt in `HomeScreen`, dazu ein Eintrag in `Screen` und die Adresse in `Settings`.
+Ein Modul bekommt seinen Ordner unter `modules/`, in der App eine Kachel in `HomeScreen`, einen Eintrag in `Screen` und seine Adresse in `Settings`.
 
 ## Lizenz
 
