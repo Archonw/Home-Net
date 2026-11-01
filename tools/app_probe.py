@@ -171,16 +171,16 @@ def main():
     find("Sicherung von Probe fehlgeschlagen", scroll=True)
     report("notice", "Seite Benachrichtigungen zeigt Auswahl und Verlauf")
 
-    # Ein Gerät im Handy neu starten: Update und Neustart des Handys laufen über denselben Empfänger
+    # Eine echte Neuinstallation wie beim App-Update; ein Neustart des Handys läuft über denselben Empfänger
     adb("shell", "am", "force-stop", PKG)
-    adb("shell", "am", "broadcast", "-a", "android.intent.action.MY_PACKAGE_REPLACED", "-p", PKG)
+    adb("install", "-r", apk)
     wait_for(service_running, "Empfänger startet den Dienst nicht neu")
     report("notice", "Dienst kommt nach einem Update wieder")
 
     # Während der Unterbrechung Verpasstes muss nachkommen
     adb("shell", "am", "force-stop", PKG)
     gateway.inbox().add("pi-wartung", "backup_failed", "Nachgeliefert", "x", "high")
-    adb("shell", "am", "broadcast", "-a", "android.intent.action.MY_PACKAGE_REPLACED", "-p", PKG)
+    adb("install", "-r", apk)
     wait_for(lambda: "Nachgeliefert" in notifications(), "Verpasste Meldung kommt nicht nach")
     report("notice", "Verpasste Meldung wird nachgeliefert")
 
