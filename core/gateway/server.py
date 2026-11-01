@@ -83,7 +83,16 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         sys.stderr.write(f"{self.client_ip()} {fmt % args}\n")
 
+    def handle_one_request(self):
+        # Clients that hang up mid-request are normal, not an error worth a traceback.
+        try:
+            super().handle_one_request()
+        except ConnectionError:
+            self.close_connection = True
+
     def client_ip(self):
+        if not getattr(self, "headers", None):
+            return self.client_address[0]
         # The proxy appends the address it saw, anything before that comes from the client and can be made up.
         return self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[-1].strip()
 
