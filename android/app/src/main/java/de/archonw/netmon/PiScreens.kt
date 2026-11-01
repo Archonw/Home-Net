@@ -262,7 +262,8 @@ fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)
             )
             OutlinedTextField(
                 value = password, onValueChange = { password = it }, singleLine = true,
-                label = { Text("Passwort") }, modifier = Modifier.fillMaxWidth(),
+                label = { Text(if (settings.hubToken.isBlank()) "Passwort" else "Passwort, nur für eine neue Kopplung") },
+                modifier = Modifier.fillMaxWidth(),
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             )

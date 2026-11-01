@@ -64,6 +64,7 @@ class MainActivity : FragmentActivity() {
         accent = settings.accent(appStyle)
         settings.migrateLockMode()
         useBiometrics = settings.useBiometrics
+        forgetPasswordIfPaired()
         // Ohne Einrichtung gibt es noch kein Passwort: die erste Anmeldung ist die Einrichtung selbst
         if (!settings.isConfigured) {
             screen = Screen.HubSetup
@@ -150,7 +151,10 @@ class MainActivity : FragmentActivity() {
                     )
                     Screen.HubSetup -> HubSetupScreen(
                         settings = settings,
-                        onSaved = { screen = Screen.Home },
+                        onSaved = {
+                            forgetPasswordIfPaired()
+                            screen = Screen.Home
+                        },
                         onBack = if (settings.isConfigured) ({ screen = Screen.Home }) else null,
                     )
                     Screen.PiOverview -> PiOverviewScreen(
@@ -236,6 +240,14 @@ class MainActivity : FragmentActivity() {
         } else {
             authError = "Passwort falsch"
         }
+    }
+
+    /** Ein gekoppeltes Gerät meldet sich mit seinem Schlüssel an und braucht kein gespeichertes Passwort. */
+    private fun forgetPasswordIfPaired() {
+        if (settings.hubToken.isBlank() || !biometricsAvailable()) return
+        settings.password = ""
+        settings.piPassword = ""
+        setLockMode(true)
     }
 
     private fun biometricsAvailable() =

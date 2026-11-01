@@ -367,49 +367,51 @@ fun SoftSettings(ui: SettingsUi) {
                 }
             }
         }
-        if (ui.configured) {
+        if (ui.configured && !ui.managedByHub) {
             SoftCard {
                 CardTitle("Entsperren mit")
                 SoftSegmented(listOf(false, true), ui.useBiometrics, { if (it) "Fingerabdruck" else "Passwort" }, ui.onLockMode)
             }
         }
-        SoftCard {
-            CardTitle("Verbindung")
-            OutlinedTextField(
-                value = ui.url,
-                onValueChange = ui.onUrl,
-                label = { Text("Adresse im Heimnetz") },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                colors = fieldColors(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = ui.externalUrl,
-                onValueChange = ui.onExternalUrl,
-                label = { Text("Adresse unterwegs (optional, https://…)") },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                colors = fieldColors(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = ui.password,
-                onValueChange = ui.onPassword,
-                label = { Text("Passwort der Weboberfläche") },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                colors = fieldColors(),
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(12.dp))
-            PrimaryButton(if (ui.busy) "Prüfe …" else "Speichern und testen", Modifier.fillMaxWidth(), enabled = !ui.busy, onClick = ui.onSave)
+        if (!ui.managedByHub) {
+            SoftCard {
+                CardTitle("Verbindung")
+                OutlinedTextField(
+                    value = ui.url,
+                    onValueChange = ui.onUrl,
+                    label = { Text("Adresse im Heimnetz") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = fieldColors(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = ui.externalUrl,
+                    onValueChange = ui.onExternalUrl,
+                    label = { Text("Adresse unterwegs (optional, https://…)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = fieldColors(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = ui.password,
+                    onValueChange = ui.onPassword,
+                    label = { Text("Passwort der Weboberfläche") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = fieldColors(),
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                PrimaryButton(if (ui.busy) "Prüfe …" else "Speichern und testen", Modifier.fillMaxWidth(), enabled = !ui.busy, onClick = ui.onSave)
+            }
         }
         ui.message?.let { Text(it, color = p.muted, fontSize = 14.sp) }
         SoftCard {

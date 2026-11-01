@@ -107,6 +107,7 @@ class DetailUi(
 
 class SettingsUi(
     val configured: Boolean,
+    val managedByHub: Boolean,
     val themeMode: ThemeMode,
     val onTheme: (ThemeMode) -> Unit,
     val style: AppStyle,
@@ -382,6 +383,7 @@ fun SettingsScreen(
 
     val ui = SettingsUi(
         configured = settings.isConfigured,
+        managedByHub = settings.isHubConfigured,
         themeMode = themeMode,
         onTheme = onThemeChange,
         style = style,

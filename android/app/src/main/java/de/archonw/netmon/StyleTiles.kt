@@ -346,7 +346,7 @@ fun TilesSettings(ui: SettingsUi) {
                 }
             }
         }
-        if (ui.configured) {
+        if (ui.configured && !ui.managedByHub) {
             SectionLabel("Entsperren mit")
             Column(Modifier.fillMaxWidth().clip(TileShape).background(p.card)) {
                 listOf(false to "Passwort", true to "Fingerabdruck").forEachIndexed { i, (bio, label) ->
@@ -365,43 +365,45 @@ fun TilesSettings(ui: SettingsUi) {
                 }
             }
         }
-        SectionLabel("Verbindung")
-        Column(Modifier.fillMaxWidth().clip(TileShape).background(p.card).padding(12.dp)) {
-            OutlinedTextField(
-                value = ui.url,
-                onValueChange = ui.onUrl,
-                label = { Text("Adresse im Heimnetz") },
-                singleLine = true,
-                shape = RoundedCornerShape(10.dp),
-                colors = fieldColors(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = ui.externalUrl,
-                onValueChange = ui.onExternalUrl,
-                label = { Text("Adresse unterwegs (optional, https://…)") },
-                singleLine = true,
-                shape = RoundedCornerShape(10.dp),
-                colors = fieldColors(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = ui.password,
-                onValueChange = ui.onPassword,
-                label = { Text("Passwort der Weboberfläche") },
-                singleLine = true,
-                shape = RoundedCornerShape(10.dp),
-                colors = fieldColors(),
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(12.dp))
-            PrimaryButton(if (ui.busy) "Prüfe …" else "Speichern und testen", Modifier.fillMaxWidth(), enabled = !ui.busy, onClick = ui.onSave)
+        if (!ui.managedByHub) {
+            SectionLabel("Verbindung")
+            Column(Modifier.fillMaxWidth().clip(TileShape).background(p.card).padding(12.dp)) {
+                OutlinedTextField(
+                    value = ui.url,
+                    onValueChange = ui.onUrl,
+                    label = { Text("Adresse im Heimnetz") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = fieldColors(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = ui.externalUrl,
+                    onValueChange = ui.onExternalUrl,
+                    label = { Text("Adresse unterwegs (optional, https://…)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = fieldColors(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = ui.password,
+                    onValueChange = ui.onPassword,
+                    label = { Text("Passwort der Weboberfläche") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = fieldColors(),
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                PrimaryButton(if (ui.busy) "Prüfe …" else "Speichern und testen", Modifier.fillMaxWidth(), enabled = !ui.busy, onClick = ui.onSave)
+            }
         }
         ui.message?.let { Text(it, color = p.muted, fontSize = 14.sp, modifier = Modifier.padding(4.dp)) }
         SectionLabel("Über die App")
