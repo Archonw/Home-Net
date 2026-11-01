@@ -144,12 +144,12 @@ class Gateway(unittest.TestCase):
         self.assertEqual(self.call("/m/demo/x", None)[0], 401)
         self.assertEqual(self.call("/", None)[0], 401)
         self.assertEqual(self.call("/health", None)[0], 200)
-        for _ in range(10):
+        for _ in range(gateway.MAX_FAILS):
             self.assertEqual(self.call("/", "falsch")[0], 401)
         self.assertEqual(self.call("/", "geheim")[0], 429)
 
     def test_forged_forwarded_address_does_not_escape_lockout(self):
-        for i in range(10):
+        for i in range(gateway.MAX_FAILS):
             req = urllib.request.Request(self.base + "/", headers={
                 "Authorization": "Basic " + base64.b64encode(b"app:falsch").decode(),
                 "X-Forwarded-For": f"10.0.0.{i}, 203.0.113.9"})

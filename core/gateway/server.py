@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CONFIG_DIR = os.environ.get("CONFIG_DIR", "/config")
 PORTAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portal.html")
-MAX_FAILS = 10
+MAX_FAILS = 5
 FAIL_WINDOW = 15 * 60
 MAX_BODY = 200 * 1024 * 1024
 HOP_BY_HOP = {"connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "proxy-authorization",
