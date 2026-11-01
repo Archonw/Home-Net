@@ -1,6 +1,5 @@
 package de.archonw.netmon
 
-import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -19,6 +18,38 @@ suspend fun hubModules(home: String, external: String, password: String): List<H
         HubModule(o.getString("id"), o.optString("name"), if (o.has("online")) o.optBoolean("online") else null)
     }
 }
+
+/** Koppelt dieses Gerät mit dem Code von der Startseite; liefert seinen Geräteschlüssel. */
+suspend fun pairDevice(home: String, external: String, password: String, code: String, name: String): String =
+    withContext(Dispatchers.IO) {
+        val payload = JSONObject().put("password", password).put("code", code.trim()).put("name", name).toString()
+        var lastError: Exception? = null
+        for (base in listOf(home, external).map { it.trim() }.filter { it.isNotEmpty() }.distinct()) {
+            try {
+                val conn = URL(base.trimEnd('/') + "/auth/pair").openConnection() as HttpURLConnection
+                try {
+                    conn.requestMethod = "POST"
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 15000
+                    conn.doOutput = true
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.outputStream.use { it.write(payload.toByteArray()) }
+                    val status = conn.responseCode
+                    val body = (if (status in 200..299) conn.inputStream else conn.errorStream)
+                        ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    if (status in 200..299) return@withContext JSONObject(body).getString("token")
+                    throw ApiException(runCatching { JSONObject(body).getString("detail") }.getOrDefault("Fehler $status"))
+                } finally {
+                    conn.disconnect()
+                }
+            } catch (e: ApiException) {
+                throw e
+            } catch (e: Exception) {
+                lastError = e
+            }
+        }
+        throw ApiException("Server nicht erreichbar (${lastError?.javaClass?.simpleName})")
+    }
 
 data class PiRow(
     val id: String,
@@ -161,8 +192,7 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
             conn.requestMethod = method
             conn.connectTimeout = connectTimeout
             conn.readTimeout = 130000
-            val auth = Base64.encodeToString("app:$password".toByteArray(), Base64.NO_WRAP)
-            conn.setRequestProperty("Authorization", "Basic $auth")
+            conn.setRequestProperty("Authorization", authHeader(password))
             conn.setRequestProperty("Accept", "application/json")
             if (method == "POST") {
                 conn.doOutput = true

@@ -37,9 +37,18 @@ class Settings(context: Context) {
         get() = prefs.getString("hub_external_url", "") ?: ""
         set(value) = prefs.edit().putString("hub_external_url", value.trim().trimEnd('/')).apply()
 
+    /** Eigener Schlüssel dieses Geräts, gilt auch von unterwegs mit eingerichtetem Passkey. */
+    var hubToken: String
+        get() = prefs.getString("hub_token", "") ?: ""
+        set(value) = prefs.edit().putString("hub_token", value).apply()
+
     val isHubConfigured: Boolean get() = hubUrl.isNotBlank()
 
-    fun useHub(url: String, external: String, hubPassword: String) {
+    /** Womit sich die App anmeldet: Geräteschlüssel, falls vorhanden, sonst das Passwort. */
+    val hubSecret: String get() = hubToken.ifBlank { password }
+
+    fun useHub(url: String, external: String, hubPassword: String, token: String) {
+        hubToken = token
         hubUrl = url
         hubExternalUrl = external
         val base = hubUrl
@@ -66,7 +75,7 @@ class Settings(context: Context) {
 
     val isPiConfigured: Boolean get() = piUrl.isNotBlank()
 
-    fun piApi() = PiApi(piUrl, piPassword, piExternalUrl)
+    fun piApi() = PiApi(piUrl, if (isHubConfigured) hubSecret else piPassword, piExternalUrl)
 
     var sortOrder: SortOrder
         get() = enumOr(prefs.getString("sort", null), SortOrder.NAME_ASC)
@@ -112,5 +121,5 @@ class Settings(context: Context) {
 
     val isConfigured: Boolean get() = serverUrl.isNotBlank()
 
-    fun api() = Api(serverUrl, password, externalUrl)
+    fun api() = Api(serverUrl, if (isHubConfigured) hubSecret else password, externalUrl)
 }

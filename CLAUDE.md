@@ -15,4 +15,6 @@ Pi-Wartung läuft im Container `pi-wartung-engine`, der Dienst `pi-wartung-servi
 Sicherung hat erhöhte Rechte. Der Ordner `modules/pi-wartung/piwartung` enthält die alte GTK-App, sie wird vom Dienst nur noch
 wegen `core.py` gebraucht.
 
+Der Zugang erkennt Zugriffe von außen am Header `X-Forwarded-For` oder an einer öffentlichen Absenderadresse. Passkeys prüft `core/gateway/webauthn.py`, die Daten liegen in `security.json` im Gateway-Ordner.
+
 Das Repo ist öffentlich: keine Passwörter, Tokens oder persönlichen Adressen einchecken.

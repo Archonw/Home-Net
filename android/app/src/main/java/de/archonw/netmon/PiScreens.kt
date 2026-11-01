@@ -172,7 +172,7 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     LaunchedEffect(Unit) {
         if (settings.isHubConfigured) {
             try {
-                installed = hubModules(settings.hubUrl, settings.hubExternalUrl, settings.password).map { it.id }.toSet()
+                installed = hubModules(settings.hubUrl, settings.hubExternalUrl, settings.hubSecret).map { it.id }.toSet()
             } catch (e: ApiException) {
                 hubError = e.message
             }
@@ -233,6 +233,7 @@ fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)
     var url by remember { mutableStateOf(settings.hubUrl.ifBlank { "http://" }) }
     var externalUrl by remember { mutableStateOf(settings.hubExternalUrl) }
     var password by remember { mutableStateOf(if (settings.isHubConfigured) settings.password else "") }
+    var code by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -245,7 +246,8 @@ fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)
         ) {
             Text(
                 "Die Adresse deines Home-Net-Servers, zum Beispiel http://192.168.178.207:8093, und das " +
-                    "Passwort aus der Installation.",
+                    "Passwort aus der Installation. Für den Zugriff von unterwegs braucht das Gerät einen " +
+                    "Kopplungscode, den du auf der Startseite im Browser unter Sicherheit bekommst.",
                 color = p.muted, fontSize = 14.sp,
             )
             OutlinedTextField(
@@ -264,6 +266,14 @@ fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             )
+            OutlinedTextField(
+                value = code, onValueChange = { code = it }, singleLine = true,
+                label = {
+                    Text(if (settings.hubToken.isBlank()) "Kopplungscode (optional)" else "Gerät ist gekoppelt, neuer Code optional")
+                },
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            )
             message?.let { Text(it, color = p.blocked, fontSize = 14.sp) }
             PrimaryButton(if (busy) "Prüfe …" else "Speichern und testen", Modifier.fillMaxWidth(), enabled = !busy) {
                 if (externalUrl.isNotBlank() && !externalUrl.trim().startsWith("https://")) {
@@ -274,8 +284,13 @@ fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)
                 message = null
                 scope.launch {
                     try {
-                        hubModules(url, externalUrl, password)
-                        settings.useHub(url, externalUrl, password)
+                        val token = if (code.isNotBlank()) {
+                            pairDevice(url, externalUrl, password, code, android.os.Build.MODEL ?: "Handy")
+                        } else {
+                            settings.hubToken
+                        }
+                        hubModules(url, externalUrl, token.ifBlank { password })
+                        settings.useHub(url, externalUrl, password, token)
                         onSaved()
                     } catch (e: ApiException) {
                         message = e.message

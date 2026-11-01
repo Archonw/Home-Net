@@ -18,12 +18,22 @@ img { width: 52px; height: 52px; border-radius: 13px; flex: none; }
 .desc { color: var(--muted); font-size: 14px; }
 .state { margin-left: auto; font-size: 13px; color: var(--muted); white-space: nowrap; }
 .off { color: #c93a3a; }
+h2 { font-size: 15px; margin: 28px 0 8px; }
+.box { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
+.line { display: flex; gap: 10px; align-items: center; padding: 5px 0; flex-wrap: wrap; }
+.line .grow { flex: 1; min-width: 180px; }
+button { font: inherit; border: 1px solid var(--line); background: var(--bg); color: inherit; border-radius: 9px; padding: 6px 12px; cursor: pointer; }
+input { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px; width: 100%; }
+.code { font-size: 22px; font-weight: 700; letter-spacing: 2px; }
+.warn { color: #b35a0a; }
 </style>
 </head>
 <body>
 <main>
 <h1>Home-Net</h1>
 <div id="list">Wird geladen …</div>
+<h2>Sicherheit</h2>
+<div class="box" id="security">Wird geladen …</div>
 </main>
 <script>
 fetch("api/modules").then(r => r.json()).then(({modules}) => {
@@ -49,6 +59,45 @@ fetch("api/modules").then(r => r.json()).then(({modules}) => {
     list.append(el);
   }
 }).catch(() => { document.getElementById("list").textContent = "Die Module konnten nicht geladen werden."; });
+
+const sec = document.getElementById("security");
+const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
+async function call(path, method, body) {
+  const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || `Fehler ${r.status}`);
+  return d;
+}
+async function showSecurity() {
+  try {
+    const d = await call("auth/security", "GET");
+    const url = el("input", { value: d.external_url, placeholder: "https://name.example.de" });
+    const items = [
+      el("div", { className: d.passkeys.length ? "desc" : "warn", textContent: d.passkeys.length
+        ? "Von außen ist die Anmeldung nur mit Passkey möglich. Im Heimnetz genügt das Passwort."
+        : "Noch kein Passkey: Von außen reicht bisher das Passwort allein." }),
+      el("div", { className: "line" }, el("div", { className: "grow" }, url), el("button", { textContent: "Adresse speichern", onclick: async () => { try { await call("auth/external", "POST", { url: url.value }); showSecurity(); } catch (e) { alert(e.message); } } })),
+      el("div", { className: "line" }, el("div", { className: "grow", textContent: "Passkey einrichten: Code holen, dann auf der Adresse für unterwegs unter /login eintragen." }), codeButton("setup")),
+      el("div", { className: "line" }, el("div", { className: "grow", textContent: "Handy koppeln: Code holen, dann in der App unter Zugang eintragen." }), codeButton("device")),
+      el("h2", { textContent: "Passkeys" + (d.recovery_left ? ` (${d.recovery_left} Wiederherstellungscodes übrig)` : "") }), ...listing(d.passkeys, "passkeys"),
+      el("h2", { textContent: "Gekoppelte Geräte" }), ...listing(d.devices, "devices"),
+    ];
+    sec.replaceChildren(...items);
+  } catch (e) { sec.textContent = e.message; }
+}
+function codeButton(kind) {
+  const out = el("span", { className: "code" });
+  return el("div", { className: "line" }, out, el("button", { textContent: "Code holen", onclick: async () => { try { out.textContent = (await call("auth/code", "POST", { kind })).code; } catch (e) { alert(e.message); } } }));
+}
+function listing(rows, kind) {
+  if (!rows.length) return [el("div", { className: "desc", textContent: "Keine" })];
+  return rows.map(r => el("div", { className: "line" }, el("div", { className: "grow", textContent: `${r.name} (${new Date(r.added * 1000).toLocaleDateString("de-DE")})` }),
+    el("button", { textContent: "Entfernen", onclick: async () => {
+      const warn = kind === "passkeys" && rows.length === 1 ? " Es ist der letzte: Von außen reicht dann wieder das Passwort allein." : "";
+      if (confirm(`${r.name} entfernen?${warn}`)) { await call(`auth/${kind}/${r.id}`, "DELETE"); showSecurity(); }
+    } })));
+}
+showSecurity();
 </script>
 </body>
 </html>

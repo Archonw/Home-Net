@@ -48,6 +48,11 @@ data class Device(
 
 class ApiException(message: String) : Exception(message)
 
+/** Ein gekoppeltes Gerät meldet sich mit seinem Schlüssel an, sonst gilt das Passwort. */
+fun authHeader(secret: String): String =
+    if (secret.startsWith("hnd_")) "Bearer $secret"
+    else "Basic " + Base64.encodeToString("app:$secret".toByteArray(), Base64.NO_WRAP)
+
 /** Auf dem Monitor bereitgestellte App-Version; [url] ist die volle Download-Adresse. */
 data class AppRelease(val version: String, val versionCode: Long, val url: String)
 
@@ -120,8 +125,7 @@ class Api(
             conn.requestMethod = method
             conn.connectTimeout = connectTimeout
             conn.readTimeout = 15000
-            val auth = Base64.encodeToString("app:$password".toByteArray(), Base64.NO_WRAP)
-            conn.setRequestProperty("Authorization", "Basic $auth")
+            conn.setRequestProperty("Authorization", authHeader(password))
             conn.setRequestProperty("Accept", "application/json")
             if (method == "POST") {
                 conn.doOutput = true

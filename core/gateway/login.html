@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home-Net anmelden</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#4f5bd5; --bad:#c93a3a; }
+@media (prefers-color-scheme: dark) { :root { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#8b95f0; --bad:#ec6a6a; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 system-ui,sans-serif; }
+main { max-width:420px; margin:0 auto; padding:48px 16px; }
+h1 { font-size:26px; margin:0 0 18px; }
+form { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; margin-bottom:14px; }
+label { display:block; font-size:13px; color:var(--muted); margin:10px 0 3px; }
+input { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px; }
+button { width:100%; margin-top:14px; font:inherit; font-weight:600; color:#fff; background:var(--accent); border:0; border-radius:9px; padding:10px; cursor:pointer; }
+details { color:var(--muted); font-size:14px; margin-bottom:10px; }
+summary { cursor:pointer; }
+.err { color:var(--bad); margin:8px 0 0; }
+pre { background:var(--bg); border-radius:8px; padding:10px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Home-Net</h1>
+<form id="login">
+  <label for="pw">Passwort</label>
+  <input id="pw" type="password" autocomplete="current-password" required>
+  <button>Weiter mit Passkey</button>
+  <div class="err" id="err" role="alert"></div>
+</form>
+<details><summary>Neuen Passkey einrichten</summary>
+<form id="setup">
+  <label for="spw">Passwort</label><input id="spw" type="password" autocomplete="current-password" required>
+  <label for="code">Einrichtungscode von der Startseite</label><input id="code" inputmode="numeric" required>
+  <label for="name">Name des Passkeys</label><input id="name" value="Handy">
+  <button>Passkey anlegen</button>
+  <div class="err" id="serr" role="alert"></div>
+</form>
+</details>
+<details><summary>Kein Zugriff auf den Passkey</summary>
+<form id="recovery">
+  <label for="rpw">Passwort</label><input id="rpw" type="password" autocomplete="current-password" required>
+  <label for="rc">Wiederherstellungscode</label><input id="rc" required>
+  <button>Anmelden</button>
+  <div class="err" id="rerr" role="alert"></div>
+</form>
+</details>
+<div id="codes" hidden>
+  <p><b>Wiederherstellungscodes:</b> Bewahre sie sicher auf. Jeder gilt einmal, und sie werden nur jetzt angezeigt.</p>
+  <pre id="list"></pre>
+  <button id="go">Weiter zur Startseite</button>
+</div>
+</main>
+<script>
+const b64 = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), c => c.charCodeAt(0));
+const url = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || `Fehler ${r.status}`);
+  return d;
+}
+function guard(form, errId, fn) {
+  form.onsubmit = async ev => {
+    ev.preventDefault();
+    const err = document.getElementById(errId); err.textContent = "";
+    try { await fn(); } catch (e) { err.textContent = e.name === "NotAllowedError" ? "Der Passkey wurde nicht bestätigt." : e.message; }
+  };
+}
+guard(document.getElementById("login"), "err", async () => {
+  const { ticket, options } = await post("/auth/login", { password: document.getElementById("pw").value });
+  options.challenge = b64(options.challenge);
+  options.allowCredentials = options.allowCredentials.map(c => ({ ...c, id: b64(c.id) }));
+  const c = await navigator.credentials.get({ publicKey: options });
+  await post("/auth/login/finish", { ticket, id: url(c.rawId), clientData: url(c.response.clientDataJSON), authData: url(c.response.authenticatorData), signature: url(c.response.signature) });
+  location.href = "/";
+});
+guard(document.getElementById("setup"), "serr", async () => {
+  const { ticket, options } = await post("/auth/setup", { password: document.getElementById("spw").value, code: document.getElementById("code").value, name: document.getElementById("name").value });
+  options.challenge = b64(options.challenge);
+  options.user.id = b64(options.user.id);
+  options.excludeCredentials = options.excludeCredentials.map(c => ({ ...c, id: b64(c.id) }));
+  const c = await navigator.credentials.create({ publicKey: options });
+  const { recovery } = await post("/auth/setup/finish", { ticket, clientData: url(c.response.clientDataJSON), attestation: url(c.response.attestationObject) });
+  if (recovery.length) {
+    document.getElementById("list").textContent = recovery.join("\n");
+    document.getElementById("codes").hidden = false;
+    document.getElementById("go").onclick = () => { location.href = "/"; };
+  } else location.href = "/";
+});
+guard(document.getElementById("recovery"), "rerr", async () => {
+  await post("/auth/recovery", { password: document.getElementById("rpw").value, code: document.getElementById("rc").value });
+  location.href = "/";
+});
+</script>
+</body>
+</html>

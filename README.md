@@ -24,6 +24,16 @@ Das Programm fragt nach Datenordner, Modulen und Passwort. Danach läuft alles u
 | `./home-net password` | Ändert das Passwort |
 | `./home-net backup` / `restore <archiv>` | Sichert Einstellungen und Geheimnisse oder spielt sie zurück |
 
+## Anmeldung
+
+Im Heimnetz genügt das Passwort. Von außen, über einen Reverse Proxy mit HTTPS, verlangt Home-Net zusätzlich einen Passkey, sobald einer eingerichtet ist. So geht es los:
+
+1. Auf der Startseite unter **Sicherheit** die Adresse für unterwegs speichern, zum Beispiel `https://name.example.de`.
+2. Dort einen Einrichtungscode holen und auf dieser Adresse `/login` öffnen. Unter „Neuen Passkey einrichten“ Passwort und Code eintragen und bestätigen. Die Wiederherstellungscodes aufbewahren, sie werden nur einmal gezeigt.
+3. Für die App einen Kopplungscode holen und in der App unter **Zugang** eintragen. Das Gerät lässt sich später einzeln entfernen.
+
+Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sondern nur über den Proxy.
+
 ## Aufbau
 
 | Ordner | Inhalt |
