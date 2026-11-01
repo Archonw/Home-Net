@@ -18,7 +18,12 @@ def run() -> None:
     )
     settings = Settings.from_env()
     app = create_app(settings)
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8085")))
+    socket_path = os.environ.get("LISTEN_SOCKET")
+    if socket_path:
+        # Im Baukasten: kein offener Port, nur der Zugang erreicht den Dienst.
+        uvicorn.run(app, uds=socket_path)
+    else:
+        uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8085")))
 
 
 if __name__ == "__main__":

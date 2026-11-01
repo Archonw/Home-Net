@@ -41,13 +41,22 @@ class Modules(unittest.TestCase):
         self.assertEqual(doc["services"]["pi-wartung-service"]["restart"], "unless-stopped")
         self.assertTrue(doc["services"]["pi-wartung-engine"]["build"]["context"].startswith("/"))
 
-    def test_gateway_config_reaches_host_network_modules(self):
+    def test_gateway_reaches_monitor_only_through_its_socket(self):
         cfg = home_net.gateway_config(home_net.available_modules(), ["netzwerkmonitor", "ntfy"], {"netzwerkmonitor": "x"})
         monitor, ntfy = cfg["modules"]
-        self.assertEqual(monitor["upstream"], "http://host.docker.internal:8085")
+        self.assertEqual(monitor["upstream"], "unix:/run/netzwerkmonitor/api.sock")
         self.assertEqual(monitor["password"], "x")
         self.assertEqual(ntfy["external_port"], 8091)
         self.assertNotIn("upstream", ntfy)
+
+
+    def test_gateway_shares_the_socket_folder_and_monitor_opens_no_port(self):
+        modules = home_net.available_modules()
+        doc = home_net.compose_document(modules, ["netzwerkmonitor"])
+        self.assertIn("${DATA_DIR}/netzwerkmonitor/run:/run/netzwerkmonitor", doc["services"]["home-net-gateway"]["volumes"])
+        self.assertIn("${DATA_DIR}/netzwerkmonitor/run:/run/netzwerkmonitor", doc["services"]["networkmonitor"]["volumes"])
+        self.assertIn("LISTEN_SOCKET=/run/netzwerkmonitor/api.sock", doc["services"]["networkmonitor"]["environment"])
+        self.assertNotIn("ports", doc["services"]["networkmonitor"])
 
 
 class Installation(unittest.TestCase):
@@ -75,6 +84,18 @@ class Installation(unittest.TestCase):
             inst.apply(state)
             self.assertTrue((data / "netzwerkmonitor.env").exists())
             self.assertEqual(oct((data / "gateway" / "gateway.json").stat().st_mode)[-3:], "600")
+
+    def test_monitor_links_follow_the_outside_address(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst = home_net.Install(d)
+            state = home_net.new_state(d, None, ["netzwerkmonitor"], 8093, "geheim123", owner="chef")
+            env = Path(d, "netzwerkmonitor.env")
+            inst.write_private(env, "NTFY_TOKEN=x\nPUBLIC_URL=http://alt:8085/\n")
+            inst.apply(state)
+            self.assertIn("PUBLIC_URL=http://alt:8085/", env.read_text())
+            Path(d, "gateway", "security.json").write_text(json.dumps({"external_url": "https://home.example"}))
+            inst.apply(state)
+            self.assertEqual(env.read_text(), "NTFY_TOKEN=x\nPUBLIC_URL=https://home.example/m/netzwerkmonitor/\n")
 
     def test_unknown_module_refused(self):
         with tempfile.TemporaryDirectory() as d:

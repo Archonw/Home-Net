@@ -15,6 +15,6 @@ Pi-Wartung läuft im Container `pi-wartung-engine`, der Dienst `pi-wartung-servi
 Sicherung hat erhöhte Rechte. Der Ordner `modules/pi-wartung/piwartung` enthält die alte GTK-App, sie wird vom Dienst nur noch
 wegen `core.py` gebraucht.
 
-Der Zugang erkennt Zugriffe von außen am Header `X-Forwarded-For` oder an einer öffentlichen Absenderadresse. Konten, Passkeys und Geräte liegen in `security.json` im Gateway-Ordner, das Protokoll in `audit.jsonl`. Module erfahren Benutzer, Rolle und erlaubte Kategorien über die Header `X-Home-Net-*`, die nur der Zugang setzt; Module müssen diese Rechte selbst anwenden. Module dürfen darum nur über den Zugang erreichbar sein.
+Der Zugang erkennt Zugriffe von außen am Header `X-Forwarded-For` oder an einer öffentlichen Absenderadresse. Konten, Passkeys und Geräte liegen in `security.json` im Gateway-Ordner, das Protokoll in `audit.jsonl`. Module erfahren Benutzer, Rolle und erlaubte Kategorien über die Header `X-Home-Net-*`, die nur der Zugang setzt; Module müssen diese Rechte selbst anwenden. Module dürfen darum nur über den Zugang erreichbar sein. Ein Modul im Host-Netz wie der Monitor nennt in `module.json` dafür `api.socket` statt eines Ports: Es lauscht auf einer Socket-Datei, deren Ordner sich der Zugang mit ihm teilt. Ohne `LISTEN_SOCKET` öffnet der Monitor wie zuvor Port 8085, das gilt nur für den Betrieb allein.
 
 Das Repo ist öffentlich: keine Passwörter, Tokens oder persönlichen Adressen einchecken.

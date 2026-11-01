@@ -12,6 +12,7 @@ import ipaddress
 import json
 import os
 import re
+import socket
 import sys
 import threading
 import time
@@ -321,7 +322,6 @@ class Handler(BaseHTTPRequestHandler):
             self.reply_json(413, {"detail": "Zu groß"})
             return
         body = self.rfile.read(length) if length else None
-        url = urllib.parse.urlsplit(module["upstream"])
         query = urllib.parse.urlsplit(self.path).query
         target = rest + (f"?{query}" if query else "")
         headers = {k: v for k, v in self.headers.items()
@@ -340,7 +340,7 @@ class Handler(BaseHTTPRequestHandler):
         headers["X-Forwarded-For"] = self.client_ip()
         prefix = f"/m/{module['id']}"
         headers["X-Forwarded-Prefix"] = prefix
-        conn = http.client.HTTPConnection(url.hostname, url.port, timeout=180)
+        conn = upstream_connection(module, 180)
         try:
             conn.request(self.command, target, body=body, headers=headers)
             resp = conn.getresponse()
@@ -478,9 +478,28 @@ PUBLIC_AUTH = {"/auth/login": login_start, "/auth/login/finish": login_finish, "
                "/auth/setup": setup_options, "/auth/setup/finish": setup_finish, "/auth/pair": pair_device}
 
 
-def module_online(module):
+class UnixConnection(http.client.HTTPConnection):
+    """HTTP to a module that listens on a socket file instead of a port."""
+
+    def __init__(self, path, timeout):
+        super().__init__("localhost", timeout=timeout)
+        self.socket_path = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self.socket_path)
+
+
+def upstream_connection(module, timeout):
     url = urllib.parse.urlsplit(module["upstream"])
-    conn = http.client.HTTPConnection(url.hostname, url.port, timeout=3)
+    if url.scheme == "unix":
+        return UnixConnection(url.path, timeout)
+    return http.client.HTTPConnection(url.hostname, url.port, timeout=timeout)
+
+
+def module_online(module):
+    conn = upstream_connection(module, 3)
     try:
         conn.request("GET", module.get("health", "/health"))
         return conn.getresponse().status < 500

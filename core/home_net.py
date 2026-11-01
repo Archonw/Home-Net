@@ -72,12 +72,14 @@ def compose_document(modules, chosen, repo=REPO):
             "restart": "unless-stopped",
             "ports": ["${GATEWAY_PORT}:8080"],
             "volumes": ["${DATA_DIR}/gateway:/config"],
-            "extra_hosts": ["host.docker.internal:host-gateway"],
             "labels": {"net.unraid.docker.icon": icon_url("assets/icons/home-net.png")},
         }
     }
     for module_id in chosen:
         module = modules[module_id]
+        if module.get("api", {}).get("socket"):
+            folder = str(Path(module["api"]["socket"]).parent)
+            services[GATEWAY]["volumes"].append(f"${{DATA_DIR}}/{module_id}/run:{folder}")
         for name, spec in module["services"].items():
             svc = dict(spec)
             if "build" in svc:
@@ -99,8 +101,8 @@ def gateway_config(modules, chosen, upstream_passwords, owner="admin"):
         if api.get("external_port"):
             item["external_port"] = api["external_port"]
         else:
-            host = "host.docker.internal" if api.get("host_network") else api["service"]
-            item.update(upstream=f"http://{host}:{api['port']}", health=api.get("health", "/health"),
+            upstream = f"unix:{api['socket']}" if api.get("socket") else f"http://{api['service']}:{api['port']}"
+            item.update(upstream=upstream, health=api.get("health", "/health"),
                         public=api.get("public", []), web=bool(api.get("web")),
                         password=upstream_passwords.get(module_id, ""))
         entries.append(item)
@@ -153,11 +155,23 @@ class Install:
                            json.dumps(gateway_config(modules, state["modules"], state["upstream"], state.get("owner", "admin")),
                                       indent=2) + "\n")
         self.write_private(self.data / "gateway" / "auth.json", json.dumps(state["auth"]) + "\n")
+        if "netzwerkmonitor" in state["modules"]:
+            self.set_monitor_links()
         if "pi-wartung" in state["modules"]:
             (self.data / "pi-wartung" / "ssh").mkdir(parents=True, exist_ok=True, mode=0o700)
             Path(state["images"]).mkdir(parents=True, exist_ok=True)
             self.write_private(self.data / "pi-wartung" / "config" / "auth.json",
                                json.dumps(password_record(state["upstream"]["pi-wartung"])) + "\n")
+
+    def set_monitor_links(self):
+        """Links in notifications of the monitor lead through the gateway, once its outside address is known."""
+        security = self.data / "gateway" / "security.json"
+        outside = json.loads(security.read_text()).get("external_url") if security.exists() else ""
+        if not outside:
+            return
+        path = self.data / "netzwerkmonitor.env"
+        lines = [l for l in path.read_text().splitlines() if not l.startswith("PUBLIC_URL=")]
+        self.write_private(path, "\n".join(lines + [f"PUBLIC_URL={outside}/m/netzwerkmonitor/"]) + "\n")
 
     def compose(self, *args, check=True):
         return subprocess.run(["docker", "compose", "--env-file", str(self.env_file), "-f", str(self.compose_file),

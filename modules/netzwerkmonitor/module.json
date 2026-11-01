@@ -4,8 +4,7 @@
   "description": "Überwacht die Geräte im Netz, meldet neue und lässt sie erlauben oder sperren",
   "icon": "assets/icons/netzwerk.png",
   "api": {
-    "host_network": true,
-    "port": 8085,
+    "socket": "/run/netzwerkmonitor/api.sock",
     "health": "/health",
     "public": [
       "/app",
@@ -23,11 +22,23 @@
         "NET_ADMIN"
       ],
       "volumes": [
-        "${DATA_DIR}/netzwerkmonitor:/data"
+        "${DATA_DIR}/netzwerkmonitor:/data",
+        "${DATA_DIR}/netzwerkmonitor/run:/run/netzwerkmonitor"
       ],
       "env_file": [
         "${DATA_DIR}/netzwerkmonitor.env"
-      ]
+      ],
+      "environment": [
+        "LISTEN_SOCKET=/run/netzwerkmonitor/api.sock"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import socket;s=socket.socket(socket.AF_UNIX);s.connect('/run/netzwerkmonitor/api.sock');s.send(b'GET /health HTTP/1.0\\r\\n\\r\\n');assert b' 200 ' in s.recv(64)"
+        ]
+      }
     }
   }
 }
