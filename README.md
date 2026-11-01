@@ -30,6 +30,7 @@ Jeder meldet sich mit Benutzername und Passwort an. Im Heimnetz reicht das, von 
 
 - **Rollen:** Der Eigentümer darf alles. Admins verwalten Benutzer. Benutzer sehen nur die Dienste und Pi-Kategorien, die ihnen freigegeben sind.
 - **Passkey einrichten:** Unter **Benutzer** die Adresse für unterwegs speichern, unter **Mein Konto** einen Code holen und auf dieser Adresse `/login` öffnen. Die Wiederherstellungscodes aufbewahren.
+- **Benachrichtigungen:** Jedes Konto wählt unter **Mein Konto** oder in der App unter **Einstellungen → Benachrichtigungen**, welche Meldungen es möchte. Es bekommt nur Meldungen zu Diensten und Pi-Kategorien, die es sehen darf. Die gekoppelte App empfängt sie über eine Verbindung im Hintergrund direkt vom eigenen Server, ohne Dienste von Google; ntfy ist dafür nicht nötig.
 - **App koppeln:** Unter **Mein Konto** einen Kopplungscode holen und in der App unter **Einstellungen → Zugang** eintragen. Geräte lassen sich einzeln entfernen.
 - **Protokoll:** Anmeldungen und Änderungen stehen unter **Protokoll**.
 - **Passwort vergessen:** `./home-net password <konto>` auf dem Server.
