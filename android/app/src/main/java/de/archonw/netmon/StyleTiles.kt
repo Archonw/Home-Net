@@ -346,6 +346,16 @@ fun TilesSettings(ui: SettingsUi) {
                 }
             }
         }
+        Row(
+            Modifier.fillMaxWidth().clip(TileShape).background(p.card).clickable(onClick = ui.onAccess).padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Zugang", color = p.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text("Server, Konto und Kopplung", color = p.muted, fontSize = 13.sp)
+            }
+            Icon(NavIcons.chevron, contentDescription = null, tint = p.muted)
+        }
         if (ui.configured && !ui.managedByHub) {
             SectionLabel("Entsperren mit")
             Column(Modifier.fillMaxWidth().clip(TileShape).background(p.card)) {

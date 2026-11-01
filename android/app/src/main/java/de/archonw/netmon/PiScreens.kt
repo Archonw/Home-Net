@@ -156,7 +156,7 @@ private fun TextAction(label: String, onClick: () -> Unit) {
 
 /** Startseite: eine Kachel je Modul. Mit gemeinsamem Zugang kommt die Liste vom Server. */
 @Composable
-fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onHub: () -> Unit) {
+fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit) {
     val p = LocalPalette.current
     var network by remember { mutableStateOf("Wird geladen …") }
     var networkAlert by remember { mutableStateOf(false) }
@@ -210,7 +210,7 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     }
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
-        PageTitle("Home-Net", trailing = { TextAction("Zugang", onHub) })
+        PageTitle("Home-Net")
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -240,13 +240,13 @@ fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)
     val scope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
-        PageTitle("Home-Net einrichten", onBack = onBack)
+        PageTitle(if (onBack != null) "Zugang" else "Home-Net einrichten", onBack = onBack)
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                "Die Adresse deines Home-Net-Servers, zum Beispiel http://192.168.178.207:8093, dein Konto und ein " +
+                "Die Adresse deines Home-Net-Servers, zum Beispiel http://192.168.1.10:8093, dein Konto und ein " +
                     "Kopplungscode. Den Code bekommst du im Browser unter Mein Konto.",
                 color = p.muted, fontSize = 14.sp,
             )
@@ -295,7 +295,7 @@ fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)
                             settings.hubToken
                         }
                         if (token.isBlank()) {
-                            throw ApiException("Bitte den Kopplungscode von der Startseite eintragen.")
+                            throw ApiException("Bitte den Kopplungscode aus Mein Konto eintragen.")
                         }
                         hubModules(url, externalUrl, token)
                         settings.hubUser = username.trim()

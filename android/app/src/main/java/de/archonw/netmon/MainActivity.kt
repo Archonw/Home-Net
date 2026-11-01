@@ -113,6 +113,7 @@ class MainActivity : FragmentActivity() {
             screen = when (screen) {
                 is Screen.Detail -> Screen.List
                 is Screen.PiDetail, Screen.PiSetup -> if (settings.isPiConfigured) Screen.PiOverview else Screen.Home
+                Screen.HubSetup -> Screen.Setup
                 else -> Screen.Home
             }
         }
@@ -141,22 +142,25 @@ class MainActivity : FragmentActivity() {
                         useBiometrics = useBiometrics,
                         onLockModeChange = ::setLockMode,
                         onSaved = { screen = Screen.Home },
+                        onAccess = { screen = Screen.HubSetup },
                     )
                     Screen.Home -> HomeScreen(
                         settings = settings,
                         api = settings.api(),
                         onNetwork = { screen = Screen.List },
                         onPi = { screen = if (settings.isPiConfigured) Screen.PiOverview else Screen.PiSetup },
-                        onHub = { screen = Screen.HubSetup },
                     )
-                    Screen.HubSetup -> HubSetupScreen(
-                        settings = settings,
-                        onSaved = {
-                            forgetPasswordIfPaired()
-                            screen = Screen.Home
-                        },
-                        onBack = if (settings.isConfigured) ({ screen = Screen.Home }) else null,
-                    )
+                    Screen.HubSetup -> {
+                        val returnTo = if (settings.isConfigured) Screen.Setup else Screen.Home
+                        HubSetupScreen(
+                            settings = settings,
+                            onSaved = {
+                                forgetPasswordIfPaired()
+                                screen = returnTo
+                            },
+                            onBack = if (settings.isConfigured) ({ screen = Screen.Setup }) else null,
+                        )
+                    }
                     Screen.PiOverview -> PiOverviewScreen(
                         api = settings.piApi(),
                         onOpen = { screen = Screen.PiDetail(it) },
@@ -190,7 +194,7 @@ class MainActivity : FragmentActivity() {
             if (settings.isConfigured && !WindowInsets.isImeVisible) {
                 NavBar(
                     style = appStyle,
-                    settingsActive = screen == Screen.Setup,
+                    settingsActive = screen == Screen.Setup || screen == Screen.HubSetup,
                     onHome = { screen = Screen.Home },
                     onSettings = { screen = Screen.Setup },
                 )

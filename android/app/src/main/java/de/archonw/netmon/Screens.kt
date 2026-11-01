@@ -125,6 +125,7 @@ class SettingsUi(
     val busy: Boolean,
     val message: String?,
     val onSave: () -> Unit,
+    val onAccess: () -> Unit,
 )
 
 /** Fragt den Monitor nach einer neuen App-Version und bietet sie an. */
@@ -373,6 +374,7 @@ fun SettingsScreen(
     useBiometrics: Boolean,
     onLockModeChange: (Boolean) -> String?,
     onSaved: () -> Unit,
+    onAccess: () -> Unit,
 ) {
     var url by remember { mutableStateOf(settings.serverUrl.ifBlank { "http://" }) }
     var externalUrl by remember { mutableStateOf(settings.externalUrl) }
@@ -400,6 +402,7 @@ fun SettingsScreen(
         onPassword = { password = it },
         busy = busy,
         message = message,
+        onAccess = onAccess,
         onSave = {
             busy = true
             message = null

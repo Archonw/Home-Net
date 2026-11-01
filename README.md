@@ -30,7 +30,7 @@ Jeder meldet sich mit Benutzername und Passwort an. Im Heimnetz reicht das, von 
 
 - **Rollen:** Der Eigentümer darf alles. Admins verwalten Benutzer. Benutzer sehen nur die Dienste und Pi-Kategorien, die ihnen freigegeben sind.
 - **Passkey einrichten:** Unter **Benutzer** die Adresse für unterwegs speichern, unter **Mein Konto** einen Code holen und auf dieser Adresse `/login` öffnen. Die Wiederherstellungscodes aufbewahren.
-- **App koppeln:** Unter **Mein Konto** einen Kopplungscode holen und in der App unter **Zugang** eintragen. Geräte lassen sich einzeln entfernen.
+- **App koppeln:** Unter **Mein Konto** einen Kopplungscode holen und in der App unter **Einstellungen → Zugang** eintragen. Geräte lassen sich einzeln entfernen.
 - **Protokoll:** Anmeldungen und Änderungen stehen unter **Protokoll**.
 - **Passwort vergessen:** `./home-net password <konto>` auf dem Server.
 

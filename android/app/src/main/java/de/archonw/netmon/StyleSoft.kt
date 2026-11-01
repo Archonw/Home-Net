@@ -367,6 +367,15 @@ fun SoftSettings(ui: SettingsUi) {
                 }
             }
         }
+        SoftCard(Modifier.clip(CardShape).clickable(onClick = ui.onAccess)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Zugang", color = p.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Server, Konto und Kopplung", color = p.muted, fontSize = 13.sp)
+                }
+                Icon(NavIcons.chevron, contentDescription = null, tint = p.muted)
+            }
+        }
         if (ui.configured && !ui.managedByHub) {
             SoftCard {
                 CardTitle("Entsperren mit")
