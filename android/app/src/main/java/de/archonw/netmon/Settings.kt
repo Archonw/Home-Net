@@ -33,6 +33,10 @@ class Settings(context: Context) {
         get() = prefs.getString("hub_url", "") ?: ""
         set(value) = prefs.edit().putString("hub_url", value.trim().trimEnd('/')).apply()
 
+    var hubUser: String
+        get() = prefs.getString("hub_user", "") ?: ""
+        set(value) = prefs.edit().putString("hub_user", value).apply()
+
     var hubExternalUrl: String
         get() = prefs.getString("hub_external_url", "") ?: ""
         set(value) = prefs.edit().putString("hub_external_url", value.trim().trimEnd('/')).apply()

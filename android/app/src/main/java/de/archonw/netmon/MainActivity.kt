@@ -160,7 +160,7 @@ class MainActivity : FragmentActivity() {
                     Screen.PiOverview -> PiOverviewScreen(
                         api = settings.piApi(),
                         onOpen = { screen = Screen.PiDetail(it) },
-                        onSetup = { screen = Screen.PiSetup },
+                        onSetup = if (settings.isHubConfigured) null else ({ screen = Screen.PiSetup }),
                         onBack = { screen = Screen.Home },
                     )
                     is Screen.PiDetail -> PiDetailScreen(

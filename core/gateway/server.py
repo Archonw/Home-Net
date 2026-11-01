@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""The one address of Home-Net: login, portal page, module list for the app, and a proxy to each module.
+"""The one address of Home-Net: accounts, login, portal page, module list for the app, proxy to each module.
 
-Direct requests from the home network log in with the password. Requests through the reverse proxy need a
-passkey as soon as one is set up; apps use a device key they got once with a pairing code.
+Inside the home network an account logs in with its password. Through the reverse proxy it also needs a
+passkey. Apps use a device key they got once with a pairing code. Modules learn who is asking and which
+categories that account may see from headers that only the gateway can set.
 """
 import base64
-import hashlib
-import hmac
 import http.client
 import http.cookies
 import ipaddress
@@ -32,11 +31,16 @@ FAIL_WINDOW = 15 * 60
 MAX_BODY = 200 * 1024 * 1024
 HOP_BY_HOP = {"connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "proxy-authorization",
               "proxy-authenticate", "host", "content-length", "cookie"}
+BAD_LOGIN = "Benutzername oder Passwort ist falsch"
 
 
 def load(name):
     with open(os.path.join(CONFIG_DIR, name)) as f:
         return json.load(f)
+
+
+def security():
+    return Security.shared(CONFIG_DIR)
 
 
 class Limiter:
@@ -57,15 +61,6 @@ class Limiter:
     def succeeded(self, ip):
         with self.lock:
             self.fails.pop(ip, None)
-
-
-def password_ok(password):
-    try:
-        record = load("auth.json")
-    except (OSError, ValueError):
-        return False
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(record["salt"]), record["rounds"])
-    return hmac.compare_digest(digest.hex(), record["hash"])
 
 
 def rewrite_html(body, prefix):
@@ -123,60 +118,50 @@ class Handler(BaseHTTPRequestHandler):
         cookies = http.cookies.SimpleCookie(self.headers.get("Cookie", ""))
         return cookies[COOKIE].value if COOKIE in cookies else ""
 
-    def basic_password(self):
-        header = self.headers.get("Authorization", "")
-        if not header.startswith("Basic "):
-            return ""
-        try:
-            return base64.b64decode(header[6:]).decode().split(":", 1)[1]
-        except (ValueError, IndexError):
-            return ""
+    def cookie_header(self, token, seconds):
+        secure = "Secure; " if self.is_external() else ""
+        return f"{COOKIE}={token}; Path=/; HttpOnly; {secure}SameSite=Strict; Max-Age={seconds}"
 
-    def bearer_token(self):
-        header = self.headers.get("Authorization", "")
-        return header[7:] if header.startswith("Bearer ") else ""
+    def session_headers(self, user):
+        return {"Set-Cookie": self.cookie_header(security().new_session(user["id"]), SESSION_SECONDS)}
 
-    def login_state(self):
-        """'admin' for people, 'device' for a paired app, '' otherwise."""
-        store = self.security()
+    def identify(self):
+        """(user, how): 'browser' for a session or a password inside the home network, 'device' for an app."""
+        store = security()
         token = self.session_token()
-        if token and store.session_ok(token):
-            return "admin"
-        bearer = self.bearer_token()
-        if bearer.startswith(DEVICE_PREFIX) and store.device_ok(bearer):
-            return "device"
-        password = self.basic_password()
-        if password and password_ok(password):
-            # Once a passkey exists, the password alone only counts inside the home network.
-            if not self.is_external() or not store.has_passkeys():
-                return "admin"
-        return ""
+        if token:
+            user = store.session_user(token)
+            if user:
+                return user, "browser"
+        header = self.headers.get("Authorization", "")
+        if header.startswith("Bearer " + DEVICE_PREFIX):
+            user = store.device_user(header[7:])
+            return (user, "device") if user else (None, "")
+        if header.startswith("Basic ") and not self.is_external():
+            try:
+                name, password = base64.b64decode(header[6:]).decode().split(":", 1)
+            except (ValueError, IndexError):
+                return None, ""
+            user = store.check_login(name, password)
+            return (user, "browser") if user else (None, "")
+        return None, ""
 
-    def authorized(self, admin=False):
+    def need_login(self):
+        """The user of this request, or None after answering it."""
         ip = self.client_ip()
         if self.limiter.blocked(ip):
             self.reply_json(429, {"detail": "Zu viele Fehlversuche, bitte in 15 Minuten erneut versuchen"})
-            return False
-        state = self.login_state()
-        if state == "admin" or (state == "device" and not admin):
-            self.limiter.succeeded(ip)
-            return True
-        if state == "device":
-            self.reply_json(403, {"detail": "Das geht nur nach der Anmeldung im Browser"})
-            return False
+            return None, ""
+        user, how = self.identify()
+        if user:
+            return user, how
         if self.headers.get("Authorization"):
             self.limiter.failed(ip)
-        if self.is_external() and self.security().has_passkeys():
-            if self.command == "GET" and "text/html" in self.headers.get("Accept", ""):
-                self.reply(302, headers={"Location": "/login"})
-            else:
-                self.reply_json(401, {"detail": "Anmeldung erforderlich"})
-            return False
-        self.reply(401, headers={"WWW-Authenticate": 'Basic realm="Home-Net"'})
-        return False
-
-    def security(self):
-        return Security.shared(CONFIG_DIR)
+        if self.command == "GET" and "text/html" in self.headers.get("Accept", ""):
+            self.reply(302, headers={"Location": "/login"})
+        else:
+            self.reply_json(401, {"detail": "Anmeldung erforderlich"})
+        return None, ""
 
     def read_json(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -188,56 +173,6 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return data if isinstance(data, dict) else {}
 
-    def cookie_header(self, token, seconds):
-        return f"{COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age={seconds}"
-
-    def handle_auth(self, path):
-        """Everything under /auth and the login page. True when the request was answered."""
-        store = self.security()
-        ip = self.client_ip()
-        if path == "/login" and self.command == "GET":
-            with open(LOGIN, "rb") as f:
-                self.reply(200, f.read(), "text/html; charset=utf-8")
-            return True
-        if not path.startswith("/auth/"):
-            return False
-        if self.limiter.blocked(ip):
-            self.reply_json(429, {"detail": "Zu viele Fehlversuche, bitte in 15 Minuten erneut versuchen"})
-            return True
-        if self.command == "POST" and path in PUBLIC_AUTH:
-            try:
-                PUBLIC_AUTH[path](self, self.read_json(), store, ip)
-            except (webauthn.WebAuthnError, ValueError, KeyError, TypeError) as exc:
-                self.limiter.failed(ip)
-                self.reply_json(400, {"detail": str(exc) or "Ungültige Anfrage"})
-            return True
-        if not self.authorized(admin=True):
-            return True
-        match = re.fullmatch(r"/auth/(passkeys|devices)/([A-Za-z0-9_-]+)", path)
-        if path == "/auth/security" and self.command == "GET":
-            self.reply_json(200, store.summary())
-        elif path == "/auth/code" and self.command == "POST":
-            kind = self.read_json().get("kind")
-            if kind not in ("setup", "device"):
-                self.reply_json(400, {"detail": "Unbekannte Art"})
-            else:
-                self.reply_json(200, {"code": store.new_code(kind)})
-        elif path == "/auth/external" and self.command == "POST":
-            try:
-                store.set_external_url(str(self.read_json().get("url", "")))
-                self.reply_json(200, {"ok": True})
-            except ValueError as exc:
-                self.reply_json(400, {"detail": str(exc)})
-        elif path == "/auth/logout" and self.command == "POST":
-            store.drop_session(self.session_token())
-            self.reply_json(200, {"ok": True}, headers={"Set-Cookie": self.cookie_header("", 0)})
-        elif match and self.command == "DELETE":
-            ok = store.remove(match.group(1), match.group(2))
-            self.reply_json(200 if ok else 404, {"ok": ok})
-        else:
-            self.reply_json(404, {"detail": "Nicht gefunden"})
-        return True
-
     def modules(self):
         return load("gateway.json")["modules"]
 
@@ -246,7 +181,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/health":
             self.reply_json(200, {"ok": True})
             return
-        if self.handle_auth(path):
+        if path == "/login" and self.command == "GET":
+            with open(LOGIN, "rb") as f:
+                self.reply(200, f.read(), "text/html; charset=utf-8")
+            return
+        if path.startswith("/auth/"):
+            self.handle_auth(path)
             return
         match = re.fullmatch(r"/m/([a-z0-9-]+)(/.*)?", path)
         module = None
@@ -257,17 +197,110 @@ class Handler(BaseHTTPRequestHandler):
                 return
             rest = match.group(2) or "/"
             if any(rest == p or rest.startswith(p + "/") for p in module.get("public", [])):
-                self.proxy(module, rest, authenticate=False)
+                self.proxy(module, rest, None)
                 return
-        if not self.authorized():
+        user, _how = self.need_login()
+        if not user:
             return
         if module:
-            self.proxy(module, match.group(2) or "/", authenticate=True)
+            if not security().may_use(user, module["id"]):
+                self.reply_json(403, {"detail": "Für diesen Dienst fehlt die Berechtigung"})
+                return
+            self.proxy(module, match.group(2) or "/", user)
         elif path == "/" and self.command in ("GET", "HEAD"):
             with open(PORTAL, "rb") as f:
                 self.reply(200, f.read(), "text/html; charset=utf-8")
         elif path == "/api/modules" and self.command == "GET":
-            self.reply_json(200, {"modules": [self.public_entry(m) for m in self.modules()]})
+            allowed = [m for m in self.modules() if security().may_use(user, m["id"])]
+            self.reply_json(200, {"modules": [self.public_entry(m) for m in allowed]})
+        else:
+            self.reply_json(404, {"detail": "Nicht gefunden"})
+
+    def handle_auth(self, path):
+        store = security()
+        ip = self.client_ip()
+        if self.limiter.blocked(ip):
+            self.reply_json(429, {"detail": "Zu viele Fehlversuche, bitte in 15 Minuten erneut versuchen"})
+            return
+        try:
+            if self.command == "POST" and path in PUBLIC_AUTH:
+                PUBLIC_AUTH[path](self, self.read_json(), store, ip)
+                return
+            user, how = self.need_login()
+            if not user:
+                return
+            if how == "device":
+                self.reply_json(403, {"detail": "Das geht nur nach der Anmeldung im Browser"})
+                return
+            self.handle_account(path, user, store, ip)
+        except (webauthn.WebAuthnError, ValueError, KeyError, TypeError) as exc:
+            if self.command == "POST" and path in PUBLIC_AUTH:
+                self.limiter.failed(ip)
+            self.reply_json(400, {"detail": str(exc) or "Ungültige Anfrage"})
+        except PermissionError as exc:
+            self.reply_json(403, {"detail": str(exc)})
+        except LookupError:
+            self.reply_json(404, {"detail": "Nicht gefunden"})
+
+    def handle_account(self, path, actor, store, ip):
+        method = self.command
+        manager = actor["role"] in ("owner", "admin")
+        item = re.fullmatch(r"/auth/(passkeys|devices)/([A-Za-z0-9_-]+)", path)
+        account = re.fullmatch(r"/auth/users/([0-9a-f]+)", path)
+        if path == "/auth/me" and method == "GET":
+            self.reply_json(200, store.account(actor))
+        elif path == "/auth/me" and method == "POST":
+            before = actor["name"]
+            changed = store.change_own(actor["id"], self.read_json())
+            store.audit(before, "Eigenes Konto geändert", changed["name"], ip)
+            self.reply_json(200, changed)
+        elif path == "/auth/logout" and method == "POST":
+            store.drop_session(self.session_token())
+            self.reply_json(200, {"ok": True}, headers={"Set-Cookie": self.cookie_header("", 0)})
+        elif path == "/auth/code" and method == "POST":
+            form = self.read_json()
+            if form.get("kind") not in ("setup", "device"):
+                raise ValueError("Unbekannte Art")
+            target = actor
+            if form.get("user") and form["user"] != actor["id"]:
+                target = store.find_user(form["user"])
+                if not target:
+                    raise LookupError
+                store.check_role_change(actor, target, target["role"])
+                if not manager:
+                    raise PermissionError("Das darf nur ein Admin")
+            store.audit(actor["name"], "Code ausgestellt", f"{form['kind']} für {target['name']}", ip)
+            self.reply_json(200, {"code": store.new_code(form["kind"], target["id"]), "for": target["name"]})
+        elif item and method == "DELETE":
+            removed = store.remove_item(item.group(1), item.group(2), actor)
+            store.audit(actor["name"], "Passkey entfernt" if item.group(1) == "passkeys" else "Gerät entfernt",
+                        removed["name"], ip)
+            self.reply_json(200, {"ok": True})
+        elif not manager:
+            self.reply_json(403, {"detail": "Das darf nur ein Admin"})
+        elif path == "/auth/external" and method == "POST":
+            store.set_external_url(self.read_json().get("url", ""))
+            store.audit(actor["name"], "Adresse für unterwegs geändert", "", ip)
+            self.reply_json(200, {"ok": True})
+        elif path == "/auth/users" and method == "GET":
+            self.reply_json(200, {"users": store.users(), "items": store.all_items(),
+                                  "modules": [{"id": m["id"], "name": m["name"]} for m in self.modules()]})
+        elif path == "/auth/users" and method == "POST":
+            created = store.create_user(actor, self.read_json())
+            store.audit(actor["name"], "Konto angelegt", f"{created['name']} ({created['role']})", ip)
+            self.reply_json(201, created)
+        elif account and method == "PUT":
+            form = self.read_json()
+            changed = store.update_user(actor, account.group(1), form)
+            what = ", ".join(sorted(k for k in form if k != "password")) + (" Passwort" if form.get("password") else "")
+            store.audit(actor["name"], "Konto geändert", f"{changed['name']}: {what}", ip)
+            self.reply_json(200, changed)
+        elif account and method == "DELETE":
+            removed = store.delete_user(actor, account.group(1))
+            store.audit(actor["name"], "Konto gelöscht", removed["name"], ip)
+            self.reply_json(200, {"ok": True})
+        elif path == "/auth/audit" and method == "GET":
+            self.reply_json(200, {"entries": store.audit_tail()})
         else:
             self.reply_json(404, {"detail": "Nicht gefunden"})
 
@@ -282,7 +315,7 @@ class Handler(BaseHTTPRequestHandler):
             out["external_port"] = module.get("external_port")
         return out
 
-    def proxy(self, module, rest, authenticate):
+    def proxy(self, module, rest, user):
         length = int(self.headers.get("Content-Length") or 0)
         if length > MAX_BODY:
             self.reply_json(413, {"detail": "Zu groß"})
@@ -292,10 +325,18 @@ class Handler(BaseHTTPRequestHandler):
         query = urllib.parse.urlsplit(self.path).query
         target = rest + (f"?{query}" if query else "")
         headers = {k: v for k, v in self.headers.items()
-                   if k.lower() not in HOP_BY_HOP and k.lower() not in ("authorization", "accept-encoding")}
-        if authenticate and module.get("password"):
-            token = base64.b64encode(f"app:{module['password']}".encode()).decode()
-            headers["Authorization"] = f"Basic {token}"
+                   if k.lower() not in HOP_BY_HOP and k.lower() not in ("authorization", "accept-encoding")
+                   and not k.lower().startswith("x-home-net-")}
+        if user:
+            if module.get("password"):
+                token = base64.b64encode(f"app:{module['password']}".encode()).decode()
+                headers["Authorization"] = f"Basic {token}"
+            headers["X-Home-Net-User"] = base64.b64encode(user["name"].encode()).decode()
+            headers["X-Home-Net-Role"] = user["role"]
+            headers["X-Home-Net-Categories"] = base64.b64encode(
+                json.dumps(security().categories_of(user)).encode()).decode()
+            if self.command not in ("GET", "HEAD"):
+                security().audit(user["name"], f"{module['name']}: {self.command}", rest[:200], self.client_ip())
         headers["X-Forwarded-For"] = self.client_ip()
         prefix = f"/m/{module['id']}"
         headers["X-Forwarded-Prefix"] = prefix
@@ -317,7 +358,7 @@ class Handler(BaseHTTPRequestHandler):
         if location:
             extra["Location"] = prefix + location if location.startswith("/") else location
         if resp.status == 401:
-            # A rejected gateway login never reaches this point, so this is a wrong module password.
+            # A rejected login never reaches this point, so this is a wrong module password.
             self.reply_json(502, {"detail": f"{module['name']} lehnt die Anmeldung des Gateways ab"})
             return
         self.reply(resp.status, data, content_type, extra)
@@ -325,96 +366,115 @@ class Handler(BaseHTTPRequestHandler):
     do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = do_HEAD = handle_any
 
 
-def check_password(handler, body, ip):
-    if not password_ok(str(body.get("password", ""))):
+def checked_user(handler, body, store, ip):
+    """The account for these credentials, or None after answering."""
+    user = store.check_login(body.get("username", ""), body.get("password", ""))
+    if not user:
         handler.limiter.failed(ip)
-        handler.reply_json(401, {"detail": "Passwort falsch"})
-        return False
-    return True
+        store.audit(str(body.get("username", ""))[:40], "Anmeldung fehlgeschlagen", "", ip)
+        handler.reply_json(401, {"detail": BAD_LOGIN})
+    return user
 
 
-def login_options(handler, body, store, ip):
-    """First step of a browser login: password right, now the passkey."""
-    if not check_password(handler, body, ip):
+def login_start(handler, body, store, ip):
+    """Inside the home network this logs in; from outside the passkey follows."""
+    user = checked_user(handler, body, store, ip)
+    if not user:
         return
-    data = store.load()
-    if not data["passkeys"]:
-        handler.reply_json(400, {"detail": "Noch kein Passkey eingerichtet"})
+    if not handler.is_external():
+        handler.limiter.succeeded(ip)
+        store.audit(user["name"], "Angemeldet", "Heimnetz", ip)
+        handler.reply_json(200, {"ok": True}, headers=handler.session_headers(user))
+        return
+    keys = store.passkeys_of(user["id"])
+    if not keys:
+        handler.reply_json(403, {"detail": "Von außen braucht dieses Konto einen Passkey. Hol dir dafür einen Einrichtungscode."})
         return
     _, rp_id = store.origin_and_rp()
-    ticket, challenge = store.new_challenge("login")
+    ticket, challenge = store.new_challenge("login", user=user["id"])
     handler.reply_json(200, {"ticket": ticket, "options": {
         "challenge": challenge, "rpId": rp_id, "userVerification": "required", "timeout": 60000,
-        "allowCredentials": [{"type": "public-key", "id": p["id"]} for p in data["passkeys"]]}})
+        "allowCredentials": [{"type": "public-key", "id": p["id"]} for p in keys]}})
 
 
 def login_finish(handler, body, store, ip):
     pending = store.take_challenge(body.get("ticket"), "login")
     if not pending:
         raise ValueError("Die Anmeldung ist abgelaufen, bitte von vorn beginnen")
-    passkey = store.find_passkey(str(body.get("id", "")))
-    if not passkey:
+    passkey = store.find_passkey(pending["user"], str(body.get("id", "")))
+    user = store.find_user(pending["user"])
+    if not passkey or not user or not user.get("active"):
         raise ValueError("Unbekannter Passkey")
     origin, rp_id = store.origin_and_rp()
     count = webauthn.verify_assertion(body["clientData"], body["authData"], body["signature"], passkey,
                                       pending["challenge"], origin, rp_id)
     store.update_count(passkey["id"], count)
     handler.limiter.succeeded(ip)
-    handler.reply_json(200, {"ok": True}, headers={"Set-Cookie": handler.cookie_header(store.new_session(), SESSION_SECONDS)})
+    store.audit(user["name"], "Angemeldet", "Passkey", ip)
+    handler.reply_json(200, {"ok": True}, headers=handler.session_headers(user))
 
 
 def login_recovery(handler, body, store, ip):
-    if not check_password(handler, body, ip):
+    user = checked_user(handler, body, store, ip)
+    if not user:
         return
-    if not store.use_recovery(body.get("code", "")):
+    if not store.use_recovery(user["id"], body.get("code", "")):
         raise ValueError("Der Wiederherstellungscode stimmt nicht")
     handler.limiter.succeeded(ip)
-    handler.reply_json(200, {"ok": True}, headers={"Set-Cookie": handler.cookie_header(store.new_session(), SESSION_SECONDS)})
+    store.audit(user["name"], "Angemeldet", "Wiederherstellungscode", ip)
+    handler.reply_json(200, {"ok": True}, headers=handler.session_headers(user))
 
 
 def setup_options(handler, body, store, ip):
-    """Adds a passkey. The code comes from the logged-in start page, so a password alone is not enough."""
-    if not check_password(handler, body, ip):
+    """Adds a passkey. The code comes from the start page, so a password alone is not enough."""
+    user = checked_user(handler, body, store, ip)
+    if not user:
         return
     origin, rp_id = store.origin_and_rp()
     if not origin:
-        raise ValueError("Bitte zuerst die Adresse für unterwegs eintragen")
-    if not store.take_code("setup", body.get("code", "")):
+        raise ValueError("Es ist noch keine Adresse für unterwegs eingetragen")
+    if not store.take_code("setup", user["id"], body.get("code", "")):
         raise ValueError("Der Einrichtungscode stimmt nicht oder ist abgelaufen")
-    ticket, challenge = store.new_challenge("setup", name=str(body.get("name") or "Passkey")[:60])
+    ticket, challenge = store.new_challenge("setup", user=user["id"], name=str(body.get("name") or "Passkey")[:60])
     handler.reply_json(200, {"ticket": ticket, "options": {
         "challenge": challenge, "rp": {"id": rp_id, "name": "Home-Net"},
-        "user": {"id": webauthn.b64url(b"home-net"), "name": "home-net", "displayName": "Home-Net"},
+        "user": {"id": webauthn.b64url(user["id"].encode()), "name": user["name"], "displayName": user["name"]},
         "pubKeyCredParams": [{"type": "public-key", "alg": webauthn.ES256}], "timeout": 60000,
         "attestation": "none", "authenticatorSelection": {"residentKey": "preferred", "userVerification": "required"},
-        "excludeCredentials": [{"type": "public-key", "id": p["id"]} for p in store.load()["passkeys"]]}})
+        "excludeCredentials": [{"type": "public-key", "id": p["id"]} for p in store.passkeys_of(user["id"])]}})
 
 
 def setup_finish(handler, body, store, ip):
     pending = store.take_challenge(body.get("ticket"), "setup")
     if not pending:
         raise ValueError("Die Einrichtung ist abgelaufen, bitte von vorn beginnen")
+    user = store.find_user(pending["user"])
+    if not user or not user.get("active"):
+        raise ValueError("Unbekanntes Konto")
     origin, rp_id = store.origin_and_rp()
     credential_id, x, y, count = webauthn.verify_registration(body["clientData"], body["attestation"],
                                                               pending["challenge"], origin, rp_id)
-    recovery = store.add_passkey(credential_id, x, y, count, pending["name"])
-    store.drop_all_sessions()
+    recovery = store.add_passkey(user["id"], credential_id, x, y, count, pending["name"])
+    store.drop_sessions(user["id"])
     handler.limiter.succeeded(ip)
-    handler.reply_json(200, {"recovery": recovery},
-                       headers={"Set-Cookie": handler.cookie_header(store.new_session(), SESSION_SECONDS)})
+    store.audit(user["name"], "Passkey eingerichtet", pending["name"], ip)
+    handler.reply_json(200, {"recovery": recovery}, headers=handler.session_headers(user))
 
 
 def pair_device(handler, body, store, ip):
-    """Gives an app its own key. The code comes from the logged-in start page."""
-    if not check_password(handler, body, ip):
+    """Gives an app its own key. The code comes from the start page."""
+    user = checked_user(handler, body, store, ip)
+    if not user:
         return
-    if not store.take_code("device", body.get("code", "")):
+    if not store.take_code("device", user["id"], body.get("code", "")):
         raise ValueError("Der Kopplungscode stimmt nicht oder ist abgelaufen")
+    name = str(body.get("name") or "Handy")[:60]
     handler.limiter.succeeded(ip)
-    handler.reply_json(200, {"token": store.add_device(str(body.get("name") or "Handy")[:60])})
+    store.audit(user["name"], "Gerät gekoppelt", name, ip)
+    handler.reply_json(200, {"token": store.add_device(user["id"], name)})
 
 
-PUBLIC_AUTH = {"/auth/login": login_options, "/auth/login/finish": login_finish, "/auth/recovery": login_recovery,
+PUBLIC_AUTH = {"/auth/login": login_start, "/auth/login/finish": login_finish, "/auth/recovery": login_recovery,
                "/auth/setup": setup_options, "/auth/setup/finish": setup_finish, "/auth/pair": pair_device}
 
 

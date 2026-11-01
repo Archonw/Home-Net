@@ -151,17 +151,19 @@ class Store:
         with self.lock:
             self.summary_time = 0
 
-    def overview(self):
+    def overview(self, scopes=("*",)):
         self.refresh()
         with self.lock:
             s, pis, devices = self.summary, list(self.pis), dict(self.devices)
             checked = self.devices_time
+        pis = [p for p in pis if category_allowed(p.category, scopes)]
         dirs = {p.id: self.pidir(p) for p in pis}
         rows = []
         for p in sorted(pis, key=lambda x: (x.category.casefold(), x.name.casefold())):
             rows.append(pi_row(p, s["pis"].get(dirs[p.id], {}), devices.get(p.id)))
         names = {dirs[p.id]: p.name for p in pis}
-        failed = sorted((r for r in s["runs"] if r["status"] == "failed"), key=lambda r: r["stamp"], reverse=True)
+        failed = sorted((r for r in s["runs"] if r["status"] == "failed" and r["dir"] in names),
+                        key=lambda r: r["stamp"], reverse=True)
         return {
             "pis": rows,
             "images": sum(r["images"] for r in rows),
@@ -191,29 +193,32 @@ class Store:
     def write_conf(self, pi):
         self.backend.admin(verb="put-file", path=f"{self.pidir(pi)}/pi.conf", text=pi.conf_text())
 
-    def form_inventory(self):
+    def form_inventory(self, scopes=("*",)):
         categories, pis = self.inventory()
         cats = set(categories)
         for pi in pis:
             parts = pi.category.split("/") if pi.category else []
             cats.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))
-        return {"categories": sorted(cats, key=str.casefold), "pis": [asdict(p) for p in pis]}
+        return {"categories": sorted((c for c in cats if category_allowed(c, scopes)), key=str.casefold),
+                "pis": [asdict(p) for p in pis if category_allowed(p.category, scopes)]}
 
-    def create_pi(self, form):
+    def create_pi(self, form, scopes=("*",)):
         categories, pis = self.inventory()
         pi = pi_from_form(form)
+        require_category(pi.category, scopes)
         pi.key = pi.own_key_path()
         self.check_free(pi, pis)
         self.write_conf(pi)
         self.save_inventory(set(categories) | ({pi.category} if pi.category else set()), pis + [pi])
         return pi
 
-    def update_pi(self, pi_id, form):
+    def update_pi(self, pi_id, form, scopes=("*",)):
         categories, pis = self.inventory()
-        old = next((p for p in pis if p.id == pi_id), None)
+        old = next((p for p in pis if p.id == pi_id and category_allowed(p.category, scopes)), None)
         if not old:
             raise LookupError
         new = pi_from_form(form, old)
+        require_category(new.category, scopes)
         self.check_free(new, pis)
         if self.pidir(old) != self.pidir(new):
             if parse_shell_kv(self.backend.host_call("state", self.pidir(old))).get("RUNNING") == "1":
@@ -226,9 +231,9 @@ class Store:
                             [new if p.id == pi_id else p for p in pis])
         return new
 
-    def delete_pi(self, pi_id, with_data):
+    def delete_pi(self, pi_id, with_data, scopes=("*",)):
         categories, pis = self.inventory()
-        old = next((p for p in pis if p.id == pi_id), None)
+        old = next((p for p in pis if p.id == pi_id and category_allowed(p.category, scopes)), None)
         if not old:
             raise LookupError
         if with_data:
@@ -268,10 +273,10 @@ class Store:
         text = "".join(f"{k}={shlex.quote(v)}\n" for k, v in pairs)
         self.backend.admin(verb="put-file", path=f"{ROOT}/.engine/ntfy.conf", text=text)
 
-    def find(self, pi_id):
+    def find(self, pi_id, scopes=("*",)):
         self.refresh()
         with self.lock:
-            return next((p for p in self.pis if p.id == pi_id), None)
+            return next((p for p in self.pis if p.id == pi_id and category_allowed(p.category, scopes)), None)
 
     def detail(self, pi):
         d = self.pidir(pi)
@@ -300,6 +305,18 @@ EDITABLE = {"name": str, "category": str, "host": str, "port": int, "user": str,
             "notes": str}
 CHOICES = {"format": ("xz", "gz", "img"), "schedule": ("off", "daily", "weekly", "monthly"),
            "notify": ("errors", "always", "off")}
+
+
+def category_allowed(category, scopes):
+    """Whether an account with these rights may see this category; rights include subcategories."""
+    if "*" in scopes:
+        return True
+    return any(category == s or category.startswith(s + "/") for s in scopes)
+
+
+def require_category(category, scopes):
+    if not category_allowed(category, scopes):
+        raise ValueError("Für diese Kategorie fehlt die Berechtigung.")
 
 
 def pi_from_form(form, base=None):
@@ -462,6 +479,19 @@ class Handler(BaseHTTPRequestHandler):
         except LookupError:
             self.send_json(404, {"detail": "Nicht gefunden"})
 
+    def scopes(self):
+        """Categories this request may see, set by the gateway. A request without it comes from the service owner."""
+        header = self.headers.get("X-Home-Net-Categories")
+        if not header:
+            return ["*"]
+        try:
+            return json.loads(base64.b64decode(header))
+        except ValueError:
+            return []
+
+    def is_manager(self):
+        return self.headers.get("X-Home-Net-Role", "owner") in ("owner", "admin")
+
     def send_page(self):
         with open(PAGE, "rb") as f:
             body = f.read()
@@ -475,7 +505,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.dispatch_admin(method, path):
             return
         if method == "GET" and path == "/api/overview":
-            self.send_json(200, self.store.overview())
+            self.send_json(200, self.store.overview(self.scopes()))
             return
         if method == "POST" and path == "/api/check":
             self.store.refresh()
@@ -486,7 +516,7 @@ class Handler(BaseHTTPRequestHandler):
         if not match:
             self.send_json(404, {"detail": "Nicht gefunden"})
             return
-        pi = self.store.find(match.group(1))
+        pi = self.store.find(match.group(1), self.scopes())
         if not pi:
             self.send_json(404, {"detail": "Pi nicht gefunden"})
             return
@@ -510,12 +540,14 @@ class Handler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/":
             self.send_page()
         elif method == "GET" and path == "/api/inventory":
-            self.send_json(200, store.form_inventory())
+            self.send_json(200, dict(store.form_inventory(self.scopes()), manager=self.is_manager()))
         elif method == "POST" and path == "/api/pis":
             form = self.body
-            pi = store.create_pi(form)
+            pi = store.create_pi(form, self.scopes())
             sudo = store.install_key(pi, form["password"]).get("sudo") if form.get("password") else None
             self.send_json(201, {"id": pi.id, "sudo": sudo})
+        elif path.startswith("/api/ntfy") and not self.is_manager():
+            self.send_json(403, {"detail": "Das darf nur ein Admin"})
         elif method == "GET" and path == "/api/ntfy":
             self.send_json(200, store.ntfy())
         elif method == "PUT" and path == "/api/ntfy":
@@ -531,25 +563,25 @@ class Handler(BaseHTTPRequestHandler):
             pi_id, part = match.groups()
             if method == "GET":
                 _, pis = store.inventory()
-                pi = next((p for p in pis if p.id == pi_id), None)
+                pi = next((p for p in pis if p.id == pi_id and category_allowed(p.category, self.scopes())), None)
                 if not pi:
                     raise LookupError
                 self.send_json(200, asdict(pi))
             elif method == "PUT" and not part:
-                store.update_pi(pi_id, self.body)
+                store.update_pi(pi_id, self.body, self.scopes())
                 self.send_json(200, {"ok": True})
             elif method == "DELETE" and not part:
-                store.delete_pi(pi_id, bool(self.body.get("data")))
+                store.delete_pi(pi_id, bool(self.body.get("data")), self.scopes())
                 self.send_json(200, {"ok": True})
             elif method == "DELETE" and part.startswith("images/"):
-                pi = store.find(pi_id)
+                pi = store.find(pi_id, self.scopes())
                 if not pi:
                     raise LookupError
                 store.backend.admin(verb="delete-image", dir=store.pidir(pi), file=urllib.parse.unquote(part[7:]))
                 store.invalidate()
                 self.send_json(200, {"ok": True})
             elif method == "POST" and part == "key":
-                pi = store.find(pi_id)
+                pi = store.find(pi_id, self.scopes())
                 if not pi:
                     raise LookupError
                 self.send_json(200, {"sudo": store.install_key(pi, str(self.body.get("password", ""))).get("sudo")})

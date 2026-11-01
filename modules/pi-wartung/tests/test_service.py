@@ -103,6 +103,48 @@ class Service(unittest.TestCase):
         self.assertEqual(self.call(f"/api/pis/{ID}/cancel", "POST")[0], 202)
         self.assertIn(("cancel", "/r/Familie/Fenster"), self.backend.calls)
 
+    def scoped(self, path, scopes, method="GET", role="user", body=None):
+        data = json.dumps(body).encode() if body is not None else (b"" if method != "GET" else None)
+        req = urllib.request.Request(self.base + path, method=method, data=data)
+        req.add_header("Authorization", "Basic " + base64.b64encode(b"app:geheim").decode())
+        req.add_header("X-Home-Net-Categories", base64.b64encode(json.dumps(scopes).encode()).decode())
+        req.add_header("X-Home-Net-Role", role)
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status, json.loads(resp.read() or b"{}")
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            return exc.code, json.loads(raw) if raw else {}
+
+    def test_categories_limit_what_is_seen(self):
+        self.set_password("geheim")
+        code, data = self.scoped("/api/overview", ["Familie"])
+        self.assertEqual((code, data["pis"][0]["name"]), (200, "Fenster"))
+        code, data = self.scoped("/api/overview", ["Firma"])
+        self.assertEqual((data["pis"], data["images"], data["errors"]), ([], 0, []))
+        self.assertEqual(self.scoped(f"/api/pis/{ID}", ["Firma"])[0], 404)
+        self.assertEqual(self.scoped(f"/api/pis/{ID}/backup", ["Firma"], "POST")[0], 404)
+        self.assertEqual(self.scoped(f"/api/pis/{ID}/config", ["Firma"])[0], 404)
+        self.assertEqual(self.scoped(f"/api/pis/{ID}", ["Firma"], "DELETE", body={})[0], 404)
+        self.assertEqual(self.scoped(f"/api/pis/{ID}", ["Familie"])[0], 200)
+        self.assertEqual(self.scoped("/api/inventory", ["Firma"])[1]["pis"], [])
+
+    def test_subcategory_counts_but_similar_name_does_not(self):
+        self.assertTrue(server.category_allowed("Firma/Nord", ["Firma"]))
+        self.assertFalse(server.category_allowed("Firmament", ["Firma"]))
+        self.assertFalse(server.category_allowed("", ["Firma"]))
+        self.assertTrue(server.category_allowed("", ["*"]))
+
+    def test_new_pi_only_in_allowed_category(self):
+        self.set_password("geheim")
+        code, data = self.scoped("/api/pis", ["Firma"], "POST", body={"name": "n", "category": "Familie", "host": "h"})
+        self.assertEqual(code, 400)
+        self.assertIn("Berechtigung", data["detail"])
+
+    def test_ntfy_needs_manager(self):
+        self.set_password("geheim")
+        self.assertEqual(self.scoped("/api/ntfy", ["*"], role="user")[0], 403)
+
     def test_unknown_and_wrong_method(self):
         self.set_password("geheim")
         self.assertEqual(self.call("/api/pis/fff")[0], 404)

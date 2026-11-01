@@ -233,6 +233,7 @@ fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)
     var url by remember { mutableStateOf(settings.hubUrl.ifBlank { "http://" }) }
     var externalUrl by remember { mutableStateOf(settings.hubExternalUrl) }
     var password by remember { mutableStateOf(if (settings.isHubConfigured) settings.password else "") }
+    var username by remember { mutableStateOf(settings.hubUser) }
     var code by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -245,9 +246,8 @@ fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                "Die Adresse deines Home-Net-Servers, zum Beispiel http://192.168.178.207:8093, und das " +
-                    "Passwort aus der Installation. Für den Zugriff von unterwegs braucht das Gerät einen " +
-                    "Kopplungscode, den du auf der Startseite im Browser unter Sicherheit bekommst.",
+                "Die Adresse deines Home-Net-Servers, zum Beispiel http://192.168.178.207:8093, dein Konto und ein " +
+                    "Kopplungscode. Den Code bekommst du im Browser unter Mein Konto.",
                 color = p.muted, fontSize = 14.sp,
             )
             OutlinedTextField(
@@ -259,6 +259,10 @@ fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)
                 value = externalUrl, onValueChange = { externalUrl = it }, singleLine = true,
                 label = { Text("Adresse für unterwegs (optional)") }, modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            )
+            OutlinedTextField(
+                value = username, onValueChange = { username = it }, singleLine = true,
+                label = { Text("Benutzername") }, modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
                 value = password, onValueChange = { password = it }, singleLine = true,
@@ -286,11 +290,15 @@ fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)
                 scope.launch {
                     try {
                         val token = if (code.isNotBlank()) {
-                            pairDevice(url, externalUrl, password, code, android.os.Build.MODEL ?: "Handy")
+                            pairDevice(url, externalUrl, username, password, code, android.os.Build.MODEL ?: "Handy")
                         } else {
                             settings.hubToken
                         }
-                        hubModules(url, externalUrl, token.ifBlank { password })
+                        if (token.isBlank()) {
+                            throw ApiException("Bitte den Kopplungscode von der Startseite eintragen.")
+                        }
+                        hubModules(url, externalUrl, token)
+                        settings.hubUser = username.trim()
                         settings.useHub(url, externalUrl, password, token)
                         onSaved()
                     } catch (e: ApiException) {
@@ -324,7 +332,7 @@ private fun ServiceTile(title: String, status: String, alert: Boolean, @Drawable
 }
 
 @Composable
-fun PiOverviewScreen(api: PiApi, onOpen: (String) -> Unit, onSetup: () -> Unit, onBack: () -> Unit) {
+fun PiOverviewScreen(api: PiApi, onOpen: (String) -> Unit, onSetup: (() -> Unit)?, onBack: () -> Unit) {
     val p = LocalPalette.current
     var data by remember { mutableStateOf<PiOverview?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -355,7 +363,7 @@ fun PiOverviewScreen(api: PiApi, onOpen: (String) -> Unit, onSetup: () -> Unit, 
                     }
                 }
             }
-            TextAction("Zugang", onSetup)
+            onSetup?.let { TextAction("Zugang", it) }
         })
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),

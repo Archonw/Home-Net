@@ -5,7 +5,7 @@ Usage:
   home-net install [--data DIR] [--images DIR] [--modules a,b] [--port N] [--password PW] [--no-start]
   home-net add <modul>       home-net remove <modul>
   home-net status            home-net modules
-  home-net update            home-net password [neues Passwort]
+  home-net update            home-net password <konto> [neues Passwort]
   home-net apply             Erstellt alles neu aus dem vorhandenen Programmstand
   home-net backup            home-net restore <archiv>
 """
@@ -89,7 +89,7 @@ def compose_document(modules, chosen, repo=REPO):
     return {"name": "home-net", "services": services}
 
 
-def gateway_config(modules, chosen, upstream_passwords):
+def gateway_config(modules, chosen, upstream_passwords, owner="admin"):
     entries = []
     for module_id in chosen:
         module = modules[module_id]
@@ -104,7 +104,7 @@ def gateway_config(modules, chosen, upstream_passwords):
                         public=api.get("public", []), web=bool(api.get("web")),
                         password=upstream_passwords.get(module_id, ""))
         entries.append(item)
-    return {"modules": entries}
+    return {"owner": owner, "modules": entries}
 
 
 class Install:
@@ -150,7 +150,8 @@ class Install:
                     if not path.exists():
                         self.write_private(path, "")
         self.write_private(self.data / "gateway" / "gateway.json",
-                           json.dumps(gateway_config(modules, state["modules"], state["upstream"]), indent=2) + "\n")
+                           json.dumps(gateway_config(modules, state["modules"], state["upstream"], state.get("owner", "admin")),
+                                      indent=2) + "\n")
         self.write_private(self.data / "gateway" / "auth.json", json.dumps(state["auth"]) + "\n")
         if "pi-wartung" in state["modules"]:
             (self.data / "pi-wartung" / "ssh").mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -166,10 +167,10 @@ class Install:
         self.compose("up", "-d", "--build", "--remove-orphans")
 
 
-def new_state(data, images, chosen, port, password, tz="Europe/Berlin"):
+def new_state(data, images, chosen, port, password, tz="Europe/Berlin", owner="admin"):
     upstream = {m: secrets.token_urlsafe(24) for m in chosen if m != "ntfy"}
     return {"modules": list(chosen), "images": str(images or Path(data) / "pi-wartung" / "images"), "port": port,
-            "tz": tz, "auth": password_record(password), "upstream": upstream}
+            "tz": tz, "owner": owner, "auth": password_record(password), "upstream": upstream}
 
 
 def ask_modules(modules):
@@ -203,9 +204,10 @@ def cmd_install(args):
     modules = available_modules()
     data = Path(args.data or input(f"Datenordner [{Path.home() / 'home-net'}]: ").strip() or Path.home() / "home-net")
     chosen = args.modules.split(",") if args.modules else ask_modules(modules)
+    owner = args.owner or input("Dein Benutzername [admin]: ").strip() or "admin"
     password = args.password or ask_password()
     inst = Install(data)
-    state = new_state(data, args.images, chosen, args.port, password)
+    state = new_state(data, args.images, chosen, args.port, password, owner=owner)
     inst.apply(state)
     POINTER.parent.mkdir(parents=True, exist_ok=True)
     POINTER.write_text(str(data) + "\n")
@@ -266,11 +268,18 @@ def cmd_apply(_args):
 
 
 def cmd_password(args):
+    """Sets an account's password; the way back in if it is lost."""
+    sys.path.insert(0, str(REPO / "core" / "gateway"))
+    from security import Security
+
     inst = Install.locate()
-    state = inst.load()
-    state["auth"] = password_record(args.password or ask_password())
-    inst.apply(state)
-    print("Passwort geändert.")
+    store = Security(str(inst.data / "gateway"))
+    user = store.user_by_name(args.user)
+    if not user:
+        raise HomeNetError(f"Das Konto {args.user} gibt es nicht")
+    owner = {"role": "owner"}
+    store.update_user(owner, user["id"], {"password": args.password or ask_password()})
+    print("Passwort geändert. Läuft der Zugang, wird das Konto beim nächsten Neustart überall abgemeldet.")
 
 
 def cmd_backup(_args):
@@ -310,6 +319,7 @@ def main(argv=None):
     p.add_argument("--images")
     p.add_argument("--modules")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p.add_argument("--owner")
     p.add_argument("--password", default=os.environ.get("HOME_NET_PASSWORD"))
     p.add_argument("--no-start", action="store_true")
     p.set_defaults(func=cmd_install)
@@ -321,6 +331,7 @@ def main(argv=None):
                        ("backup", cmd_backup)):
         sub.add_parser(name).set_defaults(func=func)
     p = sub.add_parser("password")
+    p.add_argument("user")
     p.add_argument("password", nargs="?")
     p.set_defaults(func=cmd_password)
     p = sub.add_parser("restore")

@@ -20,9 +20,12 @@ suspend fun hubModules(home: String, external: String, password: String): List<H
 }
 
 /** Koppelt dieses Gerät mit dem Code von der Startseite; liefert seinen Geräteschlüssel. */
-suspend fun pairDevice(home: String, external: String, password: String, code: String, name: String): String =
+suspend fun pairDevice(
+    home: String, external: String, username: String, password: String, code: String, name: String,
+): String =
     withContext(Dispatchers.IO) {
-        val payload = JSONObject().put("password", password).put("code", code.trim()).put("name", name).toString()
+        val payload = JSONObject().put("username", username.trim()).put("password", password)
+            .put("code", code.trim()).put("name", name).toString()
         var lastError: Exception? = null
         for (base in listOf(home, external).map { it.trim() }.filter { it.isNotEmpty() }.distinct()) {
             try {

@@ -58,7 +58,7 @@ class Installation(unittest.TestCase):
             home_net.POINTER = pointer
             self.addCleanup(setattr, home_net, "POINTER", original)
             data = Path(d) / "data"
-            home_net.main(["install", "--data", str(data), "--modules", "pi-wartung", "--password", "geheim123",
+            home_net.main(["install", "--data", str(data), "--modules", "pi-wartung", "--owner", "chef", "--password", "geheim123",
                            "--no-start"])
             state = json.loads((data / "home-net.json").read_text())
             self.assertEqual(state["modules"], ["pi-wartung"])
@@ -129,6 +129,7 @@ class Gateway(unittest.TestCase):
                                 "upstream": f"http://127.0.0.1:{port}", "health": "/health",
                                 "public": ["/app"], "password": "modulpw"},
                                {"id": "ntfy", "name": "ntfy", "description": "n", "icon": "i", "external_port": 8091}]}
+        modules["owner"] = "app"
         Path(self.dir.name, "gateway.json").write_text(json.dumps(modules))
         Path(self.dir.name, "auth.json").write_text(json.dumps(home_net.password_record("geheim", rounds=1000)))
         self.gw = ThreadingHTTPServer(("127.0.0.1", 0), gateway.Handler)
@@ -248,21 +249,25 @@ class FakePasskey:
         return {"id": b64u(self.id), "clientData": b64u(client), "authData": b64u(auth), "signature": b64u(sig)}
 
 
-class Passkeys(unittest.TestCase):
+class AccountBase(unittest.TestCase):
+    MODULES = []
+
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
         gateway.CONFIG_DIR = self.dir.name
         gateway.Handler.limiter = gateway.Limiter()
-        Path(self.dir.name, "gateway.json").write_text(json.dumps({"modules": []}))
-        Path(self.dir.name, "auth.json").write_text(json.dumps(home_net.password_record("geheim", rounds=1000)))
+        Path(self.dir.name, "gateway.json").write_text(json.dumps({"owner": "chef", "modules": self.module_list()}))
+        Path(self.dir.name, "auth.json").write_text(json.dumps(home_net.password_record("geheim123", rounds=1000)))
         self.gw = ThreadingHTTPServer(("127.0.0.1", 0), gateway.Handler)
         threading.Thread(target=self.gw.serve_forever, daemon=True).start()
         self.addCleanup(self.gw.shutdown)
         self.base = f"http://127.0.0.1:{self.gw.server_address[1]}"
         self.store = Security.shared(self.dir.name)
-        self.store.set_external_url(ORIGIN)
-        self.phone = FakePasskey()
+        self.owner = self.store.user_by_name("chef")
+
+    def module_list(self):
+        return []
 
     def call(self, path, body=None, method=None, external=True, auth=None, cookie=None, html=False):
         headers = {}
@@ -288,125 +293,144 @@ class Passkeys(unittest.TestCase):
             raw = exc.read()
             return exc.code, json.loads(raw) if raw.startswith(b"{") else raw, exc.headers
 
-    def basic(self, pw="geheim"):
-        return "Basic " + base64.b64encode(f"app:{pw}".encode()).decode()
+    @staticmethod
+    def cookie_of(headers):
+        return headers["Set-Cookie"].split(";")[0]
+
+    def lan_login(self, name="chef", password="geheim123"):
+        status, data, headers = self.call("/auth/login", {"username": name, "password": password}, external=False)
+        self.assertEqual(status, 200, data)
+        self.assertNotIn("Secure", headers["Set-Cookie"])
+        return self.cookie_of(headers)
+
+
+class Passkeys(AccountBase):
+    def setUp(self):
+        super().setUp()
+        self.store.set_external_url(ORIGIN)
+        self.phone = FakePasskey()
+
+    def creds(self, **extra):
+        return dict({"username": "chef", "password": "geheim123"}, **extra)
 
     def enroll(self):
-        code = self.store.new_code("setup")
-        status, data, _ = self.call("/auth/setup", {"password": "geheim", "code": code, "name": "Handy"})
+        code = self.store.new_code("setup", self.owner["id"])
+        status, data, _ = self.call("/auth/setup", self.creds(code=code, name="Handy"))
         self.assertEqual(status, 200, data)
         answer = self.phone.create(data["options"]["challenge"])
         return self.call("/auth/setup/finish", dict(answer, ticket=data["ticket"]))
 
-    def session_cookie(self, headers):
-        return headers["Set-Cookie"].split(";")[0]
-
     def login(self):
-        status, data, _ = self.call("/auth/login", {"password": "geheim"})
+        status, data, _ = self.call("/auth/login", self.creds())
         self.assertEqual(status, 200, data)
         answer = self.phone.get(data["options"]["challenge"])
         return self.call("/auth/login/finish", dict(answer, ticket=data["ticket"]))
 
     def test_setup_needs_the_code_from_the_start_page(self):
-        status, _, _ = self.call("/auth/setup", {"password": "geheim", "code": "00000000"})
-        self.assertEqual(status, 400)
-        self.assertFalse(self.store.has_passkeys())
+        self.assertEqual(self.call("/auth/setup", self.creds(code="00000000"))[0], 400)
+        self.assertEqual(self.store.passkeys_of(self.owner["id"]), [])
 
-    def test_code_works_only_once(self):
-        code = self.store.new_code("setup")
-        self.assertEqual(self.call("/auth/setup", {"password": "geheim", "code": code})[0], 200)
-        self.assertEqual(self.call("/auth/setup", {"password": "geheim", "code": code})[0], 400)
+    def test_code_works_only_once_and_only_for_its_account(self):
+        code = self.store.new_code("setup", self.owner["id"])
+        other = self.store.create_user(self.owner, {"name": "gast", "password": "geheim456"})
+        self.assertEqual(self.call("/auth/setup", {"username": "gast", "password": "geheim456", "code": code})[0], 400)
+        self.assertEqual(other["role"], "user")
+        self.assertEqual(self.call("/auth/setup", self.creds(code=code))[0], 200)
+        self.assertEqual(self.call("/auth/setup", self.creds(code=code))[0], 400)
 
-    def test_external_needs_passkey_once_set_up(self):
-        self.assertEqual(self.call("/api/modules", auth=self.basic())[0], 200)
+    def test_external_never_logs_in_with_password_alone(self):
+        status, _, _ = self.call("/auth/login", self.creds())
+        self.assertEqual(status, 403)
+        basic = "Basic " + base64.b64encode(b"chef:geheim123").decode()
+        self.assertEqual(self.call("/api/modules", auth=basic)[0], 401)
+        self.assertEqual(self.call("/api/modules", external=False, auth=basic)[0], 200)
+        code, _, redirect = self.call("/", html=True)
+        self.assertEqual((code, redirect["Location"]), (302, "/login"))
+
+    def test_login_with_passkey_gives_secure_session(self):
         status, data, headers = self.enroll()
         self.assertEqual(status, 200, data)
         self.assertEqual(len(data["recovery"]), 8)
         self.assertIn("Secure", headers["Set-Cookie"])
         self.assertIn("HttpOnly", headers["Set-Cookie"])
-        self.assertEqual(self.call("/api/modules", auth=self.basic())[0], 401)
-        self.assertEqual(self.call("/api/modules", external=False, auth=self.basic())[0], 200)
-        code, _, redirect = self.call("/", html=True)
-        self.assertEqual((code, redirect["Location"]), (302, "/login"))
-
-    def test_login_with_passkey_gives_session(self):
-        self.enroll()
         status, data, headers = self.login()
         self.assertEqual(status, 200, data)
-        cookie = self.session_cookie(headers)
+        cookie = self.cookie_of(headers)
         self.assertEqual(self.call("/api/modules", cookie=cookie)[0], 200)
-        self.assertEqual(self.call("/auth/security", cookie=cookie)[0], 200)
+        self.assertEqual(self.call("/auth/me", cookie=cookie)[1]["name"], "chef")
         self.assertEqual(self.call("/api/modules", cookie="home_net_session=erfunden")[0], 401)
         self.assertEqual(self.call("/auth/logout", {}, cookie=cookie)[0], 200)
         self.assertEqual(self.call("/api/modules", cookie=cookie)[0], 401)
 
     def test_wrong_password_never_reaches_passkey(self):
         self.enroll()
-        self.assertEqual(self.call("/auth/login", {"password": "falsch"})[0], 401)
+        self.assertEqual(self.call("/auth/login", self.creds(password="falsch"))[0], 401)
 
-    def login_answer_refused(self, **changes):
-        status, data, _ = self.call("/auth/login", {"password": "geheim"})
+    def answer_status(self, **changes):
+        status, data, _ = self.call("/auth/login", self.creds())
         self.assertEqual(status, 200, data)
         answer = self.phone.get(data["options"]["challenge"], **changes)
         return self.call("/auth/login/finish", dict(answer, ticket=data["ticket"]))[0]
 
     def test_refuses_foreign_site_foreign_domain_and_missing_confirmation(self):
         self.enroll()
-        self.assertEqual(self.login_answer_refused(origin="https://evil.example"), 400)
-        self.assertEqual(self.login_answer_refused(rp_id="evil.example"), 400)
-        self.assertEqual(self.login_answer_refused(flags=0x01), 400)
+        self.assertEqual(self.answer_status(origin="https://evil.example"), 400)
+        self.assertEqual(self.answer_status(rp_id="evil.example"), 400)
+        self.assertEqual(self.answer_status(flags=0x01), 400)
 
     def test_refuses_other_key_and_replay(self):
         self.enroll()
-        _, data, _ = self.call("/auth/login", {"password": "geheim"})
-        answer = self.phone.get(data["options"]["challenge"])
+        _, data, _ = self.call("/auth/login", self.creds())
         other = FakePasskey()
         other.count = self.phone.count + 1
         forged = other.get(data["options"]["challenge"])
         self.assertEqual(self.call("/auth/login/finish", dict(forged, ticket=data["ticket"]))[0], 400)
-        self.assertEqual(self.call("/auth/login/finish", dict(answer, ticket=data["ticket"]))[0], 400)
         gateway.Handler.limiter = gateway.Limiter()
-        _, data, _ = self.call("/auth/login", {"password": "geheim"})
-        replay = self.phone.get(data["options"]["challenge"])
+        self.assertEqual(self.answer_status(), 200)
         self.phone.count -= 1
-        self.assertEqual(self.call("/auth/login/finish", dict(replay, ticket=data["ticket"]))[0], 200)
-        _, data, _ = self.call("/auth/login", {"password": "geheim"})
-        again = self.phone.get(data["options"]["challenge"])
-        self.assertEqual(self.call("/auth/login/finish", dict(again, ticket=data["ticket"]))[0], 400)
+        self.assertEqual(self.answer_status(), 400)
 
-    def test_device_key_works_for_modules_but_not_for_security(self):
+    def test_passkey_of_another_account_does_not_log_in(self):
         self.enroll()
-        code = self.store.new_code("device")
-        status, data, _ = self.call("/auth/pair", {"password": "geheim", "code": code, "name": "Pixel"})
+        self.store.create_user(self.owner, {"name": "gast", "password": "geheim456"})
+        guest = self.store.user_by_name("gast")
+        ticket, challenge = self.store.new_challenge("login", user=guest["id"])
+        answer = self.phone.get(challenge)
+        self.assertEqual(self.call("/auth/login/finish", dict(answer, ticket=ticket))[0], 400)
+
+    def test_device_key_works_for_modules_but_not_for_accounts(self):
+        code = self.store.new_code("device", self.owner["id"])
+        status, data, _ = self.call("/auth/pair", self.creds(code=code, name="Pixel"))
         self.assertEqual(status, 200, data)
         bearer = "Bearer " + data["token"]
         self.assertEqual(self.call("/api/modules", auth=bearer)[0], 200)
-        self.assertEqual(self.call("/auth/security", auth=bearer)[0], 403)
+        self.assertEqual(self.call("/auth/me", auth=bearer)[0], 403)
         self.assertEqual(self.call("/auth/code", {"kind": "setup"}, auth=bearer)[0], 403)
         self.assertNotIn(data["token"], Path(self.dir.name, "security.json").read_text())
-        device = self.store.summary()["devices"][0]
+        cookie = self.lan_login()
+        device = self.call("/auth/me", external=False, cookie=cookie)[1]["devices"][0]
         self.assertEqual(device["name"], "Pixel")
-        self.assertEqual(self.call(f"/auth/devices/{device['id']}", method="DELETE", external=False, auth=self.basic())[0], 200)
+        self.assertEqual(self.call(f"/auth/devices/{device['id']}", method="DELETE", external=False, cookie=cookie)[0], 200)
         self.assertEqual(self.call("/api/modules", auth=bearer)[0], 401)
 
     def test_pairing_needs_password_and_code(self):
-        code = self.store.new_code("device")
-        self.assertEqual(self.call("/auth/pair", {"password": "falsch", "code": code})[0], 401)
-        self.assertEqual(self.call("/auth/pair", {"password": "geheim", "code": "1"})[0], 400)
+        code = self.store.new_code("device", self.owner["id"])
+        self.assertEqual(self.call("/auth/pair", self.creds(password="falsch", code=code))[0], 401)
+        self.assertEqual(self.call("/auth/pair", self.creds(code="1"))[0], 400)
 
     def test_recovery_code_once(self):
         _, data, _ = self.enroll()
         code = data["recovery"][0]
-        status, _, headers = self.call("/auth/recovery", {"password": "geheim", "code": code})
+        status, _, headers = self.call("/auth/recovery", self.creds(code=code))
         self.assertEqual(status, 200)
-        self.assertEqual(self.call("/api/modules", cookie=self.session_cookie(headers))[0], 200)
-        self.assertEqual(self.call("/auth/recovery", {"password": "geheim", "code": code})[0], 400)
-        self.assertEqual(self.call("/auth/recovery", {"password": "falsch", "code": data["recovery"][1]})[0], 401)
+        self.assertEqual(self.call("/api/modules", cookie=self.cookie_of(headers))[0], 200)
+        self.assertEqual(self.call("/auth/recovery", self.creds(code=code))[0], 400)
+        self.assertEqual(self.call("/auth/recovery", self.creds(password="falsch", code=data["recovery"][1]))[0], 401)
 
     def test_lockout_covers_login_attempts(self):
         for _ in range(gateway.MAX_FAILS):
-            self.call("/auth/login", {"password": "falsch"})
-        self.assertEqual(self.call("/auth/login", {"password": "geheim"})[0], 429)
+            self.call("/auth/login", self.creds(password="falsch"))
+        self.assertEqual(self.call("/auth/login", self.creds())[0], 429)
 
     def test_external_address_rules(self):
         self.assertRaises(ValueError, self.store.set_external_url, "http://home.example.de")
@@ -415,6 +439,148 @@ class Passkeys(unittest.TestCase):
 
     def test_session_cookie_not_passed_to_modules(self):
         self.assertIn("cookie", gateway.HOP_BY_HOP)
+
+
+class HeaderUpstream(BaseHTTPRequestHandler):
+    seen = {}
+
+    def log_message(self, *args):
+        pass
+
+    def answer(self):
+        HeaderUpstream.seen = {k.lower(): v for k, v in self.headers.items()}
+        body = b"{}"
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    do_GET = do_POST = answer
+
+
+class Accounts(AccountBase):
+    def module_list(self):
+        self.up = ThreadingHTTPServer(("127.0.0.1", 0), HeaderUpstream)
+        threading.Thread(target=self.up.serve_forever, daemon=True).start()
+        self.addCleanup(self.up.shutdown)
+        url = f"http://127.0.0.1:{self.up.server_address[1]}"
+        common = {"description": "d", "icon": "i", "upstream": url, "password": "modulpw"}
+        return [dict(common, id="netz", name="Netz"), dict(common, id="pi", name="Pi")]
+
+    def make(self, cookie, **form):
+        status, data, _ = self.call("/auth/users", dict({"password": "geheim456"}, **form), external=False, cookie=cookie)
+        self.assertEqual(status, 201, data)
+        return data
+
+    def test_old_installation_becomes_owner_with_its_passkeys_and_devices(self):
+        path = Path(self.dir.name, "security.json")
+        path.write_text(json.dumps({"external_url": ORIGIN, "recovery": ["abc"],
+                                    "passkeys": [{"id": "k", "x": "", "y": "", "count": 0, "name": "n", "added": 1}],
+                                    "devices": [{"id": "d", "name": "Pixel", "hash": "h", "added": 1}]}))
+        data = self.store.load()
+        owner = data["users"][0]
+        self.assertEqual((owner["name"], owner["role"]), ("chef", "owner"))
+        self.assertEqual(owner["recovery"], ["abc"])
+        self.assertEqual(data["passkeys"][0]["user"], owner["id"])
+        self.assertEqual(data["devices"][0]["user"], owner["id"])
+        self.assertIsNotNone(self.store.check_login("chef", "geheim123"))
+
+    def test_owner_renames_and_changes_password(self):
+        cookie = self.lan_login()
+        self.assertEqual(self.call("/auth/me", {"name": "jan", "old_password": "falsch"}, external=False, cookie=cookie)[0], 403)
+        body = {"name": "jan", "old_password": "geheim123", "new_password": "neuesgeheim"}
+        self.assertEqual(self.call("/auth/me", body, external=False, cookie=cookie)[0], 200)
+        self.assertEqual(self.call("/auth/login", {"username": "chef", "password": "neuesgeheim"}, external=False)[0], 401)
+        self.lan_login("JAN", "neuesgeheim")
+
+    def test_user_only_sees_and_reaches_allowed_services(self):
+        cookie = self.lan_login()
+        self.make(cookie, name="gast", modules=["pi"], categories=["Firma"])
+        guest = self.lan_login("gast", "geheim456")
+        names = [m["id"] for m in self.call("/api/modules", external=False, cookie=guest)[1]["modules"]]
+        self.assertEqual(names, ["pi"])
+        self.assertEqual(self.call("/m/netz/api", external=False, cookie=guest)[0], 403)
+        self.assertEqual(self.call("/m/pi/api", external=False, cookie=guest)[0], 200)
+        self.assertEqual(json.loads(base64.b64decode(HeaderUpstream.seen["x-home-net-categories"])), ["Firma"])
+        self.assertEqual(base64.b64decode(HeaderUpstream.seen["x-home-net-user"]), b"gast")
+        self.assertEqual(HeaderUpstream.seen["x-home-net-role"], "user")
+
+    def test_clients_cannot_forge_rights(self):
+        guest_cookie = self.lan_login()
+        self.make(guest_cookie, name="gast", modules=["pi"], categories=["Firma"])
+        guest = self.lan_login("gast", "geheim456")
+        req = urllib.request.Request(self.base + "/m/pi/api", headers={
+            "Cookie": guest, "X-Home-Net-Categories": base64.b64encode(b'["*"]').decode(), "X-Home-Net-Role": "owner"})
+        urllib.request.urlopen(req, timeout=5).read()
+        self.assertEqual(json.loads(base64.b64decode(HeaderUpstream.seen["x-home-net-categories"])), ["Firma"])
+        self.assertEqual(HeaderUpstream.seen["x-home-net-role"], "user")
+
+    def test_user_cannot_manage(self):
+        cookie = self.lan_login()
+        self.make(cookie, name="gast")
+        guest = self.lan_login("gast", "geheim456")
+        self.assertEqual(self.call("/auth/users", external=False, cookie=guest)[0], 403)
+        self.assertEqual(self.call("/auth/audit", external=False, cookie=guest)[0], 403)
+        self.assertEqual(self.call("/auth/users", {"name": "x1", "password": "geheim456"}, external=False, cookie=guest)[0], 403)
+        self.assertEqual(self.call("/auth/code", {"kind": "setup", "user": self.owner["id"]}, external=False, cookie=guest)[0], 403)
+
+    def test_admin_cannot_touch_owner_or_create_admins(self):
+        cookie = self.lan_login()
+        self.make(cookie, name="helfer", role="admin")
+        admin = self.lan_login("helfer", "geheim456")
+        self.assertEqual(self.call("/auth/users", {"name": "b1", "password": "geheim456", "role": "admin"}, external=False, cookie=admin)[0], 403)
+        self.make(admin, name="gast")
+        oid = self.owner["id"]
+        self.assertEqual(self.call(f"/auth/users/{oid}", {"password": "uebernommen"}, method="PUT", external=False, cookie=admin)[0], 403)
+        self.assertEqual(self.call(f"/auth/users/{oid}", method="DELETE", external=False, cookie=admin)[0], 403)
+        self.assertEqual(self.call("/auth/code", {"kind": "device", "user": oid}, external=False, cookie=admin)[0], 403)
+
+    def test_last_owner_stays(self):
+        cookie = self.lan_login()
+        oid = self.owner["id"]
+        self.assertEqual(self.call(f"/auth/users/{oid}", method="DELETE", external=False, cookie=cookie)[0], 400)
+        self.assertEqual(self.call(f"/auth/users/{oid}", {"role": "user"}, method="PUT", external=False, cookie=cookie)[0], 400)
+        self.assertEqual(self.call(f"/auth/users/{oid}", {"active": False}, method="PUT", external=False, cookie=cookie)[0], 400)
+
+    def test_blocked_account_loses_session_and_device(self):
+        cookie = self.lan_login()
+        user = self.make(cookie, name="gast")
+        guest = self.lan_login("gast", "geheim456")
+        code = self.store.new_code("device", user["id"])
+        token = self.call("/auth/pair", {"username": "gast", "password": "geheim456", "code": code}, external=False)[1]["token"]
+        self.assertEqual(self.call(f"/auth/users/{user['id']}", {"active": False}, method="PUT", external=False, cookie=cookie)[0], 200)
+        self.assertEqual(self.call("/api/modules", external=False, cookie=guest)[0], 401)
+        self.assertEqual(self.call("/api/modules", auth=f"Bearer {token}")[0], 401)
+        self.assertEqual(self.call("/auth/login", {"username": "gast", "password": "geheim456"}, external=False)[0], 401)
+
+    def test_deleting_account_removes_its_device(self):
+        cookie = self.lan_login()
+        user = self.make(cookie, name="gast")
+        code = self.store.new_code("device", user["id"])
+        token = self.call("/auth/pair", {"username": "gast", "password": "geheim456", "code": code}, external=False)[1]["token"]
+        self.assertEqual(self.call(f"/auth/users/{user['id']}", method="DELETE", external=False, cookie=cookie)[0], 200)
+        self.assertEqual(self.call("/api/modules", auth=f"Bearer {token}")[0], 401)
+        self.assertEqual(self.store.load()["devices"], [])
+
+    def test_names_are_unique_and_valid(self):
+        cookie = self.lan_login()
+        self.make(cookie, name="gast")
+        self.assertEqual(self.call("/auth/users", {"name": "GAST", "password": "geheim456"}, external=False, cookie=cookie)[0], 400)
+        self.assertEqual(self.call("/auth/users", {"name": "../x", "password": "geheim456"}, external=False, cookie=cookie)[0], 400)
+        self.assertEqual(self.call("/auth/users", {"name": "kurzpw", "password": "kurz"}, external=False, cookie=cookie)[0], 400)
+
+    def test_audit_records_logins_changes_and_module_writes_without_secrets(self):
+        cookie = self.lan_login()
+        self.make(cookie, name="gast", modules=["pi"])
+        self.call("/auth/login", {"username": "gast", "password": "falsches-wort"}, external=False)
+        self.call("/m/pi/api/x", {}, external=False, cookie=cookie)
+        log = self.call("/auth/audit", external=False, cookie=cookie)[1]["entries"]
+        actions = [e["action"] for e in log]
+        for wanted in ("Angemeldet", "Konto angelegt", "Anmeldung fehlgeschlagen", "Pi: POST"):
+            self.assertIn(wanted, actions)
+        self.assertNotIn("falsches-wort", json.dumps(log))
+        self.assertNotIn("geheim456", json.dumps(log))
 
 
 if __name__ == "__main__":

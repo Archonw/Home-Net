@@ -5,99 +5,188 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home-Net</title>
 <style>
-:root { color-scheme: light dark; --bg: #f6f7f9; --card: #fff; --text: #1c1f26; --muted: #666e7a; --line: #e2e5ea; }
-@media (prefers-color-scheme: dark) { :root { --bg: #15171c; --card: #1f2229; --text: #eceef2; --muted: #9aa2ad; --line: #30343c; } }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, sans-serif; }
-main { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
-h1 { font-size: 26px; margin: 0 0 20px; }
-a.tile, div.tile { display: flex; gap: 14px; align-items: center; background: var(--card); border: 1px solid var(--line);
-  border-radius: 14px; padding: 16px; margin-bottom: 12px; color: inherit; text-decoration: none; }
-img { width: 52px; height: 52px; border-radius: 13px; flex: none; }
-.name { font-weight: 650; font-size: 18px; }
-.desc { color: var(--muted); font-size: 14px; }
-.state { margin-left: auto; font-size: 13px; color: var(--muted); white-space: nowrap; }
-.off { color: #c93a3a; }
-h2 { font-size: 15px; margin: 28px 0 8px; }
-.box { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
-.line { display: flex; gap: 10px; align-items: center; padding: 5px 0; flex-wrap: wrap; }
-.line .grow { flex: 1; min-width: 180px; }
-button { font: inherit; border: 1px solid var(--line); background: var(--bg); color: inherit; border-radius: 9px; padding: 6px 12px; cursor: pointer; }
-input { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px; width: 100%; }
-.code { font-size: 22px; font-weight: 700; letter-spacing: 2px; }
-.warn { color: #b35a0a; }
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#4f5bd5; --bad:#c93a3a; --warn:#b35a0a; }
+@media (prefers-color-scheme: dark) { :root { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#8b95f0; --bad:#ec6a6a; --warn:#dd9140; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 system-ui,sans-serif; }
+main { max-width:820px; margin:0 auto; padding:24px 16px 48px; }
+header { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:18px; }
+h1 { font-size:26px; margin:0 auto 0 0; }
+nav { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; }
+nav button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+a.tile,div.tile { display:flex; gap:14px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:12px; color:inherit; text-decoration:none; }
+img { width:52px; height:52px; border-radius:13px; flex:none; }
+.name { font-weight:650; font-size:18px; }
+.desc { color:var(--muted); font-size:14px; }
+.state { margin-left:auto; font-size:13px; color:var(--muted); white-space:nowrap; }
+.off,.bad { color:var(--bad); }
+.warn { color:var(--warn); }
+h2 { font-size:15px; margin:22px 0 8px; }
+.box { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin-bottom:12px; }
+.line { display:flex; gap:10px; align-items:center; padding:5px 0; flex-wrap:wrap; }
+.box.line { padding:14px 16px; }
+.grow { flex:1; min-width:180px; }
+button { font:inherit; border:1px solid var(--line); background:var(--bg); color:inherit; border-radius:9px; padding:6px 12px; cursor:pointer; }
+button.main { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+button.danger { color:var(--bad); }
+input,select { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px; width:100%; }
+input[type=checkbox] { width:auto; margin-right:6px; }
+label { display:block; font-size:13px; color:var(--muted); margin:9px 0 3px; }
+label.check { color:inherit; font-size:15px; margin:4px 0; }
+.code { font-size:22px; font-weight:700; letter-spacing:2px; }
+dialog { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:14px; width:min(560px,94vw); padding:18px; }
+dialog::backdrop { background:#0007; }
+.foot { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; flex-wrap:wrap; }
+.err { color:var(--bad); margin-top:8px; white-space:pre-wrap; }
+table { width:100%; border-collapse:collapse; font-size:14px; }
+td { padding:5px 6px 5px 0; border-top:1px solid var(--line); vertical-align:top; overflow-wrap:anywhere; }
 </style>
 </head>
 <body>
 <main>
-<h1>Home-Net</h1>
-<div id="list">Wird geladen …</div>
-<h2>Sicherheit</h2>
-<div class="box" id="security">Wird geladen …</div>
+<header><h1>Home-Net</h1><span class="desc" id="who"></span><button id="logout">Abmelden</button></header>
+<nav id="nav"></nav>
+<div id="view">Wird geladen …</div>
+<dialog id="dlg"><form id="form" method="dialog"></form></dialog>
 </main>
 <script>
-fetch("api/modules").then(r => r.json()).then(({modules}) => {
-  const list = document.getElementById("list");
-  list.textContent = "";
-  for (const m of modules) {
-    const link = m.web ? `${m.path}/` : m.external_port ? `${location.protocol}//${location.hostname}:${m.external_port}/` : null;
-    const el = document.createElement(link ? "a" : "div");
-    el.className = "tile";
-    if (link) el.href = link;
-    const img = document.createElement("img"); img.src = m.icon; img.alt = "";
-    const text = document.createElement("div");
-    const name = document.createElement("div"); name.className = "name"; name.textContent = m.name;
-    const desc = document.createElement("div"); desc.className = "desc"; desc.textContent = m.description;
-    text.append(name, desc);
-    el.append(img, text);
-    if (m.online !== undefined) {
-      const state = document.createElement("div");
-      state.className = "state" + (m.online ? "" : " off");
-      state.textContent = m.online ? "läuft" : "nicht erreichbar";
-      el.append(state);
-    }
-    list.append(el);
-  }
-}).catch(() => { document.getElementById("list").textContent = "Die Module konnten nicht geladen werden."; });
-
-const sec = document.getElementById("security");
-const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
-async function call(path, method, body) {
+const view = document.getElementById("view"), nav = document.getElementById("nav"), dlg = document.getElementById("dlg"), form = document.getElementById("form");
+const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter(k => k != null)); return e; };
+let me = null;
+async function call(path, method = "GET", body) {
   const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
+  if (r.status === 401) { location.href = "/login"; throw new Error("Bitte neu anmelden"); }
   if (!r.ok) throw new Error(d.detail || `Fehler ${r.status}`);
   return d;
 }
-async function showSecurity() {
+const fail = e => { view.replaceChildren(el("div", { className: "err", textContent: e.message })); };
+const day = s => new Date(s * 1000).toLocaleDateString("de-DE");
+const stamp = s => new Date(s * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+const ROLES = { owner: "Eigentümer", admin: "Admin", user: "Benutzer" };
+
+async function showModules() {
   try {
-    const d = await call("auth/security", "GET");
-    const url = el("input", { value: d.external_url, placeholder: "https://name.example.de" });
-    const items = [
-      el("div", { className: d.passkeys.length ? "desc" : "warn", textContent: d.passkeys.length
-        ? "Von außen ist die Anmeldung nur mit Passkey möglich. Im Heimnetz genügt das Passwort."
-        : "Noch kein Passkey: Von außen reicht bisher das Passwort allein." }),
-      el("div", { className: "line" }, el("div", { className: "grow" }, url), el("button", { textContent: "Adresse speichern", onclick: async () => { try { await call("auth/external", "POST", { url: url.value }); showSecurity(); } catch (e) { alert(e.message); } } })),
-      el("div", { className: "line" }, el("div", { className: "grow", textContent: "Passkey einrichten: Code holen, dann auf der Adresse für unterwegs unter /login eintragen." }), codeButton("setup")),
-      el("div", { className: "line" }, el("div", { className: "grow", textContent: "Handy koppeln: Code holen, dann in der App unter Zugang eintragen." }), codeButton("device")),
-      el("h2", { textContent: "Passkeys" + (d.recovery_left ? ` (${d.recovery_left} Wiederherstellungscodes übrig)` : "") }), ...listing(d.passkeys, "passkeys"),
-      el("h2", { textContent: "Gekoppelte Geräte" }), ...listing(d.devices, "devices"),
-    ];
-    sec.replaceChildren(...items);
-  } catch (e) { sec.textContent = e.message; }
+    const { modules } = await call("api/modules");
+    view.replaceChildren(...(modules.length ? modules.map(m => {
+      const link = m.web ? `${m.path}/` : m.external_port ? `${location.protocol}//${location.hostname}:${m.external_port}/` : null;
+      const tile = el(link ? "a" : "div", { className: "tile" }, el("img", { src: m.icon, alt: "" }),
+        el("div", {}, el("div", { className: "name", textContent: m.name }), el("div", { className: "desc", textContent: m.description })),
+        m.online !== undefined ? el("div", { className: "state" + (m.online ? "" : " off"), textContent: m.online ? "läuft" : "nicht erreichbar" }) : null);
+      if (link) tile.href = link;
+      return tile;
+    }) : [el("div", { className: "box desc", textContent: "Für dieses Konto ist noch kein Dienst freigegeben." })]));
+  } catch (e) { fail(e); }
 }
-function codeButton(kind) {
+
+function codeButton(kind, userId) {
   const out = el("span", { className: "code" });
-  return el("div", { className: "line" }, out, el("button", { textContent: "Code holen", onclick: async () => { try { out.textContent = (await call("auth/code", "POST", { kind })).code; } catch (e) { alert(e.message); } } }));
+  return el("div", { className: "line" }, out, el("button", { type: "button", textContent: "Code holen", onclick: async () => { try { out.textContent = (await call("auth/code", "POST", { kind, user: userId })).code; } catch (e) { alert(e.message); } } }));
 }
-function listing(rows, kind) {
+function items(rows, kind) {
   if (!rows.length) return [el("div", { className: "desc", textContent: "Keine" })];
-  return rows.map(r => el("div", { className: "line" }, el("div", { className: "grow", textContent: `${r.name} (${new Date(r.added * 1000).toLocaleDateString("de-DE")})` }),
-    el("button", { textContent: "Entfernen", onclick: async () => {
-      const warn = kind === "passkeys" && rows.length === 1 ? " Es ist der letzte: Von außen reicht dann wieder das Passwort allein." : "";
-      if (confirm(`${r.name} entfernen?${warn}`)) { await call(`auth/${kind}/${r.id}`, "DELETE"); showSecurity(); }
+  return rows.map(r => el("div", { className: "line" }, el("div", { className: "grow", textContent: `${r.name}${r.user ? " · " + r.user : ""} (${day(r.added)})` }),
+    el("button", { className: "danger", textContent: "Entfernen", onclick: async () => {
+      if (confirm(`${r.name} entfernen?`)) { try { await call(`auth/${kind}/${r.id}`, "DELETE"); render(); } catch (e) { alert(e.message); } }
     } })));
 }
-showSecurity();
+async function showAccount() {
+  try {
+    me = await call("auth/me");
+    const name = el("input", { value: me.name, autocomplete: "username" }), old = el("input", { type: "password", autocomplete: "current-password" }), fresh = el("input", { type: "password", autocomplete: "new-password" });
+    const msg = el("div", { className: "desc" });
+    const parts = [
+      el("h2", { textContent: "Mein Konto" }),
+      el("div", { className: "box" }, el("div", { className: "desc", textContent: `Rolle: ${ROLES[me.role]}` }),
+        el("label", { textContent: "Benutzername" }), name, el("label", { textContent: "Aktuelles Passwort (für jede Änderung nötig)" }), old,
+        el("label", { textContent: "Neues Passwort (optional)" }), fresh,
+        el("div", { className: "foot" }, el("button", { className: "main", textContent: "Speichern", onclick: async () => {
+          try { const body = { name: name.value, old_password: old.value }; if (fresh.value) body.new_password = fresh.value; await call("auth/me", "POST", body); msg.textContent = "Gespeichert."; old.value = fresh.value = ""; loadMe(); }
+          catch (e) { msg.textContent = e.message; }
+        } })), msg),
+      el("h2", { textContent: "Passkeys" + (me.recovery_left ? ` (${me.recovery_left} Wiederherstellungscodes übrig)` : "") }),
+      el("div", { className: "box" }, el("div", { className: me.passkeys.length ? "desc" : "warn", textContent: me.passkeys.length ? "Von außen meldest du dich mit Passwort und Passkey an." : "Ohne Passkey ist die Anmeldung von außen nicht möglich." }),
+        ...items(me.passkeys, "passkeys"),
+        me.external_url ? el("div", { className: "line" }, el("div", { className: "grow desc", textContent: `Neuer Passkey: Code holen, dann ${me.external_url}/login öffnen.` }), codeButton("setup")) : el("div", { className: "desc", textContent: "Es ist noch keine Adresse für unterwegs eingetragen." })),
+      el("h2", { textContent: "Gekoppelte Geräte" }),
+      el("div", { className: "box" }, ...items(me.devices, "devices"), el("div", { className: "line" }, el("div", { className: "grow desc", textContent: "Handy koppeln: Code holen, dann in der App unter Zugang eintragen." }), codeButton("device"))),
+    ];
+    view.replaceChildren(...parts);
+  } catch (e) { fail(e); }
+}
+
+function userDialog(user, data, categories) {
+  const isNew = !user;
+  const name = el("input", { name: "name", value: user?.name || "", autocapitalize: "none" });
+  const pw = el("input", { type: "password", autocomplete: "new-password" });
+  const role = el("select", {}, ...Object.entries(ROLES).filter(([k]) => me.role === "owner" || k === "user").map(([k, t]) => el("option", { value: k, textContent: t, selected: (user?.role || "user") === k })));
+  const active = el("input", { type: "checkbox", checked: user ? user.active : true });
+  const mods = data.modules.map(m => { const c = el("input", { type: "checkbox", checked: !!user && (user.modules.includes("*") || user.modules.includes(m.id)) }); c.dataset.id = m.id; return c; });
+  const allCats = el("input", { type: "checkbox", checked: !!user && user.categories.includes("*") });
+  const cats = categories.map(n => { const c = el("input", { type: "checkbox", checked: !!user && user.categories.includes(n) }); c.dataset.id = n; return c; });
+  const rights = el("div", {}, el("h2", { textContent: "Dienste" }), ...data.modules.map((m, i) => el("label", { className: "check" }, mods[i], m.name)),
+    el("h2", { textContent: "Pi-Wartung: Kategorien" }), el("label", { className: "check" }, allCats, "Alle Kategorien"),
+    ...categories.map((n, i) => el("label", { className: "check" }, cats[i], n)), el("div", { className: "desc", textContent: "Eine Kategorie schließt ihre Unterkategorien mit ein. Eigentümer und Admins sehen immer alles." }));
+  const err = el("div", { className: "err" });
+  const save = el("button", { className: "main", type: "submit", textContent: isNew ? "Anlegen" : "Speichern" });
+  const refresh = () => { rights.hidden = role.value !== "user"; };
+  role.onchange = refresh; refresh();
+  const extra = [];
+  if (!isNew && user.id !== me.id) {
+    extra.push(el("button", { type: "button", className: "danger", textContent: "Löschen", style: "margin-right:auto", onclick: async () => {
+      if (confirm(`Konto ${user.name} mit seinen Passkeys und Geräten löschen?`)) { try { await call(`auth/users/${user.id}`, "DELETE"); dlg.close(); render(); } catch (e) { err.textContent = e.message; } }
+    } }));
+  }
+  form.replaceChildren(...[el("h3", { textContent: isNew ? "Konto anlegen" : `Konto ${user.name}`, style: "margin:0" }),
+    el("label", { textContent: "Benutzername" }), name, el("label", { textContent: isNew ? "Passwort" : "Neues Passwort (optional)" }), pw,
+    el("label", { textContent: "Rolle" }), role, el("label", { className: "check" }, active, "Konto aktiv"), rights,
+    !isNew ? el("h2", { textContent: "Codes für dieses Konto" }) : null, !isNew ? el("div", { className: "desc", textContent: "Passkey einrichten" }) : null, !isNew ? codeButton("setup", user.id) : null, !isNew ? el("div", { className: "desc", textContent: "Handy koppeln" }) : null, !isNew ? codeButton("device", user.id) : null,
+    err, el("div", { className: "foot" }, ...extra, el("button", { type: "button", textContent: "Abbrechen", onclick: () => dlg.close() }), save)].filter(Boolean));
+  form.onsubmit = async ev => {
+    ev.preventDefault(); err.textContent = "";
+    const body = { name: name.value, role: role.value, active: active.checked, modules: mods.filter(c => c.checked).map(c => c.dataset.id), categories: allCats.checked ? ["*"] : cats.filter(c => c.checked).map(c => c.dataset.id) };
+    if (pw.value) body.password = pw.value;
+    try { if (isNew) await call("auth/users", "POST", body); else await call(`auth/users/${user.id}`, "PUT", body); dlg.close(); render(); }
+    catch (e) { err.textContent = e.message; }
+  };
+  dlg.showModal();
+}
+async function showUsers() {
+  try {
+    const data = await call("auth/users");
+    let categories = [];
+    if (data.modules.some(m => m.id === "pi-wartung")) categories = (await call("m/pi-wartung/api/inventory").catch(() => ({ categories: [] }))).categories;
+    const url = el("input", { value: me.external_url, placeholder: "https://name.example.de" });
+    const describe = u => u.role !== "user" ? "alle Dienste" : `${u.modules.length ? u.modules.join(", ") : "keine Dienste"} · ${u.categories.includes("*") ? "alle Kategorien" : u.categories.join(", ") || "keine Kategorien"}`;
+    view.replaceChildren(
+      el("div", { className: "foot", style: "margin:0 0 10px" }, el("button", { className: "main", textContent: "Konto anlegen", onclick: () => userDialog(null, data, categories) })),
+      ...data.users.map(u => el("div", { className: "box line", style: "cursor:pointer", onclick: () => userDialog(u, data, categories) },
+        el("div", { className: "grow" }, el("div", { className: "name", textContent: u.name }), el("div", { className: "desc", textContent: `${ROLES[u.role]} · ${describe(u)}` })),
+        u.active ? null : el("span", { className: "warn", textContent: "gesperrt" }))),
+      el("h2", { textContent: "Adresse für unterwegs" }),
+      el("div", { className: "box line" }, el("div", { className: "grow" }, url), el("button", { textContent: "Speichern", onclick: async () => { try { await call("auth/external", "POST", { url: url.value }); await loadMe(); alert("Gespeichert."); } catch (e) { alert(e.message); } } })),
+      el("h2", { textContent: "Alle Passkeys" }), el("div", { className: "box" }, ...items(data.items.passkeys, "passkeys")),
+      el("h2", { textContent: "Alle gekoppelten Geräte" }), el("div", { className: "box" }, ...items(data.items.devices, "devices")));
+  } catch (e) { fail(e); }
+}
+async function showAudit() {
+  try {
+    const { entries } = await call("auth/audit");
+    view.replaceChildren(el("div", { className: "box" }, entries.length ? el("table", {}, el("tbody", {}, ...entries.map(e => el("tr", {}, el("td", { textContent: stamp(e.time) }), el("td", { textContent: e.who }), el("td", { textContent: e.action + (e.detail ? ": " + e.detail : "") }), el("td", { className: "desc", textContent: e.ip }))))) : el("div", { className: "desc", textContent: "Noch keine Einträge" })));
+  } catch (e) { fail(e); }
+}
+let page = "modules";
+const PAGES = { modules: ["Dienste", showModules], account: ["Mein Konto", showAccount], users: ["Benutzer", showUsers], audit: ["Protokoll", showAudit] };
+function render() {
+  nav.replaceChildren(...Object.entries(PAGES).filter(([k]) => me?.can_manage || !["users", "audit"].includes(k)).map(([k, [t]]) => el("button", { textContent: t, className: k === page ? "on" : "", onclick: () => { page = k; render(); } })));
+  PAGES[page][1]();
+}
+async function loadMe() {
+  me = await call("auth/me");
+  document.getElementById("who").textContent = `${me.name} · ${ROLES[me.role]}`;
+}
+document.getElementById("logout").onclick = async () => { await call("auth/logout", "POST").catch(() => {}); location.href = "/login"; };
+loadMe().then(render).catch(fail);
 </script>
 </body>
 </html>

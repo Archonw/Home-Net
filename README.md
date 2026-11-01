@@ -24,13 +24,15 @@ Das Programm fragt nach Datenordner, Modulen und Passwort. Danach läuft alles u
 | `./home-net password` | Ändert das Passwort |
 | `./home-net backup` / `restore <archiv>` | Sichert Einstellungen und Geheimnisse oder spielt sie zurück |
 
-## Anmeldung
+## Konten und Anmeldung
 
-Im Heimnetz genügt das Passwort. Von außen, über einen Reverse Proxy mit HTTPS, verlangt Home-Net zusätzlich einen Passkey, sobald einer eingerichtet ist. So geht es los:
+Jeder meldet sich mit Benutzername und Passwort an. Im Heimnetz reicht das, von außen, über einen Reverse Proxy mit HTTPS, gehört ein Passkey dazu.
 
-1. Auf der Startseite unter **Sicherheit** die Adresse für unterwegs speichern, zum Beispiel `https://name.example.de`.
-2. Dort einen Einrichtungscode holen und auf dieser Adresse `/login` öffnen. Unter „Neuen Passkey einrichten“ Passwort und Code eintragen und bestätigen. Die Wiederherstellungscodes aufbewahren, sie werden nur einmal gezeigt.
-3. Für die App einen Kopplungscode holen und in der App unter **Zugang** eintragen. Das Gerät lässt sich später einzeln entfernen.
+- **Rollen:** Der Eigentümer darf alles. Admins verwalten Benutzer. Benutzer sehen nur die Dienste und Pi-Kategorien, die ihnen freigegeben sind.
+- **Passkey einrichten:** Unter **Benutzer** die Adresse für unterwegs speichern, unter **Mein Konto** einen Code holen und auf dieser Adresse `/login` öffnen. Die Wiederherstellungscodes aufbewahren.
+- **App koppeln:** Unter **Mein Konto** einen Kopplungscode holen und in der App unter **Zugang** eintragen. Geräte lassen sich einzeln entfernen.
+- **Protokoll:** Anmeldungen und Änderungen stehen unter **Protokoll**.
+- **Passwort vergessen:** `./home-net password <konto>` auf dem Server.
 
 Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sondern nur über den Proxy.
 

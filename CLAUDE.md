@@ -15,6 +15,6 @@ Pi-Wartung läuft im Container `pi-wartung-engine`, der Dienst `pi-wartung-servi
 Sicherung hat erhöhte Rechte. Der Ordner `modules/pi-wartung/piwartung` enthält die alte GTK-App, sie wird vom Dienst nur noch
 wegen `core.py` gebraucht.
 
-Der Zugang erkennt Zugriffe von außen am Header `X-Forwarded-For` oder an einer öffentlichen Absenderadresse. Passkeys prüft `core/gateway/webauthn.py`, die Daten liegen in `security.json` im Gateway-Ordner.
+Der Zugang erkennt Zugriffe von außen am Header `X-Forwarded-For` oder an einer öffentlichen Absenderadresse. Konten, Passkeys und Geräte liegen in `security.json` im Gateway-Ordner, das Protokoll in `audit.jsonl`. Module erfahren Benutzer, Rolle und erlaubte Kategorien über die Header `X-Home-Net-*`, die nur der Zugang setzt; Module müssen diese Rechte selbst anwenden. Module dürfen darum nur über den Zugang erreichbar sein.
 
 Das Repo ist öffentlich: keine Passwörter, Tokens oder persönlichen Adressen einchecken.

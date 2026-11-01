@@ -52,7 +52,7 @@ pre { background:var(--bg); border-radius:8px; padding:8px; font-size:12px; over
 <header>
   <h1 id="home">Pi-Wartung</h1>
   <button id="add" class="main">Pi hinzufügen</button>
-  <button id="settings">Benachrichtigung</button>
+  <button id="settings" hidden>Benachrichtigung</button>
 </header>
 <main id="app">Wird geladen …</main>
 
@@ -221,6 +221,7 @@ document.getElementById("settings").onclick = async () => {
   } catch (e) { alert(e.message); }
 };
 document.getElementById("home").onclick = overview;
+api("api/inventory").then(d => { document.getElementById("settings").hidden = !d.manager; }).catch(() => {});
 overview();
 </script>
 </body>

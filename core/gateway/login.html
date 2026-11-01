@@ -25,13 +25,16 @@ pre { background:var(--bg); border-radius:8px; padding:10px; }
 <main>
 <h1>Home-Net</h1>
 <form id="login">
+  <label for="user">Benutzername</label>
+  <input id="user" autocomplete="username" autocapitalize="none" required>
   <label for="pw">Passwort</label>
   <input id="pw" type="password" autocomplete="current-password" required>
-  <button>Weiter mit Passkey</button>
+  <button>Anmelden</button>
   <div class="err" id="err" role="alert"></div>
 </form>
 <details><summary>Neuen Passkey einrichten</summary>
 <form id="setup">
+  <label for="suser">Benutzername</label><input id="suser" autocomplete="username" autocapitalize="none" required>
   <label for="spw">Passwort</label><input id="spw" type="password" autocomplete="current-password" required>
   <label for="code">Einrichtungscode von der Startseite</label><input id="code" inputmode="numeric" required>
   <label for="name">Name des Passkeys</label><input id="name" value="Handy">
@@ -41,6 +44,7 @@ pre { background:var(--bg); border-radius:8px; padding:10px; }
 </details>
 <details><summary>Kein Zugriff auf den Passkey</summary>
 <form id="recovery">
+  <label for="ruser">Benutzername</label><input id="ruser" autocomplete="username" autocapitalize="none" required>
   <label for="rpw">Passwort</label><input id="rpw" type="password" autocomplete="current-password" required>
   <label for="rc">Wiederherstellungscode</label><input id="rc" required>
   <button>Anmelden</button>
@@ -54,6 +58,7 @@ pre { background:var(--bg); border-radius:8px; padding:10px; }
 </div>
 </main>
 <script>
+const $ = id => document.getElementById(id);
 const b64 = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), c => c.charCodeAt(0));
 const url = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 async function post(path, body) {
@@ -65,33 +70,35 @@ async function post(path, body) {
 function guard(form, errId, fn) {
   form.onsubmit = async ev => {
     ev.preventDefault();
-    const err = document.getElementById(errId); err.textContent = "";
+    const err = $(errId); err.textContent = "";
     try { await fn(); } catch (e) { err.textContent = e.name === "NotAllowedError" ? "Der Passkey wurde nicht bestätigt." : e.message; }
   };
 }
-guard(document.getElementById("login"), "err", async () => {
-  const { ticket, options } = await post("/auth/login", { password: document.getElementById("pw").value });
-  options.challenge = b64(options.challenge);
-  options.allowCredentials = options.allowCredentials.map(c => ({ ...c, id: b64(c.id) }));
-  const c = await navigator.credentials.get({ publicKey: options });
-  await post("/auth/login/finish", { ticket, id: url(c.rawId), clientData: url(c.response.clientDataJSON), authData: url(c.response.authenticatorData), signature: url(c.response.signature) });
+guard($("login"), "err", async () => {
+  const d = await post("/auth/login", { username: $("user").value, password: $("pw").value });
+  if (d.options) {
+    d.options.challenge = b64(d.options.challenge);
+    d.options.allowCredentials = d.options.allowCredentials.map(c => ({ ...c, id: b64(c.id) }));
+    const c = await navigator.credentials.get({ publicKey: d.options });
+    await post("/auth/login/finish", { ticket: d.ticket, id: url(c.rawId), clientData: url(c.response.clientDataJSON), authData: url(c.response.authenticatorData), signature: url(c.response.signature) });
+  }
   location.href = "/";
 });
-guard(document.getElementById("setup"), "serr", async () => {
-  const { ticket, options } = await post("/auth/setup", { password: document.getElementById("spw").value, code: document.getElementById("code").value, name: document.getElementById("name").value });
+guard($("setup"), "serr", async () => {
+  const { ticket, options } = await post("/auth/setup", { username: $("suser").value, password: $("spw").value, code: $("code").value, name: $("name").value });
   options.challenge = b64(options.challenge);
   options.user.id = b64(options.user.id);
   options.excludeCredentials = options.excludeCredentials.map(c => ({ ...c, id: b64(c.id) }));
   const c = await navigator.credentials.create({ publicKey: options });
   const { recovery } = await post("/auth/setup/finish", { ticket, clientData: url(c.response.clientDataJSON), attestation: url(c.response.attestationObject) });
   if (recovery.length) {
-    document.getElementById("list").textContent = recovery.join("\n");
-    document.getElementById("codes").hidden = false;
-    document.getElementById("go").onclick = () => { location.href = "/"; };
+    $("list").textContent = recovery.join("\n");
+    $("codes").hidden = false;
+    $("go").onclick = () => { location.href = "/"; };
   } else location.href = "/";
 });
-guard(document.getElementById("recovery"), "rerr", async () => {
-  await post("/auth/recovery", { password: document.getElementById("rpw").value, code: document.getElementById("rc").value });
+guard($("recovery"), "rerr", async () => {
+  await post("/auth/recovery", { username: $("ruser").value, password: $("rpw").value, code: $("rc").value });
   location.href = "/";
 });
 </script>
