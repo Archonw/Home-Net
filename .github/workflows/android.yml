@@ -26,8 +26,8 @@ jobs:
         working-directory: android
     steps:
       - uses: actions/checkout@v4
-      # Die Nummern laufen oberhalb der letzten Version aus dem Networkmonitor-Repo weiter (app-48).
-      - run: echo "APP_BUILD=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+      # Die Laufnummer zählt je Workflow-Datei neu. Der Sockel liegt darum über allen bisherigen Versionen (bis app-105).
+      - run: echo "APP_BUILD=$((200 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
