@@ -32,7 +32,6 @@ def report(kind, text):
 
 
 def fail(text):
-    adb("exec-out", "screencap", "-p", check=False)
     (OUT / "logcat.txt").write_text(adb("logcat", "-d", check=False))
     (OUT / "screen.xml").write_text(screen_dump())
     crash = re.findall(r"FATAL EXCEPTION.*?(?=\n\S+ \S+ +\d+ +\d+ [^E])", (OUT / "logcat.txt").read_text(), re.S)
