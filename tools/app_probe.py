@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 import xml.etree.ElementTree as ET
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -190,4 +191,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:  # noqa: BLE001
+        detail = getattr(exc, "stderr", "") or ""
+        report("error", f"{traceback.format_exc()[-900:]} {detail[:300]}")
+        fail("Abbruch")
