@@ -60,18 +60,24 @@ def center(node):
     return (x1 + x2) // 2, (y1 + y2) // 2
 
 
-def find(label, timeout=30):
+def find(label, timeout=30, scroll=False):
+    """A whole label wins over text that merely mentions it, such as an explanation above a field."""
     end = time.time() + timeout
     while time.time() < end:
-        for node in nodes():
-            if label in (node.get("text") or "") or label in (node.get("content-desc") or ""):
-                return node
+        found = nodes()
+        for wanted in (lambda n: label == (n.get("text") or n.get("content-desc")),
+                       lambda n: label in (n.get("text") or "") or label in (n.get("content-desc") or "")):
+            for node in found:
+                if wanted(node):
+                    return node
+        if scroll:
+            adb("shell", "input", "swipe", "500", "1500", "500", "700", "300")
         time.sleep(1)
     fail(f"„{label}“ erscheint nicht")
 
 
-def tap(label):
-    x, y = center(find(label))
+def tap(label, scroll=False):
+    x, y = center(find(label, scroll=scroll))
     adb("shell", "input", "tap", str(x), str(y))
     time.sleep(1)
 
@@ -143,7 +149,7 @@ def main():
     fill("Adresse im Heimnetz", f"http://10.0.2.2:{PORT}")
     fill("Benutzername", "chef")
     fill("Passwort", "geheim123")
-    fill("Kopplungscode", code)
+    fill("Kopplungscode (optional)", code)
     tap("Speichern und testen")
     find("Pi-Wartung", 40)
     wait_for(service_running, "Hintergrunddienst läuft nach dem Koppeln nicht")
@@ -157,10 +163,10 @@ def main():
     report("notice", "Meldung kam auf dem Gerät an")
 
     tap("Einstellungen")
-    tap("Benachrichtigungen")
+    tap("Benachrichtigungen", scroll=True)
     find("Auf diesem Handy empfangen")
-    find("Sicherung erfolgreich")
-    find("Sicherung von Probe fehlgeschlagen")
+    find("Sicherung erfolgreich", scroll=True)
+    find("Sicherung von Probe fehlgeschlagen", scroll=True)
     report("notice", "Seite Benachrichtigungen zeigt Auswahl und Verlauf")
 
     # Ein Gerät im Handy neu starten: Update und Neustart des Handys laufen über denselben Empfänger
