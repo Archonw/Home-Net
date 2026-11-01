@@ -7,6 +7,8 @@ on:
     paths:
       - "android/**"
       - ".github/workflows/android-probe.yml"
+      - "tools/app_probe.py"
+      - "core/gateway/**"
   workflow_dispatch:
 
 permissions:
