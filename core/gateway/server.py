@@ -39,6 +39,11 @@ HOP_BY_HOP = {"connection", "keep-alive", "transfer-encoding", "te", "trailer", 
 BAD_LOGIN = "Benutzername oder Passwort ist falsch"
 
 
+# The same way back on every module's page.
+BACK_LINK = ('<a href="/" style="display:table;position:relative;z-index:1000;padding:8px 16px;'
+             'font:600 15px system-ui,sans-serif;color:inherit;text-decoration:none">‹ Home-Net</a>')
+
+
 def load(name):
     with open(os.path.join(CONFIG_DIR, name)) as f:
         return json.load(f)
@@ -94,6 +99,7 @@ def rewrite_html(body, prefix):
     text = body.decode("utf-8", "replace")
     text = re.sub(r'(href|src|action)="/(?!/)', lambda m: f'{m.group(1)}="{prefix}/', text)
     text = text.replace("<head>", f'<head><script>window.HOME_NET_PREFIX="{prefix}"</script>', 1)
+    text = re.sub(r"<body[^>]*>", lambda m: m.group(0) + BACK_LINK, text, count=1)
     return text.encode()
 
 

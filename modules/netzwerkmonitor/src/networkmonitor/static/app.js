@@ -233,7 +233,7 @@ const NM = (() => {
     nav.className = "tabbar";
     nav.setAttribute("aria-label", "Hauptnavigation");
     nav.innerHTML = [["devices", "/", "Geräte"], ["settings", "/settings", "Einstellungen"]]
-      .map(([id, href, label]) => `<a class="tab ${id === active ? "active" : ""}" href="${href}"
+      .map(([id, href, label]) => `<a class="tab ${id === active ? "active" : ""}" href="${(window.HOME_NET_PREFIX || "") + href}"
         ${id === active ? 'aria-current="page"' : ""}><span class="pill">${icon(id)}</span>${label}</a>`).join("");
     document.body.append(nav);
     document.body.classList.add("with-tabs");

@@ -204,6 +204,11 @@ class Gateway(unittest.TestCase):
         self.assertIsNone(Upstream.last_auth)
         self.assertEqual(self.call("/m/demo/application", None)[0], 401)
 
+    def test_module_pages_get_the_way_back(self):
+        page = gateway.rewrite_html(b'<html><head></head><body class="x"><a href="/settings">s</a></body></html>', "/m/demo")
+        self.assertIn(b'<body class="x"><a href="/" style', page)
+        self.assertIn(b'href="/m/demo/settings"', page)
+
     def test_html_and_redirect_get_prefix(self):
         _, body, _ = self.call("/m/demo/page")
         self.assertIn(b'href="/m/demo/x"', body)

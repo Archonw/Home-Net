@@ -69,6 +69,8 @@ fun TilesList(ui: ListUi) {
                 Spacer(Modifier.size(8.dp))
                 IconTile(NavIcons.close, "Suche schließen", p.text, p.card, ui.onToggleSearch)
             } else {
+                IconTile(NavIcons.back, "Zurück", p.text, p.card, ui.onBack)
+                Spacer(Modifier.size(8.dp))
                 Text(
                     "Geräte",
                     color = p.text,

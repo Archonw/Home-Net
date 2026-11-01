@@ -196,6 +196,7 @@ class MainActivity : FragmentActivity() {
                         settings = settings,
                         style = appStyle,
                         onOpen = { screen = Screen.Detail(it) },
+                        onBack = { screen = Screen.Home },
                     )
                     is Screen.Detail -> DetailScreen(
                         api = settings.api(),

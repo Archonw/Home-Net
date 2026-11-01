@@ -92,7 +92,7 @@ fun SoftList(ui: ListUi) {
                 Spacer(Modifier.size(8.dp))
                 IconTile(NavIcons.close, "Suche schließen", p.text, Color.Transparent, ui.onToggleSearch)
             } else {
-                IconTile(NavIcons.search, "Suchen", p.text, Color.Transparent, ui.onToggleSearch)
+                IconTile(NavIcons.back, "Zurück", p.text, Color.Transparent, ui.onBack)
                 Text(
                     buildAnnotatedString {
                         append("Netz")
@@ -104,6 +104,7 @@ fun SoftList(ui: ListUi) {
                     textAlign = TextAlign.Center,
                     modifier = Modifier.weight(1f),
                 )
+                IconTile(NavIcons.search, "Suchen", p.text, Color.Transparent, ui.onToggleSearch)
                 MoreMenu(ui, p.text, Color.Transparent)
             }
         }

@@ -90,6 +90,7 @@ class ListUi(
     val canRemoveOffline: Boolean,
     val onRemoveOffline: () -> Unit,
     val onOpen: (String) -> Unit,
+    val onBack: () -> Unit,
 ) {
     fun count(f: QuickFilter) = all.orEmpty().let { arrange(it, sort, f).size }
 }
@@ -193,7 +194,7 @@ fun AppUpdatePrompt(api: Api, settings: Settings) {
 }
 
 @Composable
-fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -> Unit) {
+fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -> Unit, onBack: () -> Unit) {
     var devices by remember { mutableStateOf<List<Device>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var info by remember { mutableStateOf<String?>(null) }
@@ -251,6 +252,7 @@ fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -
         canRemoveOffline = offline > 0,
         onRemoveOffline = { confirmRemove = true },
         onOpen = onOpen,
+        onBack = onBack,
     )
 
     if (confirmRemove) {
