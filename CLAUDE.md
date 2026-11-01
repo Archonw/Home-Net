@@ -10,7 +10,9 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
 Ein Push auf `main`, der `android/` ändert, erzeugt das Release `app-<100 + Laufnummer>` mit `netzwerkmonitor.apk`, und der
 Monitor gibt es ans Handy weiter. Paketkennung `de.archonw.netmon` und Signierschlüssel dürfen sich nicht ändern.
 
-Die Pi-Wartung-App am PC aktualisiert `engine/pi-backup.sh` auf dem Unraid von selbst. Der Handy-Dienst nicht: Nach
-Änderungen an `service/` oder `piwartung/core.py` müssen `service/install.sh` und `service/set-templates.sh` am PC laufen.
+Der Kern (`core/`) baut aus den `module.json` der Module die Compose-Datei und die Liste für den Zugang. Die Sicherung von
+Pi-Wartung läuft im Container `pi-wartung-engine`, der Dienst `pi-wartung-service` spricht sie über einen Socket an. Nur die
+Sicherung hat erhöhte Rechte. Der Ordner `modules/pi-wartung/piwartung` enthält die alte GTK-App, sie wird vom Dienst nur noch
+wegen `core.py` gebraucht.
 
 Das Repo ist öffentlich: keine Passwörter, Tokens oder persönlichen Adressen einchecken.

@@ -9,6 +9,7 @@ Usage:
   home-net backup            home-net restore <archiv>
 """
 import argparse
+import base64
 import getpass
 import hashlib
 import json
@@ -45,6 +46,10 @@ def password_record(password, rounds=PBKDF2_ROUNDS):
     salt = secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, rounds)
     return {"salt": salt.hex(), "hash": digest.hex(), "rounds": rounds}
+
+
+def base64_basic(password):
+    return "Basic " + base64.b64encode(f"app:{password}".encode()).decode()
 
 
 def icon_url(icon):
