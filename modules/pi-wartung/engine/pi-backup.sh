@@ -82,6 +82,56 @@ ntfy_send() {
       --data-urlencode "priority=$priority" --data-urlencode "tags=$tags" "${NTFY_URL%/}/$NTFY_TOPIC/publish"
 }
 
+# Hands a message to the Home-Net gateway, which decides who gets to read it.
+event_send() {
+  local type=$1 title=$2 message=$3 priority=${4:-default}
+  [ -n "${EVENTS_DIR:-}" ] && [ -d "$EVENTS_DIR" ] || return 0
+  python3 - "$EVENTS_DIR" "$type" "$title" "$message" "$priority" "$PIDIR" "${PIW_ROOT:-}" "$NAME" <<'PY' \
+    || log "WARNUNG: Meldung nicht abgelegt"
+import json, os, sys, tempfile
+spool, kind, title, message, priority, pidir, root, name = sys.argv[1:]
+parent = os.path.dirname(pidir)
+category = os.path.relpath(parent, root) if root else ""
+category = "" if category == "." else category
+link = ""
+try:
+    for pi in json.load(open(os.path.join(root, "inventory.json"))).get("pis", []):
+        if pi.get("name") == name and pi.get("category", "") == category:
+            link = "pi/" + pi["id"]
+except (OSError, ValueError, KeyError):
+    pass
+fd, tmp = tempfile.mkstemp(dir=spool, suffix=".tmp")
+with os.fdopen(fd, "w") as f:
+    json.dump({"type": kind, "title": title, "message": message, "priority": priority, "category": category,
+               "link": link}, f)
+os.rename(tmp, tmp[:-4] + ".json")
+PY
+}
+
+# At most one message per day for lasting conditions such as a full disk.
+event_daily() {
+  local stamp="$STATE/event-$1" now
+  now=$(date +%s)
+  [ -f "$stamp" ] && [ $((now - $(cat "$stamp"))) -lt 86400 ] && return 0
+  event_send "$@"
+  echo "$now" > "$stamp"
+}
+
+# Called after each successful backup: how full are the disk for the images and the Pi's own card?
+check_capacity() {
+  local used percent
+  [ "$NOTIFY" != off ] || return 0
+  used=$(df --output=pcent "$PIDIR" 2>/dev/null | tail -1 | tr -dc 0-9)
+  if [ -n "$used" ] && [ "$used" -ge 90 ]; then
+    event_daily disk_low "Speicherplatz für Images knapp" "Das Ziellaufwerk ist zu $used % belegt." high
+  fi
+  percent=$(on_pi "df --output=pcent / | tail -1" 2>/dev/null | tr -dc 0-9)
+  if [ -n "$percent" ] && [ "$percent" -ge 90 ]; then
+    event_daily card_full "Karte von $NAME fast voll" "Die Karte im Pi ist zu $percent % belegt." high
+  fi
+  return 0
+}
+
 # Unraid's own notifications exist only when the engine runs directly on Unraid.
 unraid_send() {
   local sender=/usr/local/emhttp/webGui/scripts/notify
@@ -107,13 +157,18 @@ send_notification() {
     failed)
       if [ "$prev" != failed ] || [ $((now - notified)) -ge 86400 ]; then
         notify_all "Sicherung von $NAME fehlgeschlagen" "$ERROR" alert high warning
+        event_send backup_failed "Sicherung von $NAME fehlgeschlagen" "$ERROR" high
         echo "$now" > "$STATE/notified"
       fi ;;
     ok)
       if [ "$prev" = failed ]; then
         notify_all "Sicherung von $NAME klappt wieder" "Neues Image: ${OUT_NAME:-}" normal default white_check_mark
-      elif [ "$NOTIFY" = always ]; then
-        notify_all "Sicherung von $NAME erfolgreich" "Neues Image: ${OUT_NAME:-}" normal default white_check_mark
+        event_send backup_recovered "Sicherung von $NAME klappt wieder" "Neues Image: ${OUT_NAME:-}"
+      else
+        event_send backup_ok "Sicherung von $NAME erfolgreich" "Neues Image: ${OUT_NAME:-}"
+        if [ "$NOTIFY" = always ]; then
+          notify_all "Sicherung von $NAME erfolgreich" "Neues Image: ${OUT_NAME:-}" normal default white_check_mark
+        fi
       fi
       rm -f "$STATE/notified" ;;
   esac
@@ -551,6 +606,7 @@ cmd_backup() {
   rm -f "$STATE/image.raw"
   prune_images
   ls -1t "$PIDIR"/logs/*.log 2>/dev/null | tail -n +21 | xargs -r -d '\n' rm -f
+  check_capacity
   FINISHED=1
 }
 

@@ -19,6 +19,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import events
 import webauthn
 from security import DEVICE_PREFIX, SESSION_SECONDS, Security
 
@@ -26,6 +27,9 @@ CONFIG_DIR = os.environ.get("CONFIG_DIR", "/config")
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORTAL = os.path.join(HERE, "portal.html")
 LOGIN = os.path.join(HERE, "login.html")
+EVENTS_DIR = os.environ.get("EVENTS_DIR", "/events")
+SCAN_SECONDS = 2
+STREAM_PING_SECONDS = 45
 COOKIE = "home_net_session"
 MAX_FAILS = 5
 FAIL_WINDOW = 15 * 60
@@ -44,6 +48,23 @@ def security():
     return Security.shared(CONFIG_DIR)
 
 
+def inbox():
+    return events.Inbox.shared(CONFIG_DIR, EVENTS_DIR)
+
+
+def catalog():
+    return events.catalog_of(load("gateway.json")["modules"])
+
+
+def readable(user, entries):
+    table = catalog()
+    return [e for e in entries if events.may_read(user, e, table, Security.categories_of, Security.may_use)]
+
+
+def public_event(entry):
+    return {k: entry[k] for k in ("id", "time", "module", "type", "title", "message", "priority", "link")}
+
+
 class Limiter:
     def __init__(self):
         self.fails = {}
@@ -58,6 +79,10 @@ class Limiter:
     def failed(self, ip):
         with self.lock:
             self.fails.setdefault(ip, []).append(time.time())
+            just_locked = len(self.fails[ip]) == MAX_FAILS
+        if just_locked:
+            inbox().add(events.GATEWAY_MODULE, "login_locked", "Anmeldung gesperrt",
+                        f"{MAX_FAILS} Fehlversuche von {ip}, die Adresse ist für 15 Minuten gesperrt.", "high")
 
     def succeeded(self, ip):
         with self.lock:
@@ -230,10 +255,18 @@ class Handler(BaseHTTPRequestHandler):
             user, how = self.need_login()
             if not user:
                 return
+            if path == "/auth/notifications":
+                self.handle_notifications(user, store)
+                return
+            if path == "/auth/stream" and self.command == "GET":
+                self.stream_notifications(user)
+                return
             if how == "device":
                 self.reply_json(403, {"detail": "Das geht nur nach der Anmeldung im Browser"})
                 return
             self.handle_account(path, user, store, ip)
+            if self.command != "GET":
+                inbox().wake()
         except (webauthn.WebAuthnError, ValueError, KeyError, TypeError) as exc:
             if self.command == "POST" and path in PUBLIC_AUTH:
                 self.limiter.failed(ip)
@@ -242,6 +275,53 @@ class Handler(BaseHTTPRequestHandler):
             self.reply_json(403, {"detail": str(exc)})
         except LookupError:
             self.reply_json(404, {"detail": "Nicht gefunden"})
+
+    def handle_notifications(self, user, store):
+        if self.command == "POST":
+            store.set_notify(user["id"], self.read_json().get("enabled", {}))
+            user = store.find_user(user["id"])
+        elif self.command != "GET":
+            self.reply_json(405, {"detail": "Nicht erlaubt"})
+            return
+        types = []
+        for module_id, (name, known) in catalog().items():
+            if module_id == events.GATEWAY_MODULE or security().may_use(user, module_id):
+                types += [{"key": f"{module_id}.{e['id']}", "group": name, "label": e["label"],
+                           "enabled": bool(events.is_enabled(user, module_id, e))}
+                          for e in known.values() if user["role"] in ("owner", "admin") or not e.get("manager_only")]
+        recent = readable(user, inbox().recent())[-30:]
+        self.reply_json(200, {"types": types, "recent": [public_event(e) for e in reversed(recent)]})
+
+    def stream_notifications(self, user):
+        """Keeps the answer open and writes each message as it arrives (server-sent events).
+
+        Without ?after= it starts with what comes next, so a newly coupled phone is not flooded with old messages.
+        """
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        try:
+            last_id = int(query["after"][0])
+        except (KeyError, ValueError):
+            last_id = inbox().latest_id()
+        self.close_connection = True
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(f"event: start\ndata: {inbox().latest_id()}\n\n".encode())
+        while True:
+            inbox().wait(last_id, STREAM_PING_SECONDS)
+            # A removed device or blocked account stops receiving here.
+            user, _how = self.identify()
+            if not user:
+                return
+            fresh = inbox().since(last_id)
+            for entry in readable(user, fresh):
+                self.wfile.write(f"id: {entry['id']}\ndata: {json.dumps(public_event(entry))}\n\n".encode())
+            if fresh:
+                last_id = fresh[-1]["id"]
+            self.wfile.write(b": ping\n\n")
 
     def handle_account(self, path, actor, store, ip):
         method = self.command
@@ -458,6 +538,7 @@ def setup_finish(handler, body, store, ip):
     store.drop_sessions(user["id"])
     handler.limiter.succeeded(ip)
     store.audit(user["name"], "Passkey eingerichtet", pending["name"], ip)
+    inbox().add(events.GATEWAY_MODULE, "passkey_added", "Neuer Passkey", f"{user['name']}: {pending['name']}", "high")
     handler.reply_json(200, {"recovery": recovery}, headers=handler.session_headers(user))
 
 
@@ -471,6 +552,7 @@ def pair_device(handler, body, store, ip):
     name = str(body.get("name") or "Handy")[:60]
     handler.limiter.succeeded(ip)
     store.audit(user["name"], "Gerät gekoppelt", name, ip)
+    inbox().add(events.GATEWAY_MODULE, "device_paired", "Neues Gerät gekoppelt", f"{user['name']}: {name}", "high")
     handler.reply_json(200, {"token": store.add_device(user["id"], name)})
 
 
@@ -509,7 +591,17 @@ def module_online(module):
         conn.close()
 
 
+def scan_forever():
+    while True:
+        try:
+            inbox().scan(catalog())
+        except Exception as exc:  # the gateway must keep running whatever a module leaves behind
+            sys.stderr.write(f"Meldungen nicht lesbar: {exc!r}\n")
+        time.sleep(SCAN_SECONDS)
+
+
 def main():
+    threading.Thread(target=scan_forever, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", "8080"))), Handler).serve_forever()
 
 

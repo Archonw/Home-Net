@@ -1,6 +1,9 @@
 package de.archonw.netmon
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.SystemBarStyle
@@ -42,6 +45,7 @@ sealed interface Screen {
     data class PiDetail(val id: String) : Screen
     data object PiSetup : Screen
     data object HubSetup : Screen
+    data object Notifications : Screen
 }
 
 class MainActivity : FragmentActivity() {
@@ -71,6 +75,8 @@ class MainActivity : FragmentActivity() {
             unlocked = true
         }
         handleLink(intent)
+        NotificationService.sync(this, settings)
+        askForNotifications()
 
         setContent {
             val dark = when (themeMode) {
@@ -113,7 +119,7 @@ class MainActivity : FragmentActivity() {
             screen = when (screen) {
                 is Screen.Detail -> Screen.List
                 is Screen.PiDetail, Screen.PiSetup -> if (settings.isPiConfigured) Screen.PiOverview else Screen.Home
-                Screen.HubSetup -> Screen.Setup
+                Screen.HubSetup, Screen.Notifications -> Screen.Setup
                 else -> Screen.Home
             }
         }
@@ -143,6 +149,7 @@ class MainActivity : FragmentActivity() {
                         onLockModeChange = ::setLockMode,
                         onSaved = { screen = Screen.Home },
                         onAccess = { screen = Screen.HubSetup },
+                        onNotifications = { screen = Screen.Notifications },
                     )
                     Screen.Home -> HomeScreen(
                         settings = settings,
@@ -156,11 +163,18 @@ class MainActivity : FragmentActivity() {
                             settings = settings,
                             onSaved = {
                                 forgetPasswordIfPaired()
+                                NotificationService.sync(this@MainActivity, settings)
+                                askForNotifications()
                                 screen = returnTo
                             },
                             onBack = if (settings.isConfigured) ({ screen = Screen.Setup }) else null,
                         )
                     }
+                    Screen.Notifications -> NotificationsScreen(
+                        settings = settings,
+                        onOpen = ::openLink,
+                        onBack = { screen = Screen.Setup },
+                    )
                     Screen.PiOverview -> PiOverviewScreen(
                         api = settings.piApi(),
                         onOpen = { screen = Screen.PiDetail(it) },
@@ -194,7 +208,7 @@ class MainActivity : FragmentActivity() {
             if (settings.isConfigured && !WindowInsets.isImeVisible) {
                 NavBar(
                     style = appStyle,
-                    settingsActive = screen == Screen.Setup || screen == Screen.HubSetup,
+                    settingsActive = screen == Screen.Setup || screen == Screen.HubSetup || screen == Screen.Notifications,
                     onHome = { screen = Screen.Home },
                     onSettings = { screen = Screen.Setup },
                 )
@@ -228,13 +242,27 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    /** netmon://device/<MAC> → Detailseite dieses Geräts. */
+    /** netmon://device/<MAC> und netmon://pi/<id> → Detailseite des Geräts oder Pis. */
     private fun handleLink(intent: Intent?): Boolean {
         val data = intent?.data ?: return false
-        if (data.scheme != "netmon" || data.host != "device") return false
-        val mac = data.lastPathSegment ?: return false
-        if (settings.isConfigured) screen = Screen.Detail(mac)
+        if (data.scheme != "netmon" || (data.host != "device" && data.host != "pi")) return false
+        val target = data.lastPathSegment ?: return false
+        openLink("${data.host}/$target")
         return true
+    }
+
+    private fun openLink(link: String) {
+        if (!settings.isConfigured) return
+        val target = link.substringAfter('/')
+        screen = if (link.startsWith("pi/")) Screen.PiDetail(target) else Screen.Detail(target)
+    }
+
+    /** Fragt einmal nach der Erlaubnis; ablehnen lässt sich das auch, der Rest der App läuft weiter. */
+    private fun askForNotifications() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || !settings.pushEnabled || settings.hubToken.isBlank()) return
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
     }
 
     private fun unlockWithPassword(entered: String) {

@@ -123,6 +123,8 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
 
     suspend fun raw(path: String): String = request("GET", path)
 
+    suspend fun postJson(path: String, json: String): String = request("POST", path, json)
+
     suspend fun overview(): PiOverview {
         val o = JSONObject(request("GET", "api/overview"))
         return PiOverview(
@@ -170,13 +172,13 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
 
     private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 
-    private suspend fun request(method: String, path: String): String = withContext(Dispatchers.IO) {
+    private suspend fun request(method: String, path: String, json: String? = null): String = withContext(Dispatchers.IO) {
         if (urls.isEmpty()) throw ApiException("Keine Adresse eingetragen")
         val ordered = urls.sortedBy { if (it == lastWorking) 0 else 1 }
         var lastError: Exception? = null
         for (base in ordered) {
             try {
-                val body = call(base, method, path, connectTimeout = if (ordered.size > 1) 3000 else 8000)
+                val body = call(base, method, path, json, connectTimeout = if (ordered.size > 1) 3000 else 8000)
                 lastWorking = base
                 return@withContext body
             } catch (e: ApiException) {
@@ -189,7 +191,7 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
         throw ApiException("Dienst nicht erreichbar (${lastError?.javaClass?.simpleName}).$hint")
     }
 
-    private fun call(base: String, method: String, path: String, connectTimeout: Int): String {
+    private fun call(base: String, method: String, path: String, json: String?, connectTimeout: Int): String {
         val conn = URL(base.trimEnd('/') + "/" + path).openConnection() as HttpURLConnection
         try {
             conn.requestMethod = method
@@ -199,7 +201,8 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
             conn.setRequestProperty("Accept", "application/json")
             if (method == "POST") {
                 conn.doOutput = true
-                conn.outputStream.use { }
+                if (json != null) conn.setRequestProperty("Content-Type", "application/json")
+                conn.outputStream.use { out -> json?.let { out.write(it.toByteArray()) } }
             }
             val code = conn.responseCode
             val body = (if (code in 200..299) conn.inputStream else conn.errorStream)

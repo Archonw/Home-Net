@@ -23,13 +23,15 @@
       ],
       "volumes": [
         "${DATA_DIR}/netzwerkmonitor:/data",
-        "${DATA_DIR}/netzwerkmonitor/run:/run/netzwerkmonitor"
+        "${DATA_DIR}/netzwerkmonitor/run:/run/netzwerkmonitor",
+        "${DATA_DIR}/events/netzwerkmonitor:/run/home-net-events"
       ],
       "env_file": [
         "${DATA_DIR}/netzwerkmonitor.env"
       ],
       "environment": [
-        "LISTEN_SOCKET=/run/netzwerkmonitor/api.sock"
+        "LISTEN_SOCKET=/run/netzwerkmonitor/api.sock",
+        "EVENTS_DIR=/run/home-net-events"
       ],
       "healthcheck": {
         "test": [
@@ -40,5 +42,19 @@
         ]
       }
     }
-  }
+  },
+  "events": [
+    {
+      "id": "new_device",
+      "label": "Neues Gerät im Netz"
+    },
+    {
+      "id": "device_offline",
+      "label": "Gerät im Blick offline oder wieder da"
+    },
+    {
+      "id": "router_down",
+      "label": "FritzBox nicht erreichbar oder wieder da"
+    }
+  ]
 }

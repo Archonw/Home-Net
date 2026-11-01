@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import http.client
 import json
 import os
 import struct
@@ -478,6 +479,127 @@ class HeaderUpstream(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     do_GET = do_POST = answer
+
+
+class Notifications(AccountBase):
+    def module_list(self):
+        common = {"description": "d", "icon": "i", "upstream": "http://127.0.0.1:9", "password": "x"}
+        return [dict(common, id="pi", name="Pi", events=[{"id": "failed", "label": "Fehler"},
+                                                         {"id": "ok", "label": "Erfolg", "default": False}]),
+                dict(common, id="netz", name="Netz", events=[{"id": "new", "label": "Neu"}])]
+
+    def setUp(self):
+        spool = tempfile.TemporaryDirectory()
+        self.addCleanup(spool.cleanup)
+        self.spool = Path(spool.name)
+        self.addCleanup(setattr, gateway, "EVENTS_DIR", gateway.EVENTS_DIR)
+        gateway.EVENTS_DIR = spool.name
+        super().setUp()
+        self.boss = self.lan_login()
+        self.make("oma", ["pi"], ["Familie"])
+        self.make("netzer", ["netz"], [])
+        self.inbox = gateway.inbox()
+
+    def make(self, name, modules, categories):
+        status, data, _ = self.call("/auth/users", {"name": name, "password": "geheim456", "role": "user",
+                                                    "modules": modules, "categories": categories},
+                                    external=False, cookie=self.boss)
+        self.assertEqual(status, 201, data)
+
+    def drop(self, module, name="a", **event):
+        folder = self.spool / module
+        folder.mkdir(exist_ok=True)
+        (folder / f"{name}.json").write_text(json.dumps(event))
+        self.inbox.scan(gateway.catalog())
+
+    def titles(self, name=None):
+        cookie = self.lan_login(name, "geheim456") if name else self.boss
+        status, data, _ = self.call("/auth/notifications", external=False, cookie=cookie)
+        self.assertEqual(status, 200, data)
+        return [e["title"] for e in data["recent"]]
+
+    def test_only_allowed_service_and_category(self):
+        self.drop("pi", "1", type="failed", title="Familie kaputt", category="Familie/Oben")
+        self.drop("pi", "2", type="failed", title="Firma kaputt", category="Firma")
+        self.drop("netz", "3", type="new", title="Neues Gerät")
+        self.assertEqual(self.titles("oma"), ["Familie kaputt"])
+        self.assertEqual(self.titles("netzer"), ["Neues Gerät"])
+        self.assertEqual(self.titles(), ["Neues Gerät", "Firma kaputt", "Familie kaputt"])
+        self.assertEqual(list(self.spool.glob("*/*.json")), [])
+
+    def test_account_chooses_and_defaults_apply(self):
+        self.drop("pi", "1", type="ok", title="Geklappt", category="Familie")
+        self.drop("pi", "2", type="failed", title="Kaputt", category="Familie")
+        self.assertEqual(self.titles("oma"), ["Kaputt"])
+        cookie = self.lan_login("oma", "geheim456")
+        status, data, _ = self.call("/auth/notifications", {"enabled": {"pi.ok": True, "pi.failed": False}},
+                                    external=False, cookie=cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual([e["title"] for e in data["recent"]], ["Geklappt"])
+        self.assertEqual({t["key"] for t in data["types"]}, {"pi.ok", "pi.failed"})
+        self.assertEqual(self.titles(), ["Kaputt"])
+
+    def test_module_cannot_send_what_is_not_its_own(self):
+        self.drop("netz", "1", type="failed", title="Fremde Art")
+        self.drop("home-net", "2", type="login_locked", title="Gefälscht")
+        self.drop("unbekannt", "3", type="failed", title="Unbekannt")
+        (self.spool / "pi").mkdir()
+        (self.spool / "pi" / "4.json").write_text("kein json")
+        self.inbox.scan(gateway.catalog())
+        self.assertEqual(self.titles(), [])
+        self.assertEqual(list(self.spool.glob("*/*.json")), [])
+
+    def test_security_messages_only_for_managers(self):
+        for _ in range(5):
+            self.call("/auth/login", {"username": "chef", "password": "falsch"}, external=True)
+        self.assertEqual(self.titles(), ["Anmeldung gesperrt"])
+        self.assertEqual(self.titles("oma"), [])
+
+    def stream(self, token, after=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.gw.server_address[1], timeout=5)
+        self.addCleanup(conn.close)
+        conn.request("GET", "/auth/stream" + (f"?after={after}" if after is not None else ""),
+                     headers={"Authorization": f"Bearer {token}", "X-Forwarded-For": "203.0.113.7"})
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.headers["X-Accel-Buffering"], "no")
+        return resp
+
+    @staticmethod
+    def next_event(resp):
+        while True:
+            line = resp.fp.readline().decode()
+            if not line:
+                return None
+            if line.startswith("data: {"):
+                return json.loads(line[6:])
+
+    def test_stream_delivers_live_with_rights_until_device_is_removed(self):
+        oma = self.store.user_by_name("oma")
+        token = self.store.add_device(oma["id"], "Handy")
+        resp = self.stream(token)
+        self.inbox.add("pi", "failed", "Firma kaputt", category="Firma")
+        self.inbox.add("pi", "failed", "Familie kaputt", category="Familie", link="pi/a1")
+        event = self.next_event(resp)
+        self.assertEqual((event["title"], event["link"]), ("Familie kaputt", "pi/a1"))
+        self.assertNotIn("category", event)
+        device = self.store.account(oma)["devices"][0]
+        self.store.remove_item("devices", device["id"], self.owner)
+        self.inbox.wake()
+        self.assertIsNone(self.next_event(resp))
+
+    def test_stream_catches_up_after_a_gap(self):
+        token = self.store.add_device(self.owner["id"], "Handy")
+        first = self.inbox.add("pi", "failed", "Eins")
+        self.inbox.add("pi", "failed", "Zwei")
+        event = self.next_event(self.stream(token, after=first["id"]))
+        self.assertEqual(event["title"], "Zwei")
+
+    def test_list_survives_restart(self):
+        self.inbox.add("pi", "failed", "Bleibt")
+        again = gateway.events.Inbox(self.dir.name, gateway.EVENTS_DIR)
+        self.assertEqual(again.entries[-1]["title"], "Bleibt")
+        self.assertEqual(again.add("pi", "failed", "Neu")["id"], 2)
 
 
 class Accounts(AccountBase):

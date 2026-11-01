@@ -27,6 +27,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -253,6 +254,9 @@ fun TilesDetail(ui: DetailUi) {
             )
         }
         Spacer(Modifier.height(8.dp))
+        TextButton(onClick = ui.onWatch, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
+            Text(if (d.watched) "Nicht mehr im Blick" else "Im Blick behalten", color = p.accentText)
+        }
     }
 }
 
@@ -306,6 +310,21 @@ private fun <T> TilesSegmented(options: List<T>, selected: T, label: (T) -> Stri
 }
 
 @Composable
+private fun TilesLink(title: String, subtitle: String, onClick: () -> Unit) {
+    val p = LocalPalette.current
+    Row(
+        Modifier.fillMaxWidth().clip(TileShape).background(p.card).clickable(onClick = onClick).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = p.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = p.muted, fontSize = 13.sp)
+        }
+        Icon(NavIcons.chevron, contentDescription = null, tint = p.muted)
+    }
+}
+
+@Composable
 fun TilesSettings(ui: SettingsUi) {
     val p = LocalPalette.current
     Column(
@@ -346,16 +365,8 @@ fun TilesSettings(ui: SettingsUi) {
                 }
             }
         }
-        Row(
-            Modifier.fillMaxWidth().clip(TileShape).background(p.card).clickable(onClick = ui.onAccess).padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Zugang", color = p.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text("Server, Konto und Kopplung", color = p.muted, fontSize = 13.sp)
-            }
-            Icon(NavIcons.chevron, contentDescription = null, tint = p.muted)
-        }
+        if (ui.managedByHub) TilesLink("Benachrichtigungen", "Empfang und Auswahl", ui.onNotifications)
+        TilesLink("Zugang", "Server, Konto und Kopplung", ui.onAccess)
         if (ui.configured && !ui.managedByHub) {
             SectionLabel("Entsperren mit")
             Column(Modifier.fillMaxWidth().clip(TileShape).background(p.card)) {

@@ -48,11 +48,22 @@ class Settings(context: Context) {
 
     val isHubConfigured: Boolean get() = hubUrl.isNotBlank()
 
+    /** Ob dieses Handy im Hintergrund Meldungen empfängt. */
+    var pushEnabled: Boolean
+        get() = prefs.getBoolean("push_enabled", true)
+        set(value) = prefs.edit().putBoolean("push_enabled", value).apply()
+
+    /** Letzte angezeigte Meldung; nach einer Unterbrechung geht es dort weiter. */
+    var lastEventId: Long
+        get() = prefs.getLong("last_event_id", 0)
+        set(value) = prefs.edit().putLong("last_event_id", value).apply()
+
     /** Womit sich die App anmeldet: Geräteschlüssel, falls vorhanden, sonst das Passwort. */
     val hubSecret: String get() = hubToken.ifBlank { password }
 
     fun useHub(url: String, external: String, hubPassword: String, token: String) {
         hubToken = token
+        if (url.trim().trimEnd('/') != hubUrl) lastEventId = 0
         hubUrl = url
         hubExternalUrl = external
         val base = hubUrl

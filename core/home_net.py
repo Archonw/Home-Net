@@ -71,7 +71,7 @@ def compose_document(modules, chosen, repo=REPO):
             "container_name": GATEWAY,
             "restart": "unless-stopped",
             "ports": ["${GATEWAY_PORT}:8080"],
-            "volumes": ["${DATA_DIR}/gateway:/config"],
+            "volumes": ["${DATA_DIR}/gateway:/config", "${DATA_DIR}/events:/events"],
             "labels": {"net.unraid.docker.icon": icon_url("assets/icons/home-net.png")},
         }
     }
@@ -102,6 +102,8 @@ def gateway_config(modules, chosen, upstream_passwords, owner="admin"):
             item["external_port"] = api["external_port"]
         else:
             upstream = f"unix:{api['socket']}" if api.get("socket") else f"http://{api['service']}:{api['port']}"
+            if module.get("events"):
+                item["events"] = module["events"]
             item.update(upstream=upstream, health=api.get("health", "/health"),
                         public=api.get("public", []), web=bool(api.get("web")),
                         password=upstream_passwords.get(module_id, ""))

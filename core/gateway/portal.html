@@ -90,9 +90,20 @@ function items(rows, kind) {
       if (confirm(`${r.name} entfernen?`)) { try { await call(`auth/${kind}/${r.id}`, "DELETE"); render(); } catch (e) { alert(e.message); } }
     } })));
 }
+function notifyBoxes(types) {
+  const out = [];
+  let group = null;
+  for (const t of types) {
+    if (t.group !== group) { group = t.group; out.push(el("div", { className: "desc", style: "margin-top:8px", textContent: group })); }
+    const box = el("input", { type: "checkbox", checked: t.enabled, onchange: () => call("auth/notifications", "POST", { enabled: { [t.key]: box.checked } }).catch(e => { box.checked = !box.checked; alert(e.message); }) });
+    out.push(el("label", { className: "check" }, box, t.label));
+  }
+  return out;
+}
 async function showAccount() {
   try {
     me = await call("auth/me");
+    const notes = await call("auth/notifications");
     const name = el("input", { value: me.name, autocomplete: "username" }), old = el("input", { type: "password", autocomplete: "current-password" }), fresh = el("input", { type: "password", autocomplete: "new-password" });
     const msg = el("div", { className: "desc" });
     const parts = [
@@ -108,6 +119,8 @@ async function showAccount() {
       el("div", { className: "box" }, el("div", { className: me.passkeys.length ? "desc" : "warn", textContent: me.passkeys.length ? "Von außen meldest du dich mit Passwort und Passkey an." : "Ohne Passkey ist die Anmeldung von außen nicht möglich." }),
         ...items(me.passkeys, "passkeys"),
         me.external_url ? el("div", { className: "line" }, el("div", { className: "grow desc", textContent: `Neuer Passkey: Code holen, dann ${me.external_url}/login öffnen.` }), codeButton("setup")) : el("div", { className: "desc", textContent: "Es ist noch keine Adresse für unterwegs eingetragen." })),
+      el("h2", { textContent: "Benachrichtigungen" }),
+      el("div", { className: "box" }, ...notifyBoxes(notes.types), el("div", { className: "desc", textContent: "Sie erscheinen in der App auf deinen gekoppelten Geräten." })),
       el("h2", { textContent: "Gekoppelte Geräte" }),
       el("div", { className: "box" }, ...items(me.devices, "devices"), el("div", { className: "line" }, el("div", { className: "grow desc", textContent: "Handy koppeln: Code holen, dann in der App unter Zugang eintragen." }), codeButton("device"))),
     ];

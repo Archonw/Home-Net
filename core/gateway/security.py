@@ -229,6 +229,14 @@ class Security:
             self.drop_sessions(user_id)
         return user
 
+    def set_notify(self, user_id, choices):
+        with self.lock:
+            data = self.load()
+            user = next(u for u in data["users"] if u["id"] == user_id)
+            current = user.setdefault("notify", {})
+            current.update({str(k): v for k, v in choices.items() if isinstance(v, bool)})
+            self.save(data)
+
     def change_own(self, user_id, form):
         """A user's own name and password; the current password is needed for both."""
         with self.lock:

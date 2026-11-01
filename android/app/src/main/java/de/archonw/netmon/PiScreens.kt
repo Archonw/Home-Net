@@ -89,7 +89,7 @@ private fun piState(row: PiRow): PiState {
 }
 
 @Composable
-private fun HubCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+internal fun HubCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val p = LocalPalette.current
     val clickable = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
     Column(
@@ -100,7 +100,7 @@ private fun HubCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null
 }
 
 @Composable
-private fun PageTitle(title: String, trailing: @Composable () -> Unit = {}, onBack: (() -> Unit)? = null) {
+internal fun PageTitle(title: String, trailing: @Composable () -> Unit = {}, onBack: (() -> Unit)? = null) {
     val p = LocalPalette.current
     Row(
         Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
@@ -119,7 +119,7 @@ private fun PageTitle(title: String, trailing: @Composable () -> Unit = {}, onBa
 }
 
 @Composable
-private fun SectionTitle(text: String) {
+internal fun SectionTitle(text: String) {
     Text(
         text, color = LocalPalette.current.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),

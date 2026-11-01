@@ -22,6 +22,8 @@ data class Device(
     val lastSeen: String,
     /** Bekannte Geräte, von denen dieser Eintrag eine Repeater-Kopie sein könnte. */
     val related: List<String> = emptyList(),
+    /** Meldet sich, wenn das Gerät länger offline ist. */
+    val watched: Boolean = false,
 ) {
     val title: String get() = name.ifBlank { hostname.ifBlank { "Unbekanntes Gerät" } }
 
@@ -37,6 +39,7 @@ data class Device(
             randomMac = o.optBoolean("random_mac"),
             firstSeen = o.optString("first_seen"),
             lastSeen = o.optString("last_seen"),
+            watched = o.optBoolean("watched"),
             related = o.optJSONArray("related")?.let { arr ->
                 (0 until arr.length()).map { i ->
                     arr.getJSONObject(i).let { "${it.optString("title")} (${it.optString("ip")})" }
@@ -81,6 +84,9 @@ class Api(
 
     suspend fun block(mac: String): Device =
         Device.from(JSONObject(request("POST", "api/devices/${enc(mac)}/block")))
+
+    suspend fun setWatched(mac: String, watched: Boolean): Device =
+        Device.from(JSONObject(request("POST", "api/devices/${enc(mac)}/${if (watched) "watch" else "unwatch"}")))
 
     /** Entfernt alle offline Geräte außer gesperrten; liefert die Anzahl. */
     suspend fun removeOffline(): Int =

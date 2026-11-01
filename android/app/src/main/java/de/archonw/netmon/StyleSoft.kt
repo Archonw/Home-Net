@@ -295,6 +295,9 @@ fun SoftDetail(ui: DetailUi) {
             )
         }
         Spacer(Modifier.height(8.dp))
+        TextButton(onClick = ui.onWatch, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
+            Text(if (d.watched) "Nicht mehr im Blick" else "Im Blick behalten", color = p.accentText)
+        }
     }
 }
 
@@ -322,6 +325,20 @@ private fun <T> SoftSegmented(options: List<T>, selected: T, label: (T) -> Strin
 private fun CardTitle(text: String) {
     Text(text, color = LocalPalette.current.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
     Spacer(Modifier.height(12.dp))
+}
+
+@Composable
+private fun SoftLink(title: String, subtitle: String, onClick: () -> Unit) {
+    val p = LocalPalette.current
+    SoftCard(Modifier.clip(CardShape).clickable(onClick = onClick)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = p.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, color = p.muted, fontSize = 13.sp)
+            }
+            Icon(NavIcons.chevron, contentDescription = null, tint = p.muted)
+        }
+    }
 }
 
 @Composable
@@ -367,15 +384,8 @@ fun SoftSettings(ui: SettingsUi) {
                 }
             }
         }
-        SoftCard(Modifier.clip(CardShape).clickable(onClick = ui.onAccess)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Zugang", color = p.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Server, Konto und Kopplung", color = p.muted, fontSize = 13.sp)
-                }
-                Icon(NavIcons.chevron, contentDescription = null, tint = p.muted)
-            }
-        }
+        if (ui.managedByHub) SoftLink("Benachrichtigungen", "Empfang und Auswahl", ui.onNotifications)
+        SoftLink("Zugang", "Server, Konto und Kopplung", ui.onAccess)
         if (ui.configured && !ui.managedByHub) {
             SoftCard {
                 CardTitle("Entsperren mit")

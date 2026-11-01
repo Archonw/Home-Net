@@ -43,7 +43,8 @@ function render() {
   document.title = `${NM.title(d)} – Netzwerkmonitor`;
   const where = `${d.online ? "gerade online" : "offline"} · ${NM.esc(NM.ifaceLabel(d.interface))}`;
   const name = NM.esc(d.name || d.hostname || "Unbekanntes Gerät");
-  const rename = `<button class="rename" data-act="rename">Umbenennen</button>`;
+  const rename = `<button class="rename" data-act="rename">Umbenennen</button>
+    <button class="rename" data-act="watch">${d.watched ? "Nicht mehr im Blick" : "Im Blick behalten"}</button>`;
   const msg = `<div class="msg" role="status">${NM.esc(state.message || "")}</div>`;
   if (NM.prefs.style === "soft") {
     const rows = [
@@ -129,6 +130,14 @@ document.addEventListener("click", async e => {
   if (c) {
     const ok = await NM.copy(c.dataset.copy);
     NM.toast(ok ? `${c.dataset.label} kopiert.` : "Kopieren nicht möglich");
+    return;
+  }
+  if (e.target.closest('[data-act="watch"]')) {
+    try {
+      state.device = await NM.api(url(state.device.watched ? "/unwatch" : "/watch"), { method: "POST" });
+      state.message = state.device.watched ? "Du bekommst eine Meldung, wenn das Gerät länger offline ist." : "Nicht mehr im Blick.";
+    } catch (err) { state.message = err.message; }
+    render();
     return;
   }
   if (e.target.closest('[data-act="rename"]')) {

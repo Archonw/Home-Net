@@ -22,12 +22,14 @@
       "environment": [
         "TZ=${TZ}",
         "PIW_ROOT=/data/pi-wartung/images",
-        "ENGINE_SOCKET=/run/pi-wartung/engine.sock"
+        "ENGINE_SOCKET=/run/pi-wartung/engine.sock",
+        "EVENTS_DIR=/run/home-net-events"
       ],
       "volumes": [
         "${IMAGES_DIR}:/data/pi-wartung/images",
         "${DATA_DIR}/pi-wartung/ssh:/root/.ssh",
-        "${DATA_DIR}/pi-wartung/run:/run/pi-wartung"
+        "${DATA_DIR}/pi-wartung/run:/run/pi-wartung",
+        "${DATA_DIR}/events/pi-wartung:/run/home-net-events"
       ]
     },
     "pi-wartung-service": {
@@ -38,12 +40,41 @@
       "environment": [
         "CONFIG_DIR=/config",
         "ENGINE_SOCKET=/run/pi-wartung/engine.sock",
-        "BACKUP_ROOT=/data/pi-wartung/images"
+        "BACKUP_ROOT=/data/pi-wartung/images",
+        "EVENTS_DIR=/run/home-net-events"
       ],
       "volumes": [
         "${DATA_DIR}/pi-wartung/config:/config",
-        "${DATA_DIR}/pi-wartung/run:/run/pi-wartung"
+        "${DATA_DIR}/pi-wartung/run:/run/pi-wartung",
+        "${DATA_DIR}/events/pi-wartung:/run/home-net-events"
       ]
     }
-  }
+  },
+  "events": [
+    {
+      "id": "backup_failed",
+      "label": "Sicherung fehlgeschlagen"
+    },
+    {
+      "id": "backup_recovered",
+      "label": "Sicherung klappt wieder"
+    },
+    {
+      "id": "backup_ok",
+      "label": "Sicherung erfolgreich",
+      "default": false
+    },
+    {
+      "id": "backup_overdue",
+      "label": "Sicherung überfällig"
+    },
+    {
+      "id": "disk_low",
+      "label": "Speicherplatz für Images knapp"
+    },
+    {
+      "id": "card_full",
+      "label": "Karte im Pi fast voll"
+    }
+  ]
 }

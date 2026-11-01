@@ -59,6 +59,7 @@ class Device:
     last_seen: str
     # Nur für die Benachrichtigung über ein neues Gerät, wird nicht gespeichert
     hint: str = ""
+    watched: bool = False
 
 
 def normalize_mac(mac: str) -> str:
@@ -94,6 +95,9 @@ class Store:
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.executescript(SCHEMA)
+            columns = {row["name"] for row in self._db.execute("PRAGMA table_info(device)")}
+            if "watched" not in columns:
+                self._db.execute("ALTER TABLE device ADD COLUMN watched INTEGER NOT NULL DEFAULT 0")
 
     def _row_to_device(self, row: sqlite3.Row) -> Device:
         return Device(
@@ -108,6 +112,7 @@ class Store:
             notes=row["notes"],
             first_seen=row["first_seen"],
             last_seen=row["last_seen"],
+            watched=bool(row["watched"]),
         )
 
     def get_meta(self, key: str) -> str | None:
@@ -237,6 +242,12 @@ class Store:
                 self._db.execute("UPDATE device SET name = ? WHERE mac = ?", (name, mac))
             if notes is not None:
                 self._db.execute("UPDATE device SET notes = ? WHERE mac = ?", (notes, mac))
+        return self.get(mac)
+
+    def set_watched(self, mac: str, watched: bool) -> Device | None:
+        mac = normalize_mac(mac)
+        with self._lock, self._db:
+            self._db.execute("UPDATE device SET watched = ? WHERE mac = ?", (int(watched), mac))
         return self.get(mac)
 
     def add_event(self, mac: str, type_: str, detail: str = "") -> None:

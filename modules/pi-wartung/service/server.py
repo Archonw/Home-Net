@@ -15,6 +15,7 @@ import shlex
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -39,6 +40,8 @@ UNRAID_HOST = os.environ.get("UNRAID_HOST", "")
 UNRAID_PORT = os.environ.get("UNRAID_PORT", "22")
 ROOT = os.environ.get("BACKUP_ROOT", "/mnt/user/backup1/Raspis/PiWartung")
 ENGINE_SOCKET = os.environ.get("ENGINE_SOCKET", "")
+EVENTS_DIR = os.environ.get("EVENTS_DIR", "")
+OVERDUE_DAYS = {"daily": 2, "weekly": 9, "monthly": 35}
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
 MAX_FAILS = 10
 FAIL_WINDOW = 15 * 60
@@ -305,6 +308,46 @@ EDITABLE = {"name": str, "category": str, "host": str, "port": int, "user": str,
             "notes": str}
 CHOICES = {"format": ("xz", "gz", "img"), "schedule": ("off", "daily", "weekly", "monthly"),
            "notify": ("errors", "always", "off")}
+
+
+def spool_event(spool, event):
+    fd, tmp = tempfile.mkstemp(dir=spool, suffix=".tmp")
+    with os.fdopen(fd, "w") as f:
+        json.dump(event, f)
+    os.rename(tmp, tmp[:-4] + ".json")
+
+
+def check_overdue(store, spool, state_path, now=None):
+    """A Pi with a schedule that has not had a good backup for too long; a failing timer would stay silent otherwise."""
+    now = now or time.time()
+    try:
+        with open(state_path) as f:
+            sent = json.load(f)
+    except (OSError, ValueError):
+        sent = {}
+    fresh = {}
+    for row in store.overview()["pis"]:
+        days = OVERDUE_DAYS.get(row["schedule"])
+        if not days or not row["ok_time"] or row["running"] or now - row["ok_time"] < days * 86400:
+            continue
+        fresh[row["id"]] = sent.get(row["id"], 0)
+        if now - fresh[row["id"]] >= 86400:
+            age = int((now - row["ok_time"]) / 86400)
+            spool_event(spool, {"type": "backup_overdue", "title": f"Sicherung von {row['name']} überfällig",
+                                "message": f"Die letzte gelungene Sicherung ist {age} Tage her.", "priority": "high",
+                                "category": row["category"], "link": f"pi/{row['id']}"})
+            fresh[row["id"]] = now
+    with open(state_path, "w") as f:
+        json.dump(fresh, f)
+
+
+def overdue_forever(store, spool, state_path):
+    while True:
+        try:
+            check_overdue(store, spool, state_path)
+        except Exception as exc:  # the service must not stop because of this check
+            print(f"Prüfung auf überfällige Sicherungen fehlgeschlagen: {exc!r}", file=sys.stderr, flush=True)
+        time.sleep(3600)
 
 
 def category_allowed(category, scopes):
@@ -618,6 +661,9 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     Handler.store = Store(Backend())
     Handler.auth = Auth(f"{CONFIG_DIR}/auth.json")
+    if EVENTS_DIR:
+        threading.Thread(target=overdue_forever, args=(Handler.store, EVENTS_DIR, f"{CONFIG_DIR}/overdue.json"),
+                         daemon=True).start()
     port = int(os.environ.get("PORT", "8080"))
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 

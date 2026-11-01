@@ -68,6 +68,31 @@ class Service(unittest.TestCase):
             body = exc.read()
             return exc.code, json.loads(body) if body else {}
 
+    def test_overdue_only_with_schedule_once_per_day_and_not_after_success(self):
+        spool = os.path.join(self.dir.name, "spool")
+        os.mkdir(spool)
+        state = os.path.join(self.dir.name, "overdue.json")
+        now = 10 * 86400
+        rows = [{"id": "a", "name": "Alt", "category": "Familie", "schedule": "daily", "ok_time": now - 3 * 86400, "running": False},
+                {"id": "b", "name": "Aus", "category": "", "schedule": "off", "ok_time": 1, "running": False},
+                {"id": "c", "name": "Frisch", "category": "", "schedule": "weekly", "ok_time": now - 86400, "running": False},
+                {"id": "d", "name": "Nie", "category": "", "schedule": "daily", "ok_time": 0, "running": False}]
+
+        class Store:
+            def overview(self):
+                return {"pis": rows}
+
+        server.check_overdue(Store(), spool, state, now)
+        files = [f for f in os.listdir(spool) if f.endswith(".json")]
+        self.assertEqual(len(files), 1)
+        with open(os.path.join(spool, files[0])) as f:
+            event = json.load(f)
+        self.assertEqual((event["type"], event["category"], event["link"]), ("backup_overdue", "Familie", "pi/a"))
+        server.check_overdue(Store(), spool, state, now + 3600)
+        self.assertEqual(len(os.listdir(spool)), 1)
+        server.check_overdue(Store(), spool, state, now + 86400)
+        self.assertEqual(len(os.listdir(spool)), 2)
+
     def test_no_password_set_refuses_everything(self):
         self.assertEqual(self.call("/api/overview")[0], 503)
         self.assertEqual(self.call("/health", password=None)[0], 200)

@@ -101,6 +101,7 @@ class DetailUi(
     val busy: Boolean,
     val onAllow: () -> Unit,
     val onBlock: () -> Unit,
+    val onWatch: () -> Unit,
     val onBack: () -> Unit,
     val onCopy: (label: String, value: String) -> Unit,
 )
@@ -126,6 +127,7 @@ class SettingsUi(
     val message: String?,
     val onSave: () -> Unit,
     val onAccess: () -> Unit,
+    val onNotifications: () -> Unit,
 )
 
 /** Fragt den Monitor nach einer neuen App-Version und bietet sie an. */
@@ -325,6 +327,20 @@ fun DetailScreen(api: Api, mac: String, style: AppStyle, onBack: () -> Unit) {
         busy = busy,
         onAllow = { act(true) },
         onBlock = { if (device?.related.isNullOrEmpty()) act(false) else confirmBlock = true },
+        onWatch = {
+            val watched = device?.watched != true
+            busy = true
+            scope.launch {
+                try {
+                    device = api.setWatched(mac, watched)
+                    message = if (watched) "Du bekommst eine Meldung, wenn das Gerät länger offline ist." else "Nicht mehr im Blick."
+                } catch (e: ApiException) {
+                    message = e.message
+                } finally {
+                    busy = false
+                }
+            }
+        },
         onBack = onBack,
         onCopy = { label, value ->
             clipboard.setText(AnnotatedString(value))
@@ -375,6 +391,7 @@ fun SettingsScreen(
     onLockModeChange: (Boolean) -> String?,
     onSaved: () -> Unit,
     onAccess: () -> Unit,
+    onNotifications: () -> Unit,
 ) {
     var url by remember { mutableStateOf(settings.serverUrl.ifBlank { "http://" }) }
     var externalUrl by remember { mutableStateOf(settings.externalUrl) }
@@ -403,6 +420,7 @@ fun SettingsScreen(
         busy = busy,
         message = message,
         onAccess = onAccess,
+        onNotifications = onNotifications,
         onSave = {
             busy = true
             message = null

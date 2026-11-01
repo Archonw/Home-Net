@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import os
 import secrets
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -19,6 +20,7 @@ from pydantic import BaseModel
 from .appupdate import AppFolder, update_from_github
 from .auth import LoginGuard, client_ip, via_proxy
 from .config import EDITABLE, Settings, apply_overrides, coerce, public_view
+from .events import HubEvents
 from .fritzbox import FritzBox, Router
 from .monitor import BlockNotPossible, Monitor
 from .notify import TEST_DEVICE, Notifier, TelegramNotifier, build_notifiers
@@ -119,6 +121,7 @@ def create_app(
     except ValueError as exc:
         log.warning("Gespeicherte Einstellungen ungültig, nutze Umgebung: %s", exc)
     rt = Runtime(settings, store, router, notifiers)
+    hub_events = HubEvents(os.environ.get("EVENTS_DIR", ""))
     monitor = rt.monitor
     state = {"last_error": None, "last_poll": None}
     app_folder = AppFolder(settings.app_dir)
@@ -153,6 +156,7 @@ def create_app(
 
     def notify_new(devices) -> None:
         for device in devices:
+            hub_events.new_device(device)
             for notifier in rt.notifiers:
                 try:
                     notifier.new_device(device)
@@ -183,9 +187,12 @@ def create_app(
                 state["last_poll"] = datetime.now(UTC).isoformat(timespec="seconds")
                 if result.new_devices:
                     await asyncio.to_thread(notify_new, result.new_devices)
+                hub_events.router_ok()
+                hub_events.check_devices(store.list())
             except Exception as exc:  # noqa: BLE001 – Schleife muss weiterlaufen
                 log.exception("Abfrage der FritzBox fehlgeschlagen")
                 state["last_error"] = str(exc)
+                hub_events.router_failed(str(exc))
                 if isinstance(rt.router, FritzBox):
                     rt.router.reset()
             await asyncio.sleep(rt.settings.poll_interval)
@@ -392,6 +399,20 @@ def create_app(
     @app.post("/api/devices/{mac}/block", dependencies=[Depends(require_login)])
     def block(mac: str) -> dict:
         return _set(mac, Status.BLOCKED)
+
+    @app.post("/api/devices/{mac}/watch", dependencies=[Depends(require_login)])
+    def watch(mac: str) -> dict:
+        return watched(mac, True)
+
+    @app.post("/api/devices/{mac}/unwatch", dependencies=[Depends(require_login)])
+    def unwatch(mac: str) -> dict:
+        return watched(mac, False)
+
+    def watched(mac: str, value: bool) -> dict:
+        device = store.set_watched(mac, value)
+        if device is None:
+            raise HTTPException(404, "Gerät nicht gefunden")
+        return device_details(device)
 
     @app.patch("/api/devices/{mac}", dependencies=[Depends(require_login)])
     def update(mac: str, body: DeviceUpdate) -> dict:
