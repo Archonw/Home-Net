@@ -82,28 +82,38 @@ ntfy_send() {
       --data-urlencode "priority=$priority" --data-urlencode "tags=$tags" "${NTFY_URL%/}/$NTFY_TOPIC/publish"
 }
 
+# Unraid's own notifications exist only when the engine runs directly on Unraid.
+unraid_send() {
+  local sender=/usr/local/emhttp/webGui/scripts/notify
+  [ -x "$sender" ] || return 0
+  "$sender" -e "Pi-Wartung" -s "$1" -d "$2" -i "$3" >/dev/null 2>&1 || true
+}
+
+notify_all() {
+  local title=$1 message=$2 level=$3 priority=$4 tags=$5
+  unraid_send "$title" "$message" "$level"
+  ntfy_send "$title" "$message" "$priority" "$tags" || log "WARNUNG: ntfy nicht erreichbar"
+}
+
 # One message when a Pi starts failing, a reminder per day while it stays broken,
 # and one when it recovers. Hourly retries would otherwise flood the inbox.
 send_notification() {
-  local status=$1 prev now notified=0 sender=/usr/local/emhttp/webGui/scripts/notify
-  [ "$NOTIFY" != off ] && [ -x "$sender" ] || return 0
+  local status=$1 prev now notified=0
+  [ "$NOTIFY" != off ] || return 0
   prev=$(sed -n 's/^LAST_STATUS=//p' "$STATE/last" 2>/dev/null)
   now=$(date +%s)
   [ -f "$STATE/notified" ] && notified=$(cat "$STATE/notified")
   case "$status" in
     failed)
       if [ "$prev" != failed ] || [ $((now - notified)) -ge 86400 ]; then
-        "$sender" -e "Pi-Wartung" -s "Sicherung von $NAME fehlgeschlagen" -d "$ERROR" -i alert >/dev/null 2>&1
-        ntfy_send "Sicherung von $NAME fehlgeschlagen" "$ERROR" high warning || log "WARNUNG: ntfy nicht erreichbar"
+        notify_all "Sicherung von $NAME fehlgeschlagen" "$ERROR" alert high warning
         echo "$now" > "$STATE/notified"
       fi ;;
     ok)
       if [ "$prev" = failed ]; then
-        "$sender" -e "Pi-Wartung" -s "Sicherung von $NAME klappt wieder" -d "Neues Image: ${OUT_NAME:-}" -i normal >/dev/null 2>&1
-        ntfy_send "Sicherung von $NAME klappt wieder" "Neues Image: ${OUT_NAME:-}" default white_check_mark || log "WARNUNG: ntfy nicht erreichbar"
+        notify_all "Sicherung von $NAME klappt wieder" "Neues Image: ${OUT_NAME:-}" normal default white_check_mark
       elif [ "$NOTIFY" = always ]; then
-        "$sender" -e "Pi-Wartung" -s "Sicherung von $NAME erfolgreich" -d "Neues Image: ${OUT_NAME:-}" -i normal >/dev/null 2>&1
-        ntfy_send "Sicherung von $NAME erfolgreich" "Neues Image: ${OUT_NAME:-}" default white_check_mark || log "WARNUNG: ntfy nicht erreichbar"
+        notify_all "Sicherung von $NAME erfolgreich" "Neues Image: ${OUT_NAME:-}" normal default white_check_mark
       fi
       rm -f "$STATE/notified" ;;
   esac
