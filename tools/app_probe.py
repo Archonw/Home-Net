@@ -34,6 +34,9 @@ def report(kind, text):
 def fail(text):
     (OUT / "logcat.txt").write_text(adb("logcat", "-d", check=False))
     (OUT / "screen.xml").write_text(screen_dump())
+    hints = [line[-160:] for line in (OUT / "logcat.txt").read_text().splitlines()
+             if re.search(r"NotificationService|BootReceiver|ForegroundService|netmon.*(Denial|not allowed)", line)]
+    report("warning", "Protokoll: " + " | ".join(hints[-8:]))
     crash = re.findall(r"FATAL EXCEPTION.*?(?=\n\S+ \S+ +\d+ +\d+ [^E])", (OUT / "logcat.txt").read_text(), re.S)
     report("error", f"{text}. Bildschirm: {texts()[:40]}. Absturz: {crash[:1]}")
     sys.exit(1)
@@ -171,18 +174,24 @@ def main():
     find("Sicherung von Probe fehlgeschlagen", scroll=True)
     report("notice", "Seite Benachrichtigungen zeigt Auswahl und Verlauf")
 
-    # Eine echte Neuinstallation wie beim App-Update; ein Neustart des Handys läuft über denselben Empfänger
-    adb("shell", "am", "force-stop", PKG)
+    # Eine echte Neuinstallation wie beim App-Update
     adb("install", "-r", apk)
-    wait_for(service_running, "Empfänger startet den Dienst nicht neu")
+    wait_for(service_running, "Dienst kommt nach dem Update nicht wieder")
     report("notice", "Dienst kommt nach einem Update wieder")
 
     # Während der Unterbrechung Verpasstes muss nachkommen
     adb("shell", "am", "force-stop", PKG)
     gateway.inbox().add("pi-wartung", "backup_failed", "Nachgeliefert", "x", "high")
-    adb("install", "-r", apk)
+    adb("shell", "monkey", "-p", PKG, "-c", "android.intent.category.LAUNCHER", "1")
     wait_for(lambda: "Nachgeliefert" in notifications(), "Verpasste Meldung kommt nicht nach")
     report("notice", "Verpasste Meldung wird nachgeliefert")
+
+    adb("reboot")
+    time.sleep(10)
+    subprocess.run(["adb", "wait-for-device"], timeout=180, check=True)
+    wait_for(lambda: adb("shell", "getprop", "sys.boot_completed", check=False).strip() == "1", "Emulator startet nicht", 240)
+    wait_for(service_running, "Dienst kommt nach einem Neustart des Handys nicht wieder", 120)
+    report("notice", "Dienst kommt nach einem Neustart des Handys wieder")
 
     device = store.account(owner)["devices"][0]
     store.remove_item("devices", device["id"], owner)
