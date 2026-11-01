@@ -6,6 +6,7 @@ Usage:
   home-net add <modul>       home-net remove <modul>
   home-net status            home-net modules
   home-net update            home-net password [neues Passwort]
+  home-net apply             Erstellt alles neu aus dem vorhandenen Programmstand
   home-net backup            home-net restore <archiv>
 """
 import argparse
@@ -117,6 +118,8 @@ class Install:
 
     @classmethod
     def locate(cls):
+        if os.environ.get("HOME_NET_DATA"):
+            return cls(os.environ["HOME_NET_DATA"])
         if not POINTER.exists():
             raise HomeNetError("Keine Installation gefunden. Bitte zuerst: home-net install")
         return cls(POINTER.read_text().strip())
@@ -256,6 +259,12 @@ def cmd_update(_args):
     inst.start()
 
 
+def cmd_apply(_args):
+    inst = Install.locate()
+    inst.apply(inst.load())
+    inst.start()
+
+
 def cmd_password(args):
     inst = Install.locate()
     state = inst.load()
@@ -308,7 +317,8 @@ def main(argv=None):
         p = sub.add_parser(name)
         p.add_argument("module")
         p.set_defaults(func=func)
-    for name, func in (("status", cmd_status), ("modules", cmd_modules), ("update", cmd_update), ("backup", cmd_backup)):
+    for name, func in (("status", cmd_status), ("modules", cmd_modules), ("update", cmd_update), ("apply", cmd_apply),
+                       ("backup", cmd_backup)):
         sub.add_parser(name).set_defaults(func=func)
     p = sub.add_parser("password")
     p.add_argument("password", nargs="?")

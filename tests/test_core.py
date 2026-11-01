@@ -148,6 +148,20 @@ class Gateway(unittest.TestCase):
             self.assertEqual(self.call("/", "falsch")[0], 401)
         self.assertEqual(self.call("/", "geheim")[0], 429)
 
+    def test_forged_forwarded_address_does_not_escape_lockout(self):
+        for i in range(10):
+            req = urllib.request.Request(self.base + "/", headers={
+                "Authorization": "Basic " + base64.b64encode(b"app:falsch").decode(),
+                "X-Forwarded-For": f"10.0.0.{i}, 203.0.113.9"})
+            with self.assertRaises(urllib.error.HTTPError):
+                urllib.request.urlopen(req, timeout=5)
+        req = urllib.request.Request(self.base + "/", headers={
+            "Authorization": "Basic " + base64.b64encode(b"app:geheim").decode(),
+            "X-Forwarded-For": "10.9.9.9, 203.0.113.9"})
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(req, timeout=5)
+        self.assertEqual(caught.exception.code, 429)
+
     def test_proxy_swaps_password(self):
         code, body, _ = self.call("/m/demo/api/x?a=1")
         self.assertEqual(code, 200)

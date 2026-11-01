@@ -408,7 +408,8 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write(f"{self.client_ip()} {fmt % args}\n")
 
     def client_ip(self):
-        return self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[0].strip()
+        # The gateway sets this to the one address it trusts.
+        return self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[-1].strip()
 
     def send_json(self, code, payload):
         body = json.dumps(payload, ensure_ascii=False).encode()

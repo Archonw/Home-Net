@@ -72,7 +72,8 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write(f"{self.client_ip()} {fmt % args}\n")
 
     def client_ip(self):
-        return self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[0].strip()
+        # The proxy appends the address it saw, anything before that comes from the client and can be made up.
+        return self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[-1].strip()
 
     def reply(self, code, body=b"", content_type="application/json; charset=utf-8", headers=None):
         self.send_response(code)
