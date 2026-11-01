@@ -71,7 +71,9 @@ def find(label, timeout=30, scroll=False):
                 if wanted(node):
                     return node
         if scroll:
-            adb("shell", "input", "swipe", "500", "1500", "500", "700", "300")
+            width, height = map(int, re.findall(r"\d+", adb("shell", "wm", "size"))[:2])
+            x = str(width // 2)
+            adb("shell", "input", "swipe", x, str(height * 3 // 4), x, str(height // 4), "400")
         time.sleep(1)
     fail(f"„{label}“ erscheint nicht")
 
