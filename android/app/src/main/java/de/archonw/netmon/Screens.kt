@@ -126,6 +126,68 @@ class SettingsUi(
     val onSave: () -> Unit,
 )
 
+/** Fragt den Monitor nach einer neuen App-Version und bietet sie an. */
+@Composable
+fun AppUpdatePrompt(api: Api, settings: Settings) {
+    var update by remember { mutableStateOf<AppRelease?>(null) }
+    var updateBusy by remember { mutableStateOf(false) }
+    var updateError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        val installed = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+        update = runCatching { api.latestApp() }.getOrNull()
+            ?.takeIf { it.versionCode > installed && it.versionCode != settings.skippedAppVersion }
+    }
+
+    update?.let { release ->
+        AlertDialog(
+            onDismissRequest = { if (!updateBusy) update = null },
+            title = { Text("Neue App-Version") },
+            text = {
+                Text(
+                    when {
+                        updateBusy -> "Version ${release.version} wird geladen …"
+                        updateError != null -> updateError!!
+                        !Updater.canInstall(context) ->
+                            "Auf dem Monitor liegt Version ${release.version}. Damit die App sich selbst " +
+                                "aktualisieren kann, erlaube ihr einmalig, Apps zu installieren, und tippe " +
+                                "danach erneut auf „Installieren“."
+                        else -> "Auf dem Monitor liegt Version ${release.version}. Jetzt installieren?"
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(enabled = !updateBusy, onClick = {
+                    updateError = null
+                    if (!Updater.canInstall(context)) {
+                        Updater.openInstallPermission(context)
+                        return@TextButton
+                    }
+                    updateBusy = true
+                    scope.launch {
+                        try {
+                            Updater.install(context, release)
+                            update = null
+                        } catch (e: Exception) {
+                            updateError = "Update fehlgeschlagen: ${e.message ?: e.javaClass.simpleName}"
+                        } finally {
+                            updateBusy = false
+                        }
+                    }
+                }) { Text("Installieren") }
+            },
+            dismissButton = {
+                TextButton(enabled = !updateBusy, onClick = {
+                    settings.skippedAppVersion = release.versionCode
+                    update = null
+                }) { Text("Später") }
+            },
+        )
+    }
+}
+
 @Composable
 fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -> Unit) {
     var devices by remember { mutableStateOf<List<Device>?>(null) }
@@ -138,17 +200,8 @@ fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
-    var update by remember { mutableStateOf<AppRelease?>(null) }
-    var updateBusy by remember { mutableStateOf(false) }
-    var updateError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-
-    LaunchedEffect(Unit) {
-        val installed = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
-        update = runCatching { api.latestApp() }.getOrNull()
-            ?.takeIf { it.versionCode > installed && it.versionCode != settings.skippedAppVersion }
-    }
 
     LaunchedEffect(reload) {
         error = null
@@ -221,52 +274,6 @@ fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -
                 }) { Text("Entfernen") }
             },
             dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Abbrechen") } },
-        )
-    }
-
-    update?.let { release ->
-        AlertDialog(
-            onDismissRequest = { if (!updateBusy) update = null },
-            title = { Text("Neue App-Version") },
-            text = {
-                Text(
-                    when {
-                        updateBusy -> "Version ${release.version} wird geladen …"
-                        updateError != null -> updateError!!
-                        !Updater.canInstall(context) ->
-                            "Auf dem Monitor liegt Version ${release.version}. Damit die App sich selbst " +
-                                "aktualisieren kann, erlaube ihr einmalig, Apps zu installieren, und tippe " +
-                                "danach erneut auf „Installieren“."
-                        else -> "Auf dem Monitor liegt Version ${release.version}. Jetzt installieren?"
-                    },
-                )
-            },
-            confirmButton = {
-                TextButton(enabled = !updateBusy, onClick = {
-                    updateError = null
-                    if (!Updater.canInstall(context)) {
-                        Updater.openInstallPermission(context)
-                        return@TextButton
-                    }
-                    updateBusy = true
-                    scope.launch {
-                        try {
-                            Updater.install(context, release)
-                            update = null
-                        } catch (e: Exception) {
-                            updateError = "Update fehlgeschlagen: ${e.message ?: e.javaClass.simpleName}"
-                        } finally {
-                            updateBusy = false
-                        }
-                    }
-                }) { Text("Installieren") }
-            },
-            dismissButton = {
-                TextButton(enabled = !updateBusy, onClick = {
-                    settings.skippedAppVersion = release.versionCode
-                    update = null
-                }) { Text("Später") }
-            },
         )
     }
 

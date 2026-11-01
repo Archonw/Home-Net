@@ -167,6 +167,8 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     var installed by remember { mutableStateOf<Set<String>?>(null) }
     var hubError by remember { mutableStateOf<String?>(null) }
 
+    AppUpdatePrompt(api, settings)
+
     LaunchedEffect(Unit) {
         if (settings.isHubConfigured) {
             try {
