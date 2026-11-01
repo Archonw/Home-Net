@@ -108,7 +108,8 @@ const NM = (() => {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   async function api(path, opts = {}) {
-    const r = await fetch(path, opts);
+    // Hinter dem Home-Net-Zugang liegt der Monitor unter einem Unterpfad
+    const r = await fetch(path.startsWith("/") ? (window.HOME_NET_PREFIX || "") + path : path, opts);
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.detail || r.statusText);
     return body;

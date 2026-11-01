@@ -8,6 +8,18 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+data class HubModule(val id: String, val name: String, val online: Boolean?)
+
+/** Fragt den gemeinsamen Zugang, welche Module installiert sind. */
+suspend fun hubModules(home: String, external: String, password: String): List<HubModule> {
+    val body = PiApi(home, password, external).raw("api/modules")
+    val arr = JSONObject(body).getJSONArray("modules")
+    return (0 until arr.length()).map { i ->
+        val o = arr.getJSONObject(i)
+        HubModule(o.getString("id"), o.optString("name"), if (o.has("online")) o.optBoolean("online") else null)
+    }
+}
+
 data class PiRow(
     val id: String,
     val name: String,
@@ -75,6 +87,8 @@ data class PiDetail(
 class PiApi(homeUrl: String, private val password: String, externalUrl: String = "") {
     private val urls = listOf(homeUrl, externalUrl).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 
+    suspend fun raw(path: String): String = request("GET", path)
+
     suspend fun overview(): PiOverview {
         val o = JSONObject(request("GET", "api/overview"))
         return PiOverview(
@@ -138,7 +152,7 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
             }
         }
         val hint = if (urls.size > 1) "" else " Bist du im Heimnetz?"
-        throw ApiException("Pi-Wartung nicht erreichbar (${lastError?.javaClass?.simpleName}).$hint")
+        throw ApiException("Dienst nicht erreichbar (${lastError?.javaClass?.simpleName}).$hint")
     }
 
     private fun call(base: String, method: String, path: String, connectTimeout: Int): String {

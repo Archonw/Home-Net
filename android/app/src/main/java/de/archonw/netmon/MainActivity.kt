@@ -41,6 +41,7 @@ sealed interface Screen {
     data object PiOverview : Screen
     data class PiDetail(val id: String) : Screen
     data object PiSetup : Screen
+    data object HubSetup : Screen
 }
 
 class MainActivity : FragmentActivity() {
@@ -65,7 +66,7 @@ class MainActivity : FragmentActivity() {
         useBiometrics = settings.useBiometrics
         // Ohne Einrichtung gibt es noch kein Passwort: die erste Anmeldung ist die Einrichtung selbst
         if (!settings.isConfigured) {
-            screen = Screen.Setup
+            screen = Screen.HubSetup
             unlocked = true
         }
         handleLink(intent)
@@ -145,6 +146,12 @@ class MainActivity : FragmentActivity() {
                         api = settings.api(),
                         onNetwork = { screen = Screen.List },
                         onPi = { screen = if (settings.isPiConfigured) Screen.PiOverview else Screen.PiSetup },
+                        onHub = { screen = Screen.HubSetup },
+                    )
+                    Screen.HubSetup -> HubSetupScreen(
+                        settings = settings,
+                        onSaved = { screen = Screen.Home },
+                        onBack = if (settings.isConfigured) ({ screen = Screen.Home }) else null,
                     )
                     Screen.PiOverview -> PiOverviewScreen(
                         api = settings.piApi(),

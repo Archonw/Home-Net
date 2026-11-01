@@ -1,0 +1,16 @@
+{
+  "id": "ntfy",
+  "name": "ntfy",
+  "description": "Eigener Server für Benachrichtigungen aufs Handy",
+  "icon": "https://raw.githubusercontent.com/binwiederhier/ntfy/main/docs/static/img/ntfy.png",
+  "api": {"external_port": 8091},
+  "services": {
+    "ntfy": {
+      "image": "binwiederhier/ntfy",
+      "command": ["serve", "--cache-file", "/var/cache/ntfy/cache.db"],
+      "ports": ["8091:80"],
+      "volumes": ["${DATA_DIR}/ntfy:/var/cache/ntfy"],
+      "env_file": ["${DATA_DIR}/ntfy.env"]
+    }
+  }
+}

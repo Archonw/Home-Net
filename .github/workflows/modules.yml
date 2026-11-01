@@ -5,17 +5,29 @@ on:
     paths:
       - "modules/**"
       - "core/**"
+      - "tests/**"
       - ".github/workflows/modules.yml"
   pull_request:
     paths:
       - "modules/**"
       - "core/**"
+      - "tests/**"
       - ".github/workflows/modules.yml"
 
 permissions:
   contents: read
 
 jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover tests
+      - run: docker build -q -f core/gateway/Dockerfile -t home-net-gateway:test .
+
   netzwerkmonitor:
     runs-on: ubuntu-latest
     defaults:

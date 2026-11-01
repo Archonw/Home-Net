@@ -3,18 +3,47 @@
   "name": "Pi-Wartung",
   "description": "Sichert Raspberry Pis als Images, die sich auf SD-Karten zurückschreiben lassen",
   "icon": "assets/icons/pi-wartung.png",
-  "api": {"port": 8080, "health": "/health"},
+  "api": {
+    "service": "pi-wartung-service",
+    "port": 8080,
+    "health": "/health",
+    "public": [
+      "/health"
+    ],
+    "web": true
+  },
   "services": {
     "pi-wartung-engine": {
-      "build": {"context": "modules/pi-wartung", "dockerfile": "engine/Dockerfile"},
+      "build": {
+        "context": "modules/pi-wartung",
+        "dockerfile": "engine/Dockerfile"
+      },
       "privileged": true,
-      "environment": ["TZ=${TZ}", "PIW_ROOT=/data/pi-wartung/images"],
-      "volumes": ["${DATA_DIR}/pi-wartung/images:/data/pi-wartung/images", "${DATA_DIR}/pi-wartung/ssh:/root/.ssh", "${DATA_DIR}/pi-wartung/run:/run/pi-wartung"]
+      "environment": [
+        "TZ=${TZ}",
+        "PIW_ROOT=/data/pi-wartung/images",
+        "ENGINE_SOCKET=/run/pi-wartung/engine.sock"
+      ],
+      "volumes": [
+        "${IMAGES_DIR}:/data/pi-wartung/images",
+        "${DATA_DIR}/pi-wartung/ssh:/root/.ssh",
+        "${DATA_DIR}/pi-wartung/run:/run/pi-wartung"
+      ]
     },
     "pi-wartung-service": {
-      "build": {"context": "modules/pi-wartung", "dockerfile": "service/Dockerfile"},
-      "environment": ["CONFIG_DIR=/config", "ENGINE_SOCKET=/run/pi-wartung/engine.sock", "BACKUP_ROOT=/data/pi-wartung/images"],
-      "volumes": ["${DATA_DIR}/pi-wartung/config:/config", "${DATA_DIR}/pi-wartung/run:/run/pi-wartung"]
+      "build": {
+        "context": "modules/pi-wartung",
+        "dockerfile": "service/Dockerfile"
+      },
+      "environment": [
+        "CONFIG_DIR=/config",
+        "ENGINE_SOCKET=/run/pi-wartung/engine.sock",
+        "BACKUP_ROOT=/data/pi-wartung/images"
+      ],
+      "volumes": [
+        "${DATA_DIR}/pi-wartung/config:/config",
+        "${DATA_DIR}/pi-wartung/run:/run/pi-wartung"
+      ]
     }
   }
 }

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home-Net</title>
+<style>
+:root { color-scheme: light dark; --bg: #f6f7f9; --card: #fff; --text: #1c1f26; --muted: #666e7a; --line: #e2e5ea; }
+@media (prefers-color-scheme: dark) { :root { --bg: #15171c; --card: #1f2229; --text: #eceef2; --muted: #9aa2ad; --line: #30343c; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
+h1 { font-size: 26px; margin: 0 0 20px; }
+a.tile, div.tile { display: flex; gap: 14px; align-items: center; background: var(--card); border: 1px solid var(--line);
+  border-radius: 14px; padding: 16px; margin-bottom: 12px; color: inherit; text-decoration: none; }
+img { width: 52px; height: 52px; border-radius: 13px; flex: none; }
+.name { font-weight: 650; font-size: 18px; }
+.desc { color: var(--muted); font-size: 14px; }
+.state { margin-left: auto; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.off { color: #c93a3a; }
+</style>
+</head>
+<body>
+<main>
+<h1>Home-Net</h1>
+<div id="list">Wird geladen …</div>
+</main>
+<script>
+fetch("api/modules").then(r => r.json()).then(({modules}) => {
+  const list = document.getElementById("list");
+  list.textContent = "";
+  for (const m of modules) {
+    const link = m.web ? `${m.path}/` : m.external_port ? `${location.protocol}//${location.hostname}:${m.external_port}/` : null;
+    const el = document.createElement(link ? "a" : "div");
+    el.className = "tile";
+    if (link) el.href = link;
+    const img = document.createElement("img"); img.src = m.icon; img.alt = "";
+    const text = document.createElement("div");
+    const name = document.createElement("div"); name.className = "name"; name.textContent = m.name;
+    const desc = document.createElement("div"); desc.className = "desc"; desc.textContent = m.description;
+    text.append(name, desc);
+    el.append(img, text);
+    if (m.online !== undefined) {
+      const state = document.createElement("div");
+      state.className = "state" + (m.online ? "" : " off");
+      state.textContent = m.online ? "läuft" : "nicht erreichbar";
+      el.append(state);
+    }
+    list.append(el);
+  }
+}).catch(() => { document.getElementById("list").textContent = "Die Module konnten nicht geladen werden."; });
+</script>
+</body>
+</html>

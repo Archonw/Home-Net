@@ -5,28 +5,41 @@ It runs in a container and reaches the Unraid host over ssh with a key whose for
 command only allows the verbs in cmd_api of the engine.
 """
 import base64
+import copy
 import hashlib
 import hmac
 import json
 import os
 import re
+import shlex
 import socket
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from piwartung.core import Pi, attention_items, parse_kv, parse_shell_kv, parse_summary  # noqa: E402
+from piwartung.core import (  # noqa: E402
+    Pi,
+    attention_items,
+    parse_kv,
+    parse_shell_kv,
+    parse_summary,
+    valid_category,
+    valid_segment,
+)
 
 CONFIG_DIR = os.environ.get("CONFIG_DIR", "/config")
 UNRAID_HOST = os.environ.get("UNRAID_HOST", "")
 UNRAID_PORT = os.environ.get("UNRAID_PORT", "22")
 ROOT = os.environ.get("BACKUP_ROOT", "/mnt/user/backup1/Raspis/PiWartung")
 ENGINE_SOCKET = os.environ.get("ENGINE_SOCKET", "")
+PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
 MAX_FAILS = 10
 FAIL_WINDOW = 15 * 60
 DEVICE_MAX_AGE = 5 * 60
@@ -54,13 +67,21 @@ class Backend:
         return p.stdout
 
 
+    def admin(self, timeout=120, **request):
+        """A change through the engine; refused or failed changes raise BackendError."""
+        return self.socket_line(json.dumps(request), timeout)
+
     @staticmethod
     def socket_call(words, timeout):
+        return Backend.socket_line(" ".join(words), timeout)
+
+    @staticmethod
+    def socket_line(line, timeout):
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
                 s.settimeout(timeout)
                 s.connect(ENGINE_SOCKET)
-                s.sendall((" ".join(words) + "\n").encode())
+                s.sendall((line + "\n").encode())
                 s.shutdown(socket.SHUT_WR)
                 chunks = []
                 while chunk := s.recv(65536):
@@ -156,6 +177,97 @@ class Store:
             "devices_checked": int(checked),
         }
 
+    def inventory(self):
+        data = json.loads(self.backend.host_call("inventory") or "{}")
+        known = set(Pi.__dataclass_fields__)
+        return data.get("categories", []), [Pi(**{k: v for k, v in p.items() if k in known}) for p in data.get("pis", [])]
+
+    def save_inventory(self, categories, pis):
+        text = json.dumps({"categories": sorted(categories), "pis": [asdict(p) for p in pis]}, indent=2,
+                          ensure_ascii=False) + "\n"
+        self.backend.admin(verb="put-file", path=f"{ROOT}/inventory.json", text=text)
+        self.invalidate()
+
+    def write_conf(self, pi):
+        self.backend.admin(verb="put-file", path=f"{self.pidir(pi)}/pi.conf", text=pi.conf_text())
+
+    def form_inventory(self):
+        categories, pis = self.inventory()
+        cats = set(categories)
+        for pi in pis:
+            parts = pi.category.split("/") if pi.category else []
+            cats.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))
+        return {"categories": sorted(cats, key=str.casefold), "pis": [asdict(p) for p in pis]}
+
+    def create_pi(self, form):
+        categories, pis = self.inventory()
+        pi = pi_from_form(form)
+        pi.key = pi.own_key_path()
+        self.check_free(pi, pis)
+        self.write_conf(pi)
+        self.save_inventory(set(categories) | ({pi.category} if pi.category else set()), pis + [pi])
+        return pi
+
+    def update_pi(self, pi_id, form):
+        categories, pis = self.inventory()
+        old = next((p for p in pis if p.id == pi_id), None)
+        if not old:
+            raise LookupError
+        new = pi_from_form(form, old)
+        self.check_free(new, pis)
+        if self.pidir(old) != self.pidir(new):
+            if parse_shell_kv(self.backend.host_call("state", self.pidir(old))).get("RUNNING") == "1":
+                raise ValueError("Während einer Sicherung lassen sich Name und Kategorie nicht ändern.")
+            self.backend.admin(verb="move", src=self.pidir(old), dst=self.pidir(new))
+            if old.name != new.name:
+                self.backend.admin(verb="rename-images", dir=self.pidir(new), old=old.name, new=new.name)
+        self.write_conf(new)
+        self.save_inventory(set(categories) | ({new.category} if new.category else set()),
+                            [new if p.id == pi_id else p for p in pis])
+        return new
+
+    def delete_pi(self, pi_id, with_data):
+        categories, pis = self.inventory()
+        old = next((p for p in pis if p.id == pi_id), None)
+        if not old:
+            raise LookupError
+        if with_data:
+            self.backend.admin(verb="delete", dir=self.pidir(old))
+        self.save_inventory(categories, [p for p in pis if p.id != pi_id])
+
+    @staticmethod
+    def check_free(pi, pis):
+        if any(p.name == pi.name and p.category == pi.category and p.id != pi.id for p in pis):
+            raise ValueError("In dieser Kategorie gibt es schon einen Pi mit diesem Namen.")
+
+    def install_key(self, pi, password):
+        fresh = copy.copy(pi)
+        fresh.key = fresh.own_key_path()
+        self.write_conf(fresh)
+        try:
+            out = self.backend.admin(verb="install-key", dir=self.pidir(fresh), password=password)
+        except BackendError:
+            self.write_conf(pi)
+            raise
+        categories, pis = self.inventory()
+        self.save_inventory(categories, [fresh if p.id == pi.id else p for p in pis])
+        return parse_kv(out)
+
+    def ntfy(self):
+        values = parse_shell_kv(self.backend.admin(verb="read-file", path=f"{ROOT}/.engine/ntfy.conf"))
+        return {"url": values.get("NTFY_URL", ""), "topic": values.get("NTFY_TOPIC", ""),
+                "has_token": bool(values.get("NTFY_TOKEN"))}
+
+    def save_ntfy(self, form):
+        current = parse_shell_kv(self.backend.admin(verb="read-file", path=f"{ROOT}/.engine/ntfy.conf"))
+        token = str(form["token"]) if form.get("token") else current.get("NTFY_TOKEN", "")
+        if form.get("remove_token"):
+            token = ""
+        pairs = (("NTFY_URL", str(form.get("url", "")).strip().rstrip("/")), ("NTFY_TOPIC", str(form.get("topic", "")).strip()),
+                 ("NTFY_TOKEN", token))
+        text = "".join(f"{k}={shlex.quote(v)}\n" for k, v in pairs)
+        self.backend.admin(verb="put-file", path=f"{ROOT}/.engine/ntfy.conf", text=text)
+
     def find(self, pi_id):
         self.refresh()
         with self.lock:
@@ -180,6 +292,51 @@ class Store:
                    progress=parse_progress(self.backend.host_call("progress", d)) if running else None,
                    host=pi.host, user=pi.user, port=pi.port)
         return out
+
+
+EDITABLE = {"name": str, "category": str, "host": str, "port": int, "user": str, "key": str, "jump": str,
+            "jump_port": int, "keep": int, "format": str, "expand": bool, "excludes": str, "bwlimit": int,
+            "compress": bool, "pre_cmd": str, "post_cmd": str, "schedule": str, "hour": int, "notify": str,
+            "notes": str}
+CHOICES = {"format": ("xz", "gz", "img"), "schedule": ("off", "daily", "weekly", "monthly"),
+           "notify": ("errors", "always", "off")}
+
+
+def pi_from_form(form, base=None):
+    """A validated Pi from form values; raises ValueError with a message for the user."""
+    pi = copy.copy(base) if base else Pi()
+    for key, kind in EDITABLE.items():
+        if key not in form:
+            continue
+        value = form[key]
+        if kind is int:
+            try:
+                value = int(value)
+            except (TypeError, ValueError):
+                raise ValueError(f"{key} muss eine Zahl sein")
+        elif kind is bool:
+            value = bool(value)
+        else:
+            value = str(value).strip() if key not in ("excludes", "notes") else str(value)
+        setattr(pi, key, value)
+    if not valid_segment(pi.name):
+        raise ValueError("Der Name darf nicht leer sein und keine Sonderzeichen wie / oder : enthalten.")
+    if not valid_category(pi.category):
+        raise ValueError("Die Kategorie enthält ungültige Zeichen.")
+    if not pi.host or re.search(r"\s", pi.host):
+        raise ValueError("Bitte eine Adresse ohne Leerzeichen angeben.")
+    if not pi.user or re.search(r"\s", pi.user):
+        raise ValueError("Bitte einen Benutzer angeben.")
+    if not 1 <= pi.port <= 65535 or not 1 <= pi.jump_port <= 65535:
+        raise ValueError("Der Port muss zwischen 1 und 65535 liegen.")
+    if not 0 <= pi.hour <= 23:
+        raise ValueError("Die Stunde muss zwischen 0 und 23 liegen.")
+    if pi.keep < 0 or pi.bwlimit < 0:
+        raise ValueError("Negative Werte sind nicht möglich.")
+    for key, allowed in CHOICES.items():
+        if getattr(pi, key) not in allowed:
+            raise ValueError(f"Ungültiger Wert für {key}")
+    return pi
 
 
 def pi_row(pi, row, device):
@@ -299,8 +456,23 @@ class Handler(BaseHTTPRequestHandler):
             self.dispatch(method, path)
         except BackendError as exc:
             self.send_json(502, {"detail": str(exc)})
+        except ValueError as exc:
+            self.send_json(400, {"detail": str(exc)})
+        except LookupError:
+            self.send_json(404, {"detail": "Nicht gefunden"})
+
+    def send_page(self):
+        with open(PAGE, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def dispatch(self, method, path):
+        if self.dispatch_admin(method, path):
+            return
         if method == "GET" and path == "/api/overview":
             self.send_json(200, self.store.overview())
             return
@@ -331,14 +503,83 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_json(405, {"detail": "Nicht erlaubt"})
 
+    def dispatch_admin(self, method, path):
+        """The parts the web interface needs to manage Pis. True when the request was answered."""
+        store = self.store
+        if method == "GET" and path == "/":
+            self.send_page()
+        elif method == "GET" and path == "/api/inventory":
+            self.send_json(200, store.form_inventory())
+        elif method == "POST" and path == "/api/pis":
+            form = self.body
+            pi = store.create_pi(form)
+            sudo = store.install_key(pi, form["password"]).get("sudo") if form.get("password") else None
+            self.send_json(201, {"id": pi.id, "sudo": sudo})
+        elif method == "GET" and path == "/api/ntfy":
+            self.send_json(200, store.ntfy())
+        elif method == "PUT" and path == "/api/ntfy":
+            store.save_ntfy(self.body)
+            self.send_json(200, {"ok": True})
+        elif method == "POST" and path == "/api/ntfy/test":
+            store.backend.admin(verb="ntfy-test")
+            self.send_json(200, {"ok": True})
+        else:
+            match = re.fullmatch(r"/api/pis/([0-9a-f]{1,64})(?:/(config|key|images/[^/]+))?", path)
+            if not match or (method == "GET" and match.group(2) != "config") or (method == "POST" and match.group(2) != "key"):
+                return False
+            pi_id, part = match.groups()
+            if method == "GET":
+                _, pis = store.inventory()
+                pi = next((p for p in pis if p.id == pi_id), None)
+                if not pi:
+                    raise LookupError
+                self.send_json(200, asdict(pi))
+            elif method == "PUT" and not part:
+                store.update_pi(pi_id, self.body)
+                self.send_json(200, {"ok": True})
+            elif method == "DELETE" and not part:
+                store.delete_pi(pi_id, bool(self.body.get("data")))
+                self.send_json(200, {"ok": True})
+            elif method == "DELETE" and part.startswith("images/"):
+                pi = store.find(pi_id)
+                if not pi:
+                    raise LookupError
+                store.backend.admin(verb="delete-image", dir=store.pidir(pi), file=urllib.parse.unquote(part[7:]))
+                store.invalidate()
+                self.send_json(200, {"ok": True})
+            elif method == "POST" and part == "key":
+                pi = store.find(pi_id)
+                if not pi:
+                    raise LookupError
+                self.send_json(200, {"sudo": store.install_key(pi, str(self.body.get("password", ""))).get("sudo")})
+            else:
+                return False
+        return True
+
     def do_GET(self):
         self.route("GET")
 
-    def do_POST(self):
+    def read_body(self):
         length = int(self.headers.get("Content-Length") or 0)
-        if length:
-            self.rfile.read(min(length, 1024))
+        raw = self.rfile.read(min(length, 1024 * 1024)) if length else b""
+        try:
+            self.body = json.loads(raw) if raw else {}
+        except ValueError:
+            self.body = {}
+        if not isinstance(self.body, dict):
+            self.body = {}
+
+    def do_POST(self):
+        self.read_body()
         self.route("POST")
+
+    def do_PUT(self):
+        self.read_body()
+        self.route("PUT")
+
+    def do_DELETE(self):
+        self.read_body()
+        self.route("DELETE")
 
 
 def main():

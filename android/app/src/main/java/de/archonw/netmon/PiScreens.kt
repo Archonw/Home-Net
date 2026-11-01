@@ -154,9 +154,9 @@ private fun TextAction(label: String, onClick: () -> Unit) {
     )
 }
 
-/** Startseite: eine Kachel je Dienst. Eine neue App bekommt hier ihre eigene Kachel. */
+/** Startseite: eine Kachel je Modul. Mit gemeinsamem Zugang kommt die Liste vom Server. */
 @Composable
-fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit) {
+fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onHub: () -> Unit) {
     val p = LocalPalette.current
     var network by remember { mutableStateOf("Wird geladen …") }
     var networkAlert by remember { mutableStateOf(false) }
@@ -164,21 +164,32 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
         mutableStateOf(if (settings.isPiConfigured) "Wird geladen …" else "Noch nicht eingerichtet")
     }
     var piAlert by remember { mutableStateOf(false) }
+    var installed by remember { mutableStateOf<Set<String>?>(null) }
+    var hubError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        launch {
+        if (settings.isHubConfigured) {
             try {
-                val devices = api.devices()
-                val unknown = devices.count { it.status == "unknown" }
-                network = "${devices.count { it.online }} von ${devices.size} online" +
-                    if (unknown > 0) ", $unknown unbekannt" else ""
-                networkAlert = unknown > 0
+                installed = hubModules(settings.hubUrl, settings.hubExternalUrl, settings.password).map { it.id }.toSet()
             } catch (e: ApiException) {
-                network = e.message ?: "Nicht erreichbar"
-                networkAlert = true
+                hubError = e.message
             }
         }
-        if (settings.isPiConfigured) {
+        if (installed?.contains("netzwerkmonitor") != false) {
+            launch {
+                try {
+                    val devices = api.devices()
+                    val unknown = devices.count { it.status == "unknown" }
+                    network = "${devices.count { it.online }} von ${devices.size} online" +
+                        if (unknown > 0) ", $unknown unbekannt" else ""
+                    networkAlert = unknown > 0
+                } catch (e: ApiException) {
+                    network = e.message ?: "Nicht erreichbar"
+                    networkAlert = true
+                }
+            }
+        }
+        if (settings.isPiConfigured && installed?.contains("pi-wartung") != false) {
             launch {
                 try {
                     val o = settings.piApi().overview()
@@ -197,13 +208,80 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     }
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
-        PageTitle("Home-Net")
+        PageTitle("Home-Net", trailing = { TextAction("Zugang", onHub) })
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ServiceTile("Netzwerk", network, networkAlert, R.drawable.ic_tile_network, onNetwork)
-            ServiceTile("Pi-Wartung", pi, piAlert, R.drawable.ic_tile_pi, onPi)
+            hubError?.let { Text(it, color = p.blocked, fontSize = 14.sp) }
+            if (installed?.contains("netzwerkmonitor") != false) {
+                ServiceTile("Netzwerk", network, networkAlert, R.drawable.ic_tile_network, onNetwork)
+            }
+            if (installed?.contains("pi-wartung") != false) {
+                ServiceTile("Pi-Wartung", pi, piAlert, R.drawable.ic_tile_pi, onPi)
+            }
+        }
+    }
+}
+
+/** Eine Adresse und ein Passwort für alle Module. */
+@Composable
+fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)?) {
+    val p = LocalPalette.current
+    var url by remember { mutableStateOf(settings.hubUrl.ifBlank { "http://" }) }
+    var externalUrl by remember { mutableStateOf(settings.hubExternalUrl) }
+    var password by remember { mutableStateOf(if (settings.isHubConfigured) settings.password else "") }
+    var message by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Column(Modifier.fillMaxSize().background(p.bg)) {
+        PageTitle("Home-Net einrichten", onBack = onBack)
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                "Die Adresse deines Home-Net-Servers, zum Beispiel http://192.168.178.207:8093, und das " +
+                    "Passwort aus der Installation.",
+                color = p.muted, fontSize = 14.sp,
+            )
+            OutlinedTextField(
+                value = url, onValueChange = { url = it }, singleLine = true,
+                label = { Text("Adresse im Heimnetz") }, modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            )
+            OutlinedTextField(
+                value = externalUrl, onValueChange = { externalUrl = it }, singleLine = true,
+                label = { Text("Adresse für unterwegs (optional)") }, modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            )
+            OutlinedTextField(
+                value = password, onValueChange = { password = it }, singleLine = true,
+                label = { Text("Passwort") }, modifier = Modifier.fillMaxWidth(),
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+            message?.let { Text(it, color = p.blocked, fontSize = 14.sp) }
+            PrimaryButton(if (busy) "Prüfe …" else "Speichern und testen", Modifier.fillMaxWidth(), enabled = !busy) {
+                if (externalUrl.isNotBlank() && !externalUrl.trim().startsWith("https://")) {
+                    message = "Die Adresse für unterwegs muss mit https:// beginnen."
+                    return@PrimaryButton
+                }
+                busy = true
+                message = null
+                scope.launch {
+                    try {
+                        hubModules(url, externalUrl, password)
+                        settings.useHub(url, externalUrl, password)
+                        onSaved()
+                    } catch (e: ApiException) {
+                        message = e.message
+                    } finally {
+                        busy = false
+                    }
+                }
+            }
         }
     }
 }

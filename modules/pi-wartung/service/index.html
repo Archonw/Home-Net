@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pi-Wartung</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#c2366b; --ok:#1a7f37; --bad:#c93a3a; --warn:#b35a0a; --soft:#c2366b1f; }
+@media (prefers-color-scheme: dark) { :root { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#e0568a; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#e0568a26; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
+header { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:18px 16px 6px; max-width:1000px; margin:auto; }
+h1 { font-size:24px; margin:0 auto 0 0; cursor:pointer; }
+main { max-width:1000px; margin:auto; padding:8px 16px 48px; }
+h2 { font-size:13px; color:var(--muted); margin:20px 0 8px; font-weight:650; }
+button { font:inherit; border:1px solid var(--line); background:var(--card); color:inherit; border-radius:9px; padding:7px 13px; cursor:pointer; }
+button.main { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+button.danger { color:var(--bad); }
+button:disabled { opacity:.55; cursor:default; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+.tile,.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+.tile b { display:block; font-size:21px; }
+.label,.quiet { color:var(--muted); font-size:13px; }
+.card { margin-bottom:8px; }
+.row { display:flex; gap:12px; align-items:center; cursor:pointer; }
+.row .grow { flex:1; min-width:0; }
+.name { font-weight:620; }
+.ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); } .run { color:var(--accent); }
+.actions { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
+progress { width:100%; height:8px; accent-color:var(--accent); }
+dl { display:grid; grid-template-columns:150px 1fr; gap:3px 10px; margin:0; }
+dt { color:var(--muted); } dd { margin:0; overflow-wrap:anywhere; }
+dialog { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:14px; width:min(620px,94vw); padding:18px; }
+dialog::backdrop { background:#0007; }
+label { display:block; margin:9px 0 3px; font-size:13px; color:var(--muted); }
+input,select,textarea { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; }
+input[type=checkbox] { width:auto; margin-right:6px; }
+.check { color:inherit; font-size:15px; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+fieldset { border:0; border-top:1px solid var(--line); margin:14px 0 0; padding:6px 0 0; }
+legend { font-weight:650; padding-right:8px; }
+.err { color:var(--bad); margin:8px 0; white-space:pre-wrap; }
+.hint { font-size:12.5px; color:var(--muted); margin:3px 0 0; }
+.foot { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+.image { display:flex; gap:10px; align-items:center; padding:7px 0; border-top:1px solid var(--line); }
+.image:first-child { border:0; }
+pre { background:var(--bg); border-radius:8px; padding:8px; font-size:12px; overflow:auto; max-height:230px; margin:6px 0 0; }
+@media (max-width:560px) { dl { grid-template-columns:1fr; } dt { margin-top:6px; } .two { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="home">Pi-Wartung</h1>
+  <button id="add" class="main">Pi hinzufügen</button>
+  <button id="settings">Benachrichtigung</button>
+</header>
+<main id="app">Wird geladen …</main>
+
+<dialog id="dlg"><form id="form" method="dialog"></form></dialog>
+
+<script>
+const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
+const app = document.getElementById("app"), dlg = document.getElementById("dlg"), form = document.getElementById("form");
+const STATES = { ok: ["Gesichert", "ok"], failed: ["Fehler", "bad"], cancelled: ["Abgebrochen", "warn"] };
+let current = null, timer = null;
+
+async function api(path, method = "GET", body) {
+  const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || `Fehler ${r.status}`);
+  return data;
+}
+const size = n => { const u = ["B","KB","MB","GB","TB"]; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return `${i > 1 ? n.toFixed(1).replace(".", ",") : Math.round(n)} ${u[i]}`; };
+const when = s => s ? new Date(s * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "–";
+const stamp = s => { const m = /(\d+)-(\d+)-(\d+)_(\d\d)(\d\d)/.exec(s); return m ? `${m[3]}.${m[2]}.${m[1].slice(2)}, ${m[4]}:${m[5]}` : s; };
+const state = p => p.running ? ["Sicherung läuft", "run"] : STATES[p.status] || ["Nie gesichert", "quiet"];
+function schedule(fn, ms) { clearTimeout(timer); timer = setTimeout(fn, ms); }
+function fail(e) { app.replaceChildren($("div", { className: "err", textContent: e.message })); schedule(current ? showPi.bind(null, current) : overview, 15000); }
+
+async function overview() {
+  current = null;
+  try {
+    const d = await api("api/overview");
+    const online = d.pis.filter(p => p.online).length, serious = d.attention.filter(a => a.serious).length;
+    const tile = (l, v, s, c) => $("div", { className: "tile" }, $("span", { className: "label", textContent: l }), $("b", { textContent: v, className: c || "" }), $("span", { className: "quiet", textContent: s }));
+    const parts = [$("div", { className: "tiles" },
+      tile("Pis", d.pis.length, `${online} online`),
+      tile("Images", d.images, size(d.images_bytes)),
+      tile("Spiegel", size(d.mirror_bytes), "für schnelle Folgesicherungen"),
+      tile("Speicher frei", size(d.avail_bytes), `von ${size(d.total_bytes)}`),
+      tile("Probleme", serious, `${d.attention.length - serious} Hinweise`, serious ? "bad" : "ok"))];
+    if (d.attention.length) parts.push($("h2", { textContent: "Braucht Aufmerksamkeit" }), $("div", { className: "card" }, ...d.attention.map(a => $("div", { className: a.serious ? "bad" : "", textContent: `${a.serious ? "Problem" : "Hinweis"} · ${a.pi}: ${a.text}` }))));
+    const groups = {};
+    for (const p of d.pis) (groups[p.category || "Ohne Kategorie"] ||= []).push(p);
+    for (const [cat, rows] of Object.entries(groups)) {
+      parts.push($("h2", { textContent: cat }));
+      for (const p of rows) {
+        const [text, cls] = state(p);
+        const reach = p.online === null ? "wird geprüft" : p.online ? `online${p.card ? ", Karte " + p.card : ""}` : "offline";
+        parts.push($("div", { className: "card row", onclick: () => showPi(p.id) },
+          $("div", { className: "grow" }, $("div", { className: "name", textContent: p.name }), $("div", { className: "quiet", textContent: `${reach} · Backup ${when(p.ok_time)}` })),
+          $("div", { style: "text-align:right" }, $("div", { className: cls, textContent: text }), $("div", { className: "quiet", textContent: `${p.images} Images · ${size(p.bytes)}` }))));
+      }
+    }
+    if (!d.pis.length) parts.push($("div", { className: "card", textContent: "Noch keine Pis. Lege oben den ersten an." }));
+    if (d.errors.length) parts.push($("h2", { textContent: "Letzte Fehler" }), $("div", { className: "card" }, ...d.errors.map(e => $("div", {}, $("span", { className: "quiet", textContent: `${stamp(e.stamp)} · ${e.pi}: ` }), e.message))));
+    app.replaceChildren(...parts);
+    schedule(overview, 30000);
+  } catch (e) { fail(e); }
+}
+
+async function showPi(id) {
+  current = id;
+  try {
+    const d = await api(`api/pis/${id}`);
+    if (current !== id) return;
+    const [text, cls] = state(d);
+    const act = (label, fn, cn) => $("button", { textContent: label, className: cn || "", onclick: async ev => { ev.target.disabled = true; try { await fn(); } catch (e) { alert(e.message); } await showPi(id); } });
+    const parts = [$("div", { className: "actions" },
+      $("button", { textContent: "Zurück", onclick: overview }),
+      d.running ? act("Abbrechen", () => confirm("Sicherung abbrechen? Vorhandene Images bleiben.") ? api(`api/pis/${id}/cancel`, "POST") : null)
+                : act("Jetzt sichern", () => api(`api/pis/${id}/backup`, "POST"), "main"),
+      $("button", { textContent: "Konfiguration", onclick: () => editPi(id) }),
+      $("button", { textContent: "Neuer Schlüssel", onclick: () => keyDialog(id, d) })),
+      $("div", { className: "card" }, $("div", { className: "name", style: "font-size:20px", textContent: d.name }),
+        $("div", { className: cls, textContent: text }), $("div", { className: "quiet", textContent: `${d.category || "Ohne Kategorie"} · ${d.user}@${d.host}:${d.port}` }),
+        d.status === "failed" && d.error ? $("div", { className: "bad", textContent: d.error }) : null,
+        d.warnings ? $("div", { className: "warn", textContent: d.warnings }) : null)];
+    if (d.progress) parts.push($("div", { className: "card" }, $("div", { className: "name", textContent: d.progress.step || "Startet …" }), $("progress", { max: 100, value: d.progress.percent }), $("div", { className: "quiet", textContent: `${d.progress.percent} % ${d.progress.detail}` }), $("pre", { textContent: d.progress.log.join("\n") })));
+    const dev = d.device || {};
+    if (Object.keys(dev).length) {
+      const dl = $("dl");
+      for (const [k, l] of [["model","Modell"],["os","System"],["kernel","Kernel"],["hostname","Hostname"],["disk","Karte"],["temp","Temperatur"],["mem","Arbeitsspeicher"],["uptime","Laufzeit"],["reboot","Neustart nötig"]]) dl.append($("dt", { textContent: l }), $("dd", { textContent: dev[k] || "–" }));
+      parts.push($("h2", { textContent: "Zustand" }), $("div", { className: "card" }, dl));
+    } else if (d.online === false) parts.push($("div", { className: "bad", textContent: "Der Pi ist gerade nicht erreichbar." }));
+    parts.push($("h2", { textContent: "Images" }), $("div", { className: "card" }, ...(d.images_list.length ? d.images_list.map(i => $("div", { className: "image" },
+      $("div", { style: "flex:1;min-width:0" }, $("div", { textContent: i.file, style: "overflow-wrap:anywhere" }), $("div", { className: "quiet", textContent: `${when(i.time)} · ${size(i.size)}${i.os ? " · " + i.os : ""}` })),
+      $("button", { className: "danger", textContent: "Löschen", onclick: async () => { if (confirm(`${i.file} wirklich löschen?`)) { await api(`api/pis/${id}/images/${encodeURIComponent(i.file)}`, "DELETE"); showPi(id); } } }))) : [$("div", { className: "quiet", textContent: "Noch keine Images" })])));
+    if (d.notes) parts.push($("h2", { textContent: "Notizen" }), $("div", { className: "card", textContent: d.notes }));
+    app.replaceChildren(...parts);
+    schedule(() => showPi(id), d.running ? 5000 : 30000);
+  } catch (e) { fail(e); }
+}
+
+function field(name, label, value, type = "text", hint) {
+  const input = type === "textarea" ? $("textarea", { name, rows: 3, value: value ?? "" }) : $("input", { name, type, value: value ?? "" });
+  return $("div", {}, $("label", { textContent: label }), input, hint ? $("div", { className: "hint", textContent: hint }) : null);
+}
+function choice(name, label, value, options) {
+  const s = $("select", { name }, ...options.map(([v, t]) => $("option", { value: v, textContent: t, selected: v === value })));
+  return $("div", {}, $("label", { textContent: label }), s);
+}
+function check(name, label, value) { return $("label", { className: "check" }, $("input", { name, type: "checkbox", checked: !!value }), label); }
+function openDialog(title, body, submitLabel, onSubmit, extra = []) {
+  const err = $("div", { className: "err" });
+  const submit = $("button", { className: "main", type: "submit", textContent: submitLabel });
+  form.replaceChildren($("h3", { textContent: title, style: "margin:0 0 6px" }), ...body, err, $("div", { className: "foot" }, ...extra, $("button", { type: "button", textContent: "Abbrechen", onclick: () => dlg.close() }), submit));
+  form.onsubmit = async ev => {
+    ev.preventDefault();
+    submit.disabled = true; err.textContent = "";
+    try { await onSubmit(new FormData(form)); dlg.close(); }
+    catch (e) { err.textContent = e.message; }
+    submit.disabled = false;
+  };
+  dlg.showModal();
+}
+function piFields(p, isNew) {
+  const b = [$("fieldset", {}, $("legend", { textContent: "Allgemein" }),
+    field("name", "Name", p.name),
+    field("category", "Kategorie", p.category, "text", "Unterkategorien mit /, zum Beispiel Firma Müller/Standort Nord"),
+    field("notes", "Notizen", p.notes, "textarea")),
+  $("fieldset", {}, $("legend", { textContent: "Verbindung" }),
+    field("host", "Adresse", p.host, "text", "IP oder Hostname, auch DynDNS oder Tailscale."),
+    $("div", { className: "two" }, field("port", "Port", p.port ?? 22, "number"), field("user", "Benutzer", p.user ?? "pi")),
+    isNew ? field("password", "Passwort des Benutzers", "", "password", "Wird einmal genutzt, um einen eigenen Schlüssel zu übertragen, und nicht gespeichert.") : field("key", "SSH-Schlüssel", p.key, "text", "Pfad im Sicherungsdienst"),
+    $("div", { className: "two" }, field("jump", "Sprunghost", p.jump, "text", "benutzer@host, leer für direkt"), field("jump_port", "Port Sprunghost", p.jump_port ?? 22, "number")),
+    check("compress", "Übertragung komprimieren (für Pis im Internet)", p.compress),
+    field("bwlimit", "Bandbreite KiB/s", p.bwlimit ?? 0, "number", "0 bedeutet unbegrenzt.")),
+  $("fieldset", {}, $("legend", { textContent: "Sicherung" }),
+    $("div", { className: "two" }, choice("format", "Format", p.format ?? "xz", [["xz","Am kleinsten (.img.xz)"],["gz","Schneller (.img.gz)"],["img","Unkomprimiert (.img)"]]), field("keep", "Behalten", p.keep ?? 3, "number", "Anzahl Images, 0 behält alle.")),
+    check("expand", "Beim ersten Start auf die ganze SD-Karte vergrößern", p.expand ?? true),
+    $("div", { className: "two" }, choice("schedule", "Zeitplan", p.schedule ?? "off", [["off","Aus"],["daily","Täglich"],["weekly","Wöchentlich"],["monthly","Monatlich"]]), field("hour", "Frühestens ab Stunde", p.hour ?? 3, "number")),
+    choice("notify", "Benachrichtigung", p.notify ?? "errors", [["errors","Nur bei Fehlern"],["always","Auch bei Erfolg"],["off","Aus"]]),
+    field("excludes", "Ausschlüsse", p.excludes, "textarea", "Ein rsync-Muster je Zeile, zusätzlich zu Swap, Caches und /tmp."),
+    field("pre_cmd", "Befehl vorher", p.pre_cmd), field("post_cmd", "Befehl nachher", p.post_cmd))];
+  return b;
+}
+function formValues(fd) {
+  const out = Object.fromEntries(fd.entries());
+  out.compress = fd.has("compress"); out.expand = fd.has("expand");
+  return out;
+}
+document.getElementById("add").onclick = () => openDialog("Pi hinzufügen", piFields({}, true), "Hinzufügen", async fd => {
+  const r = await api("api/pis", "POST", formValues(fd));
+  if (r.sudo && r.sudo !== "ok") alert("Der Schlüssel funktioniert, aber sudo ohne Passwort fehlt. Für Sicherungen ist das nötig.");
+  showPi(r.id);
+});
+async function editPi(id) {
+  try {
+    const p = await api(`api/pis/${id}/config`);
+    const del = $("button", { type: "button", className: "danger", textContent: "Entfernen", style: "margin-right:auto", onclick: async () => {
+      if (!confirm(`${p.name} aus der Liste entfernen?`)) return;
+      const data = confirm("Auch alle Images und den Spiegel löschen? Das lässt sich nicht rückgängig machen.\n\nOK löscht die Daten, Abbrechen behält sie.");
+      await api(`api/pis/${id}`, "DELETE", { data }); dlg.close(); overview();
+    } });
+    openDialog("Konfiguration", piFields(p, false), "Speichern", async fd => { await api(`api/pis/${id}`, "PUT", formValues(fd)); showPi(id); }, [del]);
+  } catch (e) { alert(e.message); }
+}
+function keyDialog(id, d) {
+  openDialog("Neuen SSH-Schlüssel einrichten", [$("p", { textContent: `Ein eigener Schlüssel wird erzeugt und bei ${d.user}@${d.host} eingetragen.` }), field("password", "Passwort des Benutzers", "", "password", "Wird einmal genutzt und nicht gespeichert.")], "Einrichten", async fd => {
+    const r = await api(`api/pis/${id}/key`, "POST", { password: fd.get("password") });
+    if (r.sudo !== "ok") alert("Der Schlüssel funktioniert, aber sudo ohne Passwort fehlt. Für Sicherungen ist das nötig.");
+    showPi(id);
+  });
+}
+document.getElementById("settings").onclick = async () => {
+  try {
+    const n = await api("api/ntfy");
+    const test = $("button", { type: "button", textContent: "Testnachricht", style: "margin-right:auto", onclick: async () => { try { await api("api/ntfy", "PUT", formValues(new FormData(form))); await api("api/ntfy/test", "POST"); test.textContent = "Gesendet"; } catch (e) { alert(e.message); } } });
+    openDialog("Benachrichtigung über ntfy", [field("url", "Server", n.url, "url", "Leer lassen, wenn keine Nachrichten gewünscht sind."), field("topic", "Thema", n.topic), field("token", "Zugriffstoken", "", "password", n.has_token ? "Ein Token ist gespeichert. Leer lassen, um es zu behalten." : "Optional.")], "Speichern", async fd => api("api/ntfy", "PUT", formValues(fd)), [test]);
+  } catch (e) { alert(e.message); }
+};
+document.getElementById("home").onclick = overview;
+overview();
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@ FROM python:3.12-alpine
 RUN apk add --no-cache openssh-client
 WORKDIR /app
 COPY piwartung/__init__.py piwartung/core.py piwartung/
-COPY service/server.py service/
+COPY service/server.py service/index.html service/
 ENV PYTHONUNBUFFERED=1
 USER root
 EXPOSE 8080

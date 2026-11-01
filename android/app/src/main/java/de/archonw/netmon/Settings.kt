@@ -28,6 +28,30 @@ class Settings(context: Context) {
         get() = prefs.getString("password", "") ?: ""
         set(value) = prefs.edit().putString("password", value).apply()
 
+    /** Eine Adresse und ein Passwort für alle Module; Monitor und Pi-Wartung liegen dann darunter. */
+    var hubUrl: String
+        get() = prefs.getString("hub_url", "") ?: ""
+        set(value) = prefs.edit().putString("hub_url", value.trim().trimEnd('/')).apply()
+
+    var hubExternalUrl: String
+        get() = prefs.getString("hub_external_url", "") ?: ""
+        set(value) = prefs.edit().putString("hub_external_url", value.trim().trimEnd('/')).apply()
+
+    val isHubConfigured: Boolean get() = hubUrl.isNotBlank()
+
+    fun useHub(url: String, external: String, hubPassword: String) {
+        hubUrl = url
+        hubExternalUrl = external
+        val base = hubUrl
+        val outside = hubExternalUrl
+        serverUrl = "$base/m/netzwerkmonitor"
+        externalUrl = if (outside.isBlank()) "" else "$outside/m/netzwerkmonitor"
+        password = hubPassword
+        piUrl = "$base/m/pi-wartung"
+        piExternalUrl = if (outside.isBlank()) "" else "$outside/m/pi-wartung"
+        piPassword = hubPassword
+    }
+
     var piUrl: String
         get() = prefs.getString("pi_url", "") ?: ""
         set(value) = prefs.edit().putString("pi_url", value.trim()).apply()

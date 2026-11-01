@@ -3,13 +3,31 @@
   "name": "Netzwerk",
   "description": "Überwacht die Geräte im Netz, meldet neue und lässt sie erlauben oder sperren",
   "icon": "assets/icons/netzwerk.png",
-  "api": {"port": 8085, "health": "/health"},
+  "api": {
+    "host_network": true,
+    "port": 8085,
+    "health": "/health",
+    "public": [
+      "/app",
+      "/assets",
+      "/health"
+    ],
+    "web": true
+  },
   "services": {
     "networkmonitor": {
       "build": "modules/netzwerkmonitor",
       "network_mode": "host",
-      "cap_add": ["NET_RAW", "NET_ADMIN"],
-      "volumes": ["${DATA_DIR}/netzwerkmonitor:/data"]
+      "cap_add": [
+        "NET_RAW",
+        "NET_ADMIN"
+      ],
+      "volumes": [
+        "${DATA_DIR}/netzwerkmonitor:/data"
+      ],
+      "env_file": [
+        "${DATA_DIR}/netzwerkmonitor.env"
+      ]
     }
   }
 }
