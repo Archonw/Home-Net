@@ -10,6 +10,7 @@ import hmac
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import threading
@@ -25,6 +26,7 @@ CONFIG_DIR = os.environ.get("CONFIG_DIR", "/config")
 UNRAID_HOST = os.environ.get("UNRAID_HOST", "")
 UNRAID_PORT = os.environ.get("UNRAID_PORT", "22")
 ROOT = os.environ.get("BACKUP_ROOT", "/mnt/user/backup1/Raspis/PiWartung")
+ENGINE_SOCKET = os.environ.get("ENGINE_SOCKET", "")
 MAX_FAILS = 10
 FAIL_WINDOW = 15 * 60
 DEVICE_MAX_AGE = 5 * 60
@@ -38,6 +40,8 @@ class BackendError(Exception):
 class Backend:
     def host_call(self, verb, arg=None, timeout=60):
         words = [verb] + ([base64.b64encode(arg.encode()).decode()] if arg else [])
+        if ENGINE_SOCKET:
+            return self.socket_call(words, timeout)
         cmd = ["ssh", "-i", f"{CONFIG_DIR}/id_ed25519", "-p", UNRAID_PORT, "-o", "BatchMode=yes",
                "-o", "ConnectTimeout=10", "-o", "LogLevel=ERROR", "-o", "StrictHostKeyChecking=accept-new",
                "-o", f"UserKnownHostsFile={CONFIG_DIR}/known_hosts", f"root@{UNRAID_HOST}", " ".join(words)]
@@ -48,6 +52,25 @@ class Backend:
         if p.returncode != 0:
             raise BackendError(p.stderr.strip() or f"Fehlercode {p.returncode}")
         return p.stdout
+
+
+    @staticmethod
+    def socket_call(words, timeout):
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(timeout)
+                s.connect(ENGINE_SOCKET)
+                s.sendall((" ".join(words) + "\n").encode())
+                s.shutdown(socket.SHUT_WR)
+                chunks = []
+                while chunk := s.recv(65536):
+                    chunks.append(chunk)
+        except OSError as exc:
+            raise BackendError(f"Sicherungsdienst nicht erreichbar: {exc}")
+        reply = json.loads(b"".join(chunks))
+        if reply["code"] != 0:
+            raise BackendError(reply["err"].strip() or f"Fehlercode {reply['code']}")
+        return reply["out"]
 
 
 class Store:

@@ -71,7 +71,7 @@ MNT="" LOOPDEV_ROOT="" PRE_DONE=0 FINISHED=0 CANCELLED=0 WARNINGS=""
 # server, topic and token; the token goes through curl's stdin to stay out of ps.
 ntfy_send() {
   local title=$1 message=$2 priority=$3 tags=$4 conf
-  conf="$(dirname "$SCRIPT")/ntfy.conf"
+  conf="${PIW_ROOT:-$(dirname "$(dirname "$SCRIPT")")}/.engine/ntfy.conf"
   [ -f "$conf" ] || return 0
   local NTFY_URL="" NTFY_TOPIC="" NTFY_TOKEN=""
   # shellcheck disable=SC1090
@@ -680,7 +680,7 @@ cmd_summary() {
 # inventory and start or stop backups of existing Pis, and nothing else.
 cmd_api() {
   local root verb arg dir log
-  root=$(dirname "$(dirname "$SCRIPT")")
+  root=${PIW_ROOT:-$(dirname "$(dirname "$SCRIPT")")}
   read -r verb arg <<< "${SSH_ORIGINAL_COMMAND:-}"
   case "$verb" in
     inventory) cat "$root/inventory.json" 2>/dev/null; return 0 ;;
