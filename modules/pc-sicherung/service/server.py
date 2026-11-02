@@ -3,7 +3,7 @@
 
 Drei Seiten:
   - Weboberfläche und App sprechen über die Socket-Datei, die nur der Zugang erreicht.
-  - Die PCs starten über das Netz (dnsmasq als Proxy-DHCP und TFTP) und holen sich auf BOOT_PORT ihr Startsystem und
+  - Die PCs starten über das Netz (Proxy-DHCP aus proxydhcp.py, TFTP über dnsmasq) und holen sich auf BOOT_PORT ihr Startsystem und
     ihren Auftrag; dort zählt nur das Einmal-Kennwort des Auftrags.
   - Die Daten gehen über rest-server auf REST_PORT in ein restic-Archiv je PC, mit eigenem Zugang je PC und ohne Recht
     zum Löschen. Aufräumen macht dieser Dienst selbst direkt im Archiv.
@@ -27,6 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from proxydhcp import ProxyDHCP  # noqa: E402
 from store import AFTER, OVERDUE_DAYS, Store, category_allowed, next_due, normal_mac, run_label  # noqa: E402
 
 DATA = os.environ.get("DATA", "/data")
@@ -178,6 +179,7 @@ class Services:
     def __init__(self, store):
         self.store = store
         self.procs = {}
+        self.proxy = None
         self.netboot_error = ""
         self.lock = threading.Lock()
 
@@ -222,21 +224,29 @@ class Services:
 
     def start_dnsmasq(self):
         ip = self.server_ip()
-        iface, network = interface_of(ip)
+        iface, _network = interface_of(ip)
         if not iface:
             self.netboot_error = f"Keine Netzwerkkarte mit der Adresse {ip} gefunden"
             return None
         conf = os.path.join(RUN_DIR, "dnsmasq.conf")
         with open(conf, "w") as f:
-            f.write(dnsmasq_config(iface, network, os.path.join(RUN_DIR, "tftp")))
+            f.write(dnsmasq_config(iface, os.path.join(RUN_DIR, "tftp")))
         proc = subprocess.Popen(["dnsmasq", "--keep-in-foreground", f"--conf-file={conf}"], stdout=subprocess.DEVNULL,
                                 stderr=subprocess.PIPE, text=True)
         time.sleep(1)
         if proc.poll() is not None:
             self.netboot_error = (proc.stderr.read().strip() or "dnsmasq startet nicht")[-300:]
             return None
-        self.netboot_error = ""
         threading.Thread(target=lambda: [log(f"dnsmasq: {line.rstrip()}") for line in proc.stderr], daemon=True).start()
+        proxy = ProxyDHCP(iface, ip, log=log)
+        try:
+            proxy.start()
+        except OSError as exc:
+            proc.terminate()
+            self.netboot_error = f"Port 67 oder 4011 belegt ({exc})"
+            return None
+        self.proxy = proxy
+        self.netboot_error = ""
         return proc
 
     def prepare_tftp(self):
@@ -258,12 +268,19 @@ class Services:
             dns = self.procs.get("dns")
             wanted = self.store.settings.get("netboot")
             if wanted and (not dns or dns.poll() is not None):
+                self.stop_proxy()
                 self.prepare_tftp()
                 self.procs["dns"] = self.start_dnsmasq()
             elif not wanted and dns:
                 dns.terminate()
+                self.stop_proxy()
                 self.procs["dns"] = None
                 self.netboot_error = ""
+
+    def stop_proxy(self):
+        if self.proxy:
+            self.proxy.stop()
+            self.proxy = None
 
     def restart_netboot(self):
         with self.lock:
@@ -271,6 +288,7 @@ class Services:
             if dns:
                 dns.terminate()
                 dns.wait(10)
+            self.stop_proxy()
             self.procs["dns"] = None
         self.check()
 
@@ -303,8 +321,8 @@ def interface_of(ip):
     return None, None
 
 
-def dnsmasq_config(iface, network, tftp_root):
-    """Proxy DHCP: the router keeps handing out addresses, dnsmasq only adds where to start from.
+def dnsmasq_config(iface, tftp_root):
+    """dnsmasq only serves the start files over TFTP; which file a PC loads, proxydhcp.py tells it.
 
     UEFI PCs get the signed shim and GRUB, so Secure Boot may stay on. Old BIOS PCs get iPXE; once iPXE runs it
     identifies itself and gets a small script instead, which asks this service over HTTP.
@@ -312,18 +330,9 @@ def dnsmasq_config(iface, network, tftp_root):
     return f"""port=0
 interface={iface}
 bind-interfaces
-dhcp-range={network},proxy
 enable-tftp
 tftp-root={tftp_root}
 log-facility=-
-# Every step of a network start goes to the log: rare, and needed when a PC does not start
-log-dhcp
-dhcp-userclass=set:ipxe,iPXE
-pxe-prompt="Home-Net",0
-pxe-service=tag:!ipxe,x86PC,"Home-Net PC-Sicherung",ipxe
-pxe-service=tag:ipxe,x86PC,"Home-Net PC-Sicherung",start
-pxe-service=X86-64_EFI,"Home-Net PC-Sicherung",shimx64.efi
-pxe-service=BC_EFI,"Home-Net PC-Sicherung",shimx64.efi
 """
 
 

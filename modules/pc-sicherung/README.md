@@ -12,7 +12,7 @@ oder teilweise zurück.
   werden vollständig gelesen.
 - Die Daten gehen in ein restic-Archiv je PC. Gleiche Blöcke liegen nur einmal darin. Jede Sicherung lässt sich für
   sich zurückschreiben, braucht auf der Platte aber meist nur, was sich seit der letzten geändert hat.
-- Der Server antwortet zusätzlich zur FritzBox auf Startanfragen (Proxy-DHCP, dnsmasq). Die FritzBox vergibt weiter die
+- Der Server antwortet zusätzlich zur FritzBox auf Startanfragen (Proxy-DHCP mit der Startdatei gleich im ersten Angebot; dnsmasq liefert die Dateien per TFTP). Die FritzBox vergibt weiter die
   Adressen. Hat ein PC keinen Auftrag, schickt der Server ihn sofort zu seiner eigenen Platte weiter.
 - UEFI-PCs starten über den signierten shim und GRUB von Ubuntu, Secure Boot darf an bleiben. Alte BIOS-PCs starten
   über iPXE.
