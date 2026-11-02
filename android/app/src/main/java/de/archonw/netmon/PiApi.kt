@@ -125,6 +125,8 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
 
     suspend fun postJson(path: String, json: String): String = request("POST", path, json)
 
+    suspend fun delete(path: String): String = request("DELETE", path)
+
     suspend fun overview(): PiOverview {
         val o = JSONObject(request("GET", "api/overview"))
         return PiOverview(

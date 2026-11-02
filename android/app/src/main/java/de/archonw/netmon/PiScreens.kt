@@ -127,7 +127,7 @@ internal fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun StatTile(label: String, value: String, detail: String, modifier: Modifier = Modifier, color: Color? = null) {
+internal fun StatTile(label: String, value: String, detail: String, modifier: Modifier = Modifier, color: Color? = null) {
     val p = LocalPalette.current
     Column(modifier.clip(RoundedCornerShape(14.dp)).background(p.card).padding(12.dp)) {
         Text(label, color = p.muted, fontSize = 12.sp)
@@ -137,7 +137,7 @@ private fun StatTile(label: String, value: String, detail: String, modifier: Mod
 }
 
 @Composable
-private fun InfoRow(label: String, value: String) {
+internal fun InfoRow(label: String, value: String) {
     val p = LocalPalette.current
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Text(label, color = p.muted, fontSize = 14.sp, modifier = Modifier.weight(0.42f))
@@ -146,7 +146,7 @@ private fun InfoRow(label: String, value: String) {
 }
 
 @Composable
-private fun TextAction(label: String, onClick: () -> Unit) {
+internal fun TextAction(label: String, onClick: () -> Unit) {
     val p = LocalPalette.current
     Text(
         label, color = p.accentText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
@@ -156,7 +156,7 @@ private fun TextAction(label: String, onClick: () -> Unit) {
 
 /** Startseite: eine Kachel je Modul. Mit gemeinsamem Zugang kommt die Liste vom Server. */
 @Composable
-fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit) {
+fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onPc: () -> Unit) {
     val p = LocalPalette.current
     var network by remember { mutableStateOf("Wird geladen …") }
     var networkAlert by remember { mutableStateOf(false) }
@@ -164,6 +164,8 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
         mutableStateOf(if (settings.isPiConfigured) "Wird geladen …" else "Noch nicht eingerichtet")
     }
     var piAlert by remember { mutableStateOf(false) }
+    var pc by remember { mutableStateOf("Wird geladen …") }
+    var pcAlert by remember { mutableStateOf(false) }
     var installed by remember { mutableStateOf<Set<String>?>(null) }
     var hubError by remember { mutableStateOf<String?>(null) }
 
@@ -207,6 +209,18 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                 }
             }
         }
+        if (installed?.contains("pc-sicherung") == true) {
+            launch {
+                try {
+                    val o = settings.pcApi().overview()
+                    pc = pcTileText(o)
+                    pcAlert = o.problems > 0
+                } catch (e: ApiException) {
+                    pc = e.message ?: "Nicht erreichbar"
+                    pcAlert = true
+                }
+            }
+        }
     }
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
@@ -221,6 +235,10 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
             }
             if (installed?.contains("pi-wartung") != false) {
                 ServiceTile("Pi-Wartung", pi, piAlert, R.drawable.ic_tile_pi, onPi)
+            }
+            // Nur über den gemeinsamen Zugang, darum erst sichtbar, wenn der Server das Modul meldet
+            if (installed?.contains("pc-sicherung") == true) {
+                ServiceTile("PC-Sicherung", pc, pcAlert, R.drawable.ic_tile_pc, onPc)
             }
         }
     }

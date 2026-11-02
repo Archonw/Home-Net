@@ -63,7 +63,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.concurrent.thread
 
-/** Eine Meldung vom Zugang. [link] ist z. B. device/<MAC> oder pi/<id>. */
+/** Eine Meldung vom Zugang. [link] ist z. B. device/<MAC>, pi/<id> oder pc/<id>. */
 data class HubEvent(
     val id: Long,
     val time: Long,
@@ -84,7 +84,7 @@ data class HubEvent(
     }
 }
 
-private val LINK = Regex("(device|pi)/[A-Za-z0-9:._-]+")
+private val LINK = Regex("(device|pi|pc)/[A-Za-z0-9:._-]+")
 
 /** Liest den Datenstrom des Zugangs zeilenweise; Kommentare halten nur die Verbindung offen. */
 class EventLines {

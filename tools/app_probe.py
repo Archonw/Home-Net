@@ -117,6 +117,52 @@ def notifications():
     return adb("shell", "dumpsys", "notification", "--noredact", check=False)
 
 
+class ProbeArchive:
+    """Stands in for restic: one finished backup, nothing on disk."""
+
+    def __init__(self):
+        self.cache = {}
+
+    def ensure(self, pc):
+        pass
+
+    def runs(self, pc, fresh=False):
+        return [{"id": "2026-11-01_030000", "label": "01.11.26, 03:00", "complete": True}]
+
+    def size(self, pc_id):
+        return 5 * 1024 ** 3
+
+    def path(self, pc_id):
+        return "/nonexistent/" + pc_id
+
+
+class ProbeServices:
+    def server_ip(self):
+        return "10.0.2.2"
+
+    def users_changed(self):
+        pass
+
+    def netboot_state(self):
+        return {"enabled": False, "running": False, "error": "", "server_ip": "10.0.2.2", "configured_ip": ""}
+
+
+def start_pc_backup():
+    """The real PC-Sicherung service with a stand-in archive; returns its address for the gateway."""
+    import importlib.util
+    path = REPO / "modules" / "pc-sicherung" / "service" / "server.py"
+    spec = importlib.util.spec_from_file_location("pc_server", path)
+    pc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pc)
+    pc.wake = lambda macs: None
+    store = pc.Store(tempfile.mkdtemp())
+    store.create({"name": "Büro-PC", "macs": "52:54:00:12:34:56", "category": "Familie"})
+    pc.Base.engine = pc.Engine(store, ProbeArchive(), ProbeServices())
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), pc.ApiHandler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{httpd.server_address[1]}"
+
+
 def main():
     apk = sys.argv[1]
     OUT.mkdir(exist_ok=True)
@@ -129,7 +175,9 @@ def main():
     Path(config, "auth.json").write_text(json.dumps(home_net.password_record("geheim123", rounds=1000)))
     modules = home_net.available_modules()
     catalog = [{"id": "pi-wartung", "name": "Pi-Wartung", "description": "d", "icon": "", "upstream": "http://127.0.0.1:9",
-                "events": modules["pi-wartung"]["events"]}]
+                "events": modules["pi-wartung"]["events"]},
+               {"id": "pc-sicherung", "name": "PC-Sicherung", "description": "d", "icon": "", "upstream": start_pc_backup(),
+                "events": modules["pc-sicherung"]["events"]}]
     Path(config, "gateway.json").write_text(json.dumps({"owner": "chef", "modules": catalog}))
     os.environ["CONFIG_DIR"] = config
     os.environ["EVENTS_DIR"] = spool
@@ -174,6 +222,18 @@ def main():
     tap("Zurück")
     find("Einstellungen")
     report("notice", "Im Dienst nur der Zurück-Pfeil, er führt zur Startseite")
+
+    tap("PC-Sicherung")
+    tap("Büro-PC")
+    find("01.11.26, 03:00")
+    tap("Jetzt sichern")
+    tap("Starten")
+    find("wartet auf den Start des PCs")
+    tap("Zurück")
+    find("1 gerade in Arbeit")
+    tap("Zurück")
+    find("1 PC, 5,0 GB, 1 in Arbeit")
+    report("notice", "PC-Sicherung: Liste, Detail und Sicherung starten in Ordnung")
     time.sleep(5)
 
     (Path(spool) / "pi-wartung" / "probe.json").write_text(json.dumps(
