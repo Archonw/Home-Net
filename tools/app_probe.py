@@ -136,7 +136,12 @@ def main():
     sys.path.insert(0, str(REPO / "core" / "gateway"))
     import server as gateway
 
-    threading.Thread(target=ThreadingHTTPServer(("0.0.0.0", PORT), gateway.Handler).serve_forever, daemon=True).start()
+    def serve():
+        httpd = ThreadingHTTPServer(("0.0.0.0", PORT), gateway.Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        return httpd
+
+    httpd = serve()
     threading.Thread(target=gateway.scan_forever, daemon=True).start()
     store = gateway.security()
     owner = store.user_by_name("chef")
@@ -152,6 +157,7 @@ def main():
     report("notice", "Start ohne Kopplung in Ordnung")
 
     fill("Adresse im Heimnetz", f"http://10.0.2.2:{PORT}")
+    fill("Adresse für unterwegs (optional)", f"https://10.0.2.2:{PORT + 1}")
     fill("Benutzername", "chef")
     fill("Passwort", "geheim123")
     fill("Kopplungscode (optional)", code)
@@ -195,6 +201,20 @@ def main():
     adb("shell", "monkey", "-p", PKG, "-c", "android.intent.category.LAUNCHER", "1")
     wait_for(lambda: "Nachgeliefert" in notifications(), "Verpasste Meldung kommt nicht nach")
     report("notice", "Verpasste Meldung wird nachgeliefert")
+
+    # Echter Ausfall: Niemand nimmt mehr an, die offene Verbindung bricht ab
+    httpd.shutdown()
+    httpd.server_close()
+    identify = gateway.Handler.identify
+    gateway.Handler.identify = lambda self: (None, "")
+    gateway.inbox().wake()
+    time.sleep(3)
+    gateway.Handler.identify = identify
+    wait_for(lambda: "Home-Net nicht erreichbar" in notifications(), "Keine Warnung beim Server-Ausfall", 150)
+    report("notice", "Warnung beim Server-Ausfall kommt")
+    httpd = serve()
+    wait_for(lambda: "Home-Net wieder erreichbar" in notifications(), "Keine Entwarnung", 330)
+    report("notice", "Entwarnung kommt")
 
     adb("reboot")
     time.sleep(10)

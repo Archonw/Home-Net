@@ -53,6 +53,11 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("push_enabled", true)
         set(value) = prefs.edit().putBoolean("push_enabled", value).apply()
 
+    /** Ob das Handy warnt, wenn der Server trotz Internet nicht antwortet. */
+    var serverAlarm: Boolean
+        get() = prefs.getBoolean("server_alarm", true)
+        set(value) = prefs.edit().putBoolean("server_alarm", value).apply()
+
     /** Letzte angezeigte Meldung; nach einer Unterbrechung geht es dort weiter. */
     var lastEventId: Long
         get() = prefs.getLong("last_event_id", 0)

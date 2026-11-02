@@ -9,10 +9,12 @@ import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
@@ -107,12 +109,41 @@ class EventLines {
     }
 }
 
+/**
+ * Entscheidet, wann ein nicht erreichbarer Server eine Warnung wert ist.
+ *
+ * Ohne Netz am Handy zählt ein Fehlversuch nicht, sonst warnte die App im Funkloch.
+ */
+class ServerWatch(private val afterMs: Long, now: Long, private val minFails: Int = 3) {
+    enum class Change { DOWN, UP }
+
+    var lastContact = now
+        private set
+    private var fails = 0
+    private var alarmed = false
+
+    fun contact(now: Long): Change? {
+        lastContact = now
+        fails = 0
+        return if (alarmed) Change.UP.also { alarmed = false } else null
+    }
+
+    fun failed(now: Long, online: Boolean): Change? {
+        if (!online) return null
+        fails++
+        if (alarmed || fails < minFails || now - lastContact < afterMs) return null
+        alarmed = true
+        return Change.DOWN
+    }
+}
+
 /** Hält im Hintergrund die Verbindung zum Zugang und zeigt ankommende Meldungen an. */
 class NotificationService : Service() {
     @Volatile private var running = false
     @Volatile private var connection: HttpURLConnection? = null
     private var worker: Thread? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private lateinit var watch: ServerWatch
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -177,6 +208,8 @@ class NotificationService : Service() {
 
     private fun loop() {
         val settings = Settings(this)
+        val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        watch = ServerWatch(if (debuggable) 20_000L else ALARM_AFTER_MS, System.currentTimeMillis())
         var wait = MIN_WAIT_MS
         while (running) {
             when (listen(settings)) {
@@ -186,8 +219,12 @@ class NotificationService : Service() {
                     return
                 }
                 Outcome.CONNECTED -> wait = MIN_WAIT_MS
-                Outcome.TOO_MANY -> wait = MAX_WAIT_MS
-                Outcome.FAILED -> Unit
+                Outcome.TOO_MANY -> wait = TOO_MANY_WAIT_MS
+                Outcome.FAILED -> {
+                    // Ohne Adresse für unterwegs ist der Server außer Haus ganz normal nicht erreichbar
+                    val online = settings.hubExternalUrl.isNotBlank() && hasInternet()
+                    announce(watch.failed(System.currentTimeMillis(), online), settings)
+                }
             }
             try {
                 Thread.sleep(wait)
@@ -198,6 +235,24 @@ class NotificationService : Service() {
             wait = (wait * 2).coerceAtMost(MAX_WAIT_MS)
         }
     }
+
+    private fun hasInternet(): Boolean {
+        val manager = getSystemService(ConnectivityManager::class.java)
+        val capabilities = manager.getNetworkCapabilities(manager.activeNetwork) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private fun announce(change: ServerWatch.Change?, settings: Settings) {
+        if (change == null || !settings.serverAlarm) return
+        if (change == ServerWatch.Change.DOWN) {
+            val since = SimpleDateFormat("HH:mm", Locale.GERMANY).format(Date(watch.lastContact))
+            showServerState(this, "Home-Net nicht erreichbar", "Seit $since keine Verbindung zum Server.", true)
+        } else {
+            showServerState(this, "Home-Net wieder erreichbar", "Der Server antwortet wieder.", false)
+        }
+    }
+
+    private fun contact(settings: Settings) = announce(watch.contact(System.currentTimeMillis()), settings)
 
     private fun listen(settings: Settings): Outcome {
         val token = settings.hubToken
@@ -230,10 +285,12 @@ class NotificationService : Service() {
                 429 -> return Outcome.TOO_MANY
                 else -> return Outcome.FAILED
             }
+            contact(settings)
             val parser = EventLines()
             try {
                 conn.inputStream.bufferedReader().useLines { lines ->
                     for (line in lines) {
+                        contact(settings)
                         when (val item = parser.feed(line)) {
                             is EventLines.Latest -> {
                                 // Neuer Server oder neu aufgesetzt: Zähler mitnehmen
@@ -263,7 +320,11 @@ class NotificationService : Service() {
         private const val CHANNEL_HIGH = "home_net_wichtig"
         private const val CHANNEL_NORMAL = "home_net_meldungen"
         private const val MIN_WAIT_MS = 5_000L
-        private const val MAX_WAIT_MS = 15 * 60_000L
+        private const val MAX_WAIT_MS = 5 * 60_000L
+        private const val TOO_MANY_WAIT_MS = 15 * 60_000L
+        private const val ALARM_AFTER_MS = 15 * 60_000L
+        private const val SERVER_STATE_ID = 2
+        private const val FIRST_EVENT_ID = 10
         private const val CONNECT_TIMEOUT_MS = 4_000
         // Der Zugang meldet sich alle 45 Sekunden; bleibt das aus, ist die Verbindung tot
         private const val READ_TIMEOUT_MS = 130_000
@@ -300,6 +361,17 @@ class NotificationService : Service() {
             )
         }
 
+        private fun showServerState(context: Context, title: String, text: String, high: Boolean) {
+            val notification = NotificationCompat.Builder(context, if (high) CHANNEL_HIGH else CHANNEL_NORMAL)
+                .setSmallIcon(R.drawable.ic_notify)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setAutoCancel(true)
+                .setContentIntent(openIntent(context, ""))
+                .build()
+            context.getSystemService(NotificationManager::class.java).notify(SERVER_STATE_ID, notification)
+        }
+
         private fun show(context: Context, event: HubEvent) {
             val builder = NotificationCompat.Builder(context, if (event.high) CHANNEL_HIGH else CHANNEL_NORMAL)
                 .setSmallIcon(R.drawable.ic_notify)
@@ -311,7 +383,7 @@ class NotificationService : Service() {
                 .setAutoCancel(true)
                 .setVisibility(Notification.VISIBILITY_PRIVATE)
                 .setContentIntent(openIntent(context, event.link, event.id.toInt()))
-            context.getSystemService(NotificationManager::class.java).notify(event.id.toInt() + SERVICE_ID, builder.build())
+            context.getSystemService(NotificationManager::class.java).notify(event.id.toInt() + FIRST_EVENT_ID, builder.build())
         }
     }
 }
@@ -354,6 +426,7 @@ fun NotificationsScreen(settings: Settings, onOpen: (String) -> Unit, onBack: ()
     var state by remember { mutableStateOf<NotifyState?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var enabled by remember { mutableStateOf(settings.pushEnabled) }
+    var serverAlarm by remember { mutableStateOf(settings.serverAlarm) }
     // Wird nach der Rückkehr aus den Android-Dialogen erhöht und liest deren Ergebnis neu
     var returned by remember { mutableIntStateOf(0) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { returned++ }
@@ -395,6 +468,21 @@ fun NotificationsScreen(settings: Settings, onOpen: (String) -> Unit, onBack: ()
                         settings.pushEnabled = it
                         NotificationService.sync(context, settings)
                     })
+                }
+                if (enabled) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Warnen, wenn der Server ausfällt", color = p.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Wenn das Handy Internet hat, der Server aber 15 Minuten nicht antwortet.",
+                                color = p.muted, fontSize = 13.sp,
+                            )
+                        }
+                        Switch(checked = serverAlarm, onCheckedChange = {
+                            serverAlarm = it
+                            settings.serverAlarm = it
+                        })
+                    }
                 }
                 if (enabled && !allowed) {
                     TextButton(onClick = { permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
