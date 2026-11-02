@@ -23,13 +23,13 @@ oder teilweise zurück.
 
 | Teil | Aufgabe |
 | --- | --- |
-| `service/server.py` | Weboberfläche über die Socket-Datei des Zugangs, Startdateien und Aufträge auf Port 8095, Zeitplan, Meldungen, Aufräumen |
+| `service/server.py` | Weboberfläche über die Socket-Datei des Zugangs, Startdateien und Aufträge auf Port 8395, Zeitplan, Meldungen, Aufräumen |
 | `service/store.py` | PCs, Aufträge, Verlauf, wartende PCs |
 | `live/` | Das Sicherungssystem: `init` startet Geräte und Netz, `hn-agent` sichert oder schreibt zurück |
 | `Dockerfile` | Baut das Sicherungssystem, die Startdateien und den Dienst; restic und rest-server mit Prüfsumme |
 
-Ports im Heimnetz, nicht über den Zugang: 67 und 69 (UDP, Netzwerkstart), 8094 (rest-server, Zugang je PC, ohne
-Recht zum Löschen) und 8095 (Startdateien, Stick-Abbild, Aufträge mit Einmal-Kennwort).
+Ports im Heimnetz, nicht über den Zugang: 67 und 69 (UDP, Netzwerkstart), 8394 (rest-server, Zugang je PC, ohne
+Recht zum Löschen) und 8395 (Startdateien, Stick-Abbild, Aufträge mit Einmal-Kennwort).
 
 ## Ablage
 

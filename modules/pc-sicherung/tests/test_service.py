@@ -201,7 +201,7 @@ class Http(unittest.TestCase):
         self.assertEqual(self.woken, [MAC])
         _, text = self.call(self.boot, "GET", f"/boot/grub/{MAC}")
         token = text.decode().split("hn_token=")[1].split()[0]
-        self.assertIn(b"linux (http,192.168.1.10:8095)/boot/vmlinuz", text)
+        self.assertIn(b"linux (http,192.168.1.10:8395)/boot/vmlinuz", text)
         _, ipxe = self.call(self.boot, "GET", f"/boot/ipxe/{MAC}")
         self.assertIn(token.encode(), ipxe)
         _, job = self.call(self.boot, "GET", "/live/job", headers={"X-Token": token})
