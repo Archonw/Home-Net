@@ -43,7 +43,7 @@ ASSETS = {
 DEFAULT_PASSWORD = "netzwerkmonitor"
 MIN_PASSWORD_LENGTH = 8
 # So oft schaut der Monitor nach einer neuen App-Version
-APP_UPDATE_INTERVAL = 6 * 60 * 60
+APP_UPDATE_INTERVAL = 60 * 60
 APK_TYPE = "application/vnd.android.package-archive"
 
 
