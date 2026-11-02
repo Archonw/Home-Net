@@ -44,6 +44,8 @@ sealed interface Screen {
     data object PiOverview : Screen
     data class PiDetail(val id: String) : Screen
     data object PiSetup : Screen
+    data object PcOverview : Screen
+    data class PcDetail(val id: String) : Screen
     data object HubSetup : Screen
     data object Notifications : Screen
 }
@@ -119,6 +121,7 @@ class MainActivity : FragmentActivity() {
             screen = when (screen) {
                 is Screen.Detail -> Screen.List
                 is Screen.PiDetail, Screen.PiSetup -> if (settings.isPiConfigured) Screen.PiOverview else Screen.Home
+                is Screen.PcDetail -> Screen.PcOverview
                 Screen.HubSetup, Screen.Notifications -> Screen.Setup
                 else -> Screen.Home
             }
@@ -156,6 +159,17 @@ class MainActivity : FragmentActivity() {
                         api = settings.api(),
                         onNetwork = { screen = Screen.List },
                         onPi = { screen = if (settings.isPiConfigured) Screen.PiOverview else Screen.PiSetup },
+                        onPc = { screen = Screen.PcOverview },
+                    )
+                    Screen.PcOverview -> PcOverviewScreen(
+                        api = settings.pcApi(),
+                        onOpen = { screen = Screen.PcDetail(it) },
+                        onBack = { screen = Screen.Home },
+                    )
+                    is Screen.PcDetail -> PcDetailScreen(
+                        api = settings.pcApi(),
+                        id = s.id,
+                        onBack = { screen = Screen.PcOverview },
                     )
                     Screen.HubSetup -> {
                         val returnTo = if (settings.isConfigured) Screen.Setup else Screen.Home
@@ -244,10 +258,10 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    /** netmon://device/<MAC> und netmon://pi/<id> → Detailseite des Geräts oder Pis. */
+    /** netmon://device/<MAC>, netmon://pi/<id> und netmon://pc/<id> → Detailseite des Geräts, Pis oder PCs. */
     private fun handleLink(intent: Intent?): Boolean {
         val data = intent?.data ?: return false
-        if (data.scheme != "netmon" || (data.host != "device" && data.host != "pi")) return false
+        if (data.scheme != "netmon" || data.host !in setOf("device", "pi", "pc")) return false
         val target = data.lastPathSegment ?: return false
         openLink("${data.host}/$target")
         return true
@@ -258,7 +272,11 @@ class MainActivity : FragmentActivity() {
     private fun openLink(link: String) {
         if (!settings.isConfigured) return
         val target = link.substringAfter('/')
-        screen = if (link.startsWith("pi/")) Screen.PiDetail(target) else Screen.Detail(target)
+        screen = when {
+            link.startsWith("pi/") -> Screen.PiDetail(target)
+            link.startsWith("pc/") -> Screen.PcDetail(target)
+            else -> Screen.Detail(target)
+        }
     }
 
     /** Fragt einmal nach der Erlaubnis; ablehnen lässt sich das auch, der Rest der App läuft weiter. */

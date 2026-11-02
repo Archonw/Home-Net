@@ -95,6 +95,11 @@ class Settings(context: Context) {
 
     val isPiConfigured: Boolean get() = piUrl.isNotBlank()
 
+    /** PC-Sicherung gibt es nur über den gemeinsamen Zugang. */
+    fun pcApi() = PcApi(
+        PiApi("$hubUrl/m/pc-sicherung", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/pc-sicherung"),
+    )
+
     fun piApi() = PiApi(piUrl, if (isHubConfigured) hubSecret else piPassword, piExternalUrl)
 
     var sortOrder: SortOrder

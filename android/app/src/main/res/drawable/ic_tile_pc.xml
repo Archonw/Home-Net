@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="512" android:viewportHeight="512">
+    <!-- assets/icons/pc-sicherung.svg -->
+    <path android:fillColor="#2F6FD0" android:pathData="M0,0 H512 V512 H0 Z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M106,96 H406 A22,22 0 0 1 428,118 V306 A22,22 0 0 1 406,328 H106 A22,22 0 0 1 84,306 V118 A22,22 0 0 1 106,96 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M216,328 L200,392 H312 L296,328 Z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M175,384 H337 A15,15 0 0 1 337,414 H175 A15,15 0 0 1 175,384 Z" />
+    <path android:strokeColor="#2F6FD0" android:strokeWidth="30" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M256,140 V262 M202,212 L256,266 L310,212" />
+</vector>
