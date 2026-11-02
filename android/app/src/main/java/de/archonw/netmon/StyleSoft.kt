@@ -273,31 +273,33 @@ fun SoftDetail(ui: DetailUi) {
             ui.message?.let { Text(it, color = p.muted, fontSize = 14.sp) }
         }
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            val allowed = d.status == "allowed"
-            val blocked = d.status == "blocked"
-            ActionButton(
-                "Erlauben",
-                background = if (allowed) p.line else p.accent,
-                foreground = if (allowed) p.muted else p.onAccent,
-                border = Color.Transparent,
-                enabled = !ui.busy && !allowed,
-                modifier = Modifier.weight(1f),
-                onClick = ui.onAllow,
-            )
-            ActionButton(
-                "Sperren",
-                background = if (blocked) p.danger else Color.Transparent,
-                foreground = if (blocked) (if (p.dark) p.bg else Color.White) else p.danger,
-                border = p.danger,
-                enabled = !ui.busy && !blocked,
-                modifier = Modifier.weight(1f),
-                onClick = ui.onBlock,
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        TextButton(onClick = ui.onWatch, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
-            Text(if (d.watched) "Nicht mehr im Blick" else "Im Blick behalten", color = p.accentText)
+        if (ui.canManage) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val allowed = d.status == "allowed"
+                val blocked = d.status == "blocked"
+                ActionButton(
+                    "Erlauben",
+                    background = if (allowed) p.line else p.accent,
+                    foreground = if (allowed) p.muted else p.onAccent,
+                    border = Color.Transparent,
+                    enabled = !ui.busy && !allowed,
+                    modifier = Modifier.weight(1f),
+                    onClick = ui.onAllow,
+                )
+                ActionButton(
+                    "Sperren",
+                    background = if (blocked) p.danger else Color.Transparent,
+                    foreground = if (blocked) (if (p.dark) p.bg else Color.White) else p.danger,
+                    border = p.danger,
+                    enabled = !ui.busy && !blocked,
+                    modifier = Modifier.weight(1f),
+                    onClick = ui.onBlock,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = ui.onWatch, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
+                Text(if (d.watched) "Nicht mehr im Blick" else "Im Blick behalten", color = p.accentText)
+            }
         }
     }
 }

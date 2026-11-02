@@ -326,3 +326,7 @@ button.text.danger { color: var(--danger); }
 .loading { display: grid; place-items: center; padding: 40px; }
 .loading .nm-spinner { width: 32px; height: 32px; border-width: 3px; }
 @keyframes nm-spin { to { transform: rotate(360deg); } }
+
+/* Konten ohne Verwaltungsrecht: nur ansehen, der Server lehnt Änderungen ohnehin ab */
+.view-only .tab[href$="/settings"], .view-only [data-act="rename"], .view-only [data-act="watch"],
+.view-only [data-act="remove-offline"], .view-only #allow, .view-only #block { display: none; }

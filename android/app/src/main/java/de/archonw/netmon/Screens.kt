@@ -103,6 +103,7 @@ class DetailUi(
     val onAllow: () -> Unit,
     val onBlock: () -> Unit,
     val onWatch: () -> Unit,
+    val canManage: Boolean,
     val onBack: () -> Unit,
     val onCopy: (label: String, value: String) -> Unit,
 )
@@ -204,6 +205,7 @@ fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -
     var filter by remember { mutableStateOf(settings.quickFilter) }
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
+    var canManage by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -211,6 +213,7 @@ fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -
     LaunchedEffect(reload) {
         error = null
         try {
+            canManage = api.canManage()
             devices = api.devices()
         } catch (e: ApiException) {
             error = e.message
@@ -249,7 +252,7 @@ fun ListScreen(api: Api, settings: Settings, style: AppStyle, onOpen: (String) -
             searching = !searching
             if (!searching) query = ""
         },
-        canRemoveOffline = offline > 0,
+        canRemoveOffline = canManage && offline > 0,
         onRemoveOffline = { confirmRemove = true },
         onOpen = onOpen,
         onBack = onBack,
@@ -298,9 +301,11 @@ fun DetailScreen(api: Api, mac: String, style: AppStyle, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     var confirmBlock by remember { mutableStateOf(false) }
+    var canManage by remember(mac) { mutableStateOf(false) }
 
     LaunchedEffect(mac) {
         try {
+            canManage = api.canManage()
             device = api.device(mac)
         } catch (e: ApiException) {
             error = e.message
@@ -329,6 +334,7 @@ fun DetailScreen(api: Api, mac: String, style: AppStyle, onBack: () -> Unit) {
         busy = busy,
         onAllow = { act(true) },
         onBlock = { if (device?.related.isNullOrEmpty()) act(false) else confirmBlock = true },
+        canManage = canManage,
         onWatch = {
             val watched = device?.watched != true
             busy = true

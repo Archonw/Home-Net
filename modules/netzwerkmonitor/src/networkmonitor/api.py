@@ -98,6 +98,10 @@ class Runtime:
         self.monitor.settings = settings
 
 
+def may_manage(request: Request) -> bool:
+    return request.headers.get("x-home-net-role", "owner") in ("owner", "admin")
+
+
 class DeviceUpdate(BaseModel):
     name: str | None = None
     notes: str | None = None
@@ -259,6 +263,11 @@ def create_app(
             )
         raise HTTPException(status.HTTP_303_SEE_OTHER, headers={"Location": "/setup"})
 
+    def require_manager(request: Request, _: None = Depends(require_login)) -> None:  # noqa: B008
+        # Die Rolle setzt nur der Home-Net-Zugang; im Betrieb allein gilt das Passwort für alles
+        if not may_manage(request):
+            raise HTTPException(403, "Das dürfen nur Eigentümer und Admins")
+
     def require_setup_access(request: Request, _: None = Depends(require_password)) -> None:  # noqa: B008
         # Mit dem bekannten Standardpasswort darf niemand von außen das eigene Passwort setzen
         if rt.setup_pending and via_proxy(request):
@@ -343,7 +352,7 @@ def create_app(
     def get_app_status() -> dict:
         return app_status()
 
-    @app.post("/api/app/check", dependencies=[Depends(require_login)])
+    @app.post("/api/app/check", dependencies=[Depends(require_manager)])
     def post_app_check() -> dict:
         return check_app_update()
 
@@ -364,6 +373,10 @@ def create_app(
                 {"mac": r.mac, "title": r.name or r.hostname or r.mac, "ip": r.ip} for r in related
             ],
         }
+
+    @app.get("/api/me", dependencies=[Depends(require_login)])
+    def me(request: Request) -> dict:
+        return {"can_manage": may_manage(request)}
 
     @app.get("/api/devices/{mac}", dependencies=[Depends(require_login)])
     def get_device(mac: str) -> dict:
@@ -387,24 +400,24 @@ def create_app(
             raise HTTPException(404, "Gerät nicht gefunden")
         return device_details(device)
 
-    @app.post("/api/devices/remove-offline", dependencies=[Depends(require_login)])
+    @app.post("/api/devices/remove-offline", dependencies=[Depends(require_manager)])
     def remove_offline() -> dict:
         removed = store.remove_offline()
         return {"removed": len(removed)}
 
-    @app.post("/api/devices/{mac}/allow", dependencies=[Depends(require_login)])
+    @app.post("/api/devices/{mac}/allow", dependencies=[Depends(require_manager)])
     def allow(mac: str) -> dict:
         return _set(mac, Status.ALLOWED)
 
-    @app.post("/api/devices/{mac}/block", dependencies=[Depends(require_login)])
+    @app.post("/api/devices/{mac}/block", dependencies=[Depends(require_manager)])
     def block(mac: str) -> dict:
         return _set(mac, Status.BLOCKED)
 
-    @app.post("/api/devices/{mac}/watch", dependencies=[Depends(require_login)])
+    @app.post("/api/devices/{mac}/watch", dependencies=[Depends(require_manager)])
     def watch(mac: str) -> dict:
         return watched(mac, True)
 
-    @app.post("/api/devices/{mac}/unwatch", dependencies=[Depends(require_login)])
+    @app.post("/api/devices/{mac}/unwatch", dependencies=[Depends(require_manager)])
     def unwatch(mac: str) -> dict:
         return watched(mac, False)
 
@@ -414,22 +427,22 @@ def create_app(
             raise HTTPException(404, "Gerät nicht gefunden")
         return device_details(device)
 
-    @app.patch("/api/devices/{mac}", dependencies=[Depends(require_login)])
+    @app.patch("/api/devices/{mac}", dependencies=[Depends(require_manager)])
     def update(mac: str, body: DeviceUpdate) -> dict:
         device = store.update_info(mac, name=body.name, notes=body.notes)
         if device is None:
             raise HTTPException(404, "Gerät nicht gefunden")
         return asdict(device)
 
-    @app.get("/settings", response_class=HTMLResponse, dependencies=[Depends(require_login)])
+    @app.get("/settings", response_class=HTMLResponse, dependencies=[Depends(require_manager)])
     def settings_page() -> str:
         return SETTINGS_HTML
 
-    @app.get("/api/settings", dependencies=[Depends(require_login)])
+    @app.get("/api/settings", dependencies=[Depends(require_manager)])
     def get_settings() -> dict:
         return public_view(rt.settings)
 
-    @app.put("/api/settings", dependencies=[Depends(require_login)])
+    @app.put("/api/settings", dependencies=[Depends(require_manager)])
     def put_settings(body: dict) -> dict:
         changes: dict = {}
         for field, value in body.items():
@@ -456,7 +469,7 @@ def create_app(
             rt.reload(new_settings)
         return public_view(rt.settings)
 
-    @app.post("/api/settings/test-fritzbox", dependencies=[Depends(require_login)])
+    @app.post("/api/settings/test-fritzbox", dependencies=[Depends(require_manager)])
     def test_fritzbox() -> dict:
         try:
             hosts = rt.router.list_hosts()
@@ -465,7 +478,7 @@ def create_app(
         active = sum(h.active for h in hosts)
         return {"ok": True, "message": f"Verbunden: {len(hosts)} Geräte bekannt, {active} aktiv"}
 
-    @app.post("/api/settings/test-notify", dependencies=[Depends(require_login)])
+    @app.post("/api/settings/test-notify", dependencies=[Depends(require_manager)])
     def test_notify() -> dict:
         if not rt.notifiers:
             return {"ok": False, "results": [], "message": "Kein Kanal eingerichtet"}

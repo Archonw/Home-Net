@@ -169,12 +169,11 @@ def main():
     # Vor der ersten Meldung: Deren Einblendung läge sonst über der Kachel
     tap("Pi-Wartung")
     find("Zurück")
-    tap("Einstellungen")
-    tap("Start")
-    find("Zurück")
-    report("notice", "Start führt aus den Einstellungen zurück in den Dienst")
-    tap("Start")
-    find("Home-Net")
+    if "Einstellungen" in texts():
+        fail("Untere Leiste im Dienst noch sichtbar")
+    tap("Zurück")
+    find("Einstellungen")
+    report("notice", "Im Dienst nur der Zurück-Pfeil, er führt zur Startseite")
     time.sleep(5)
 
     (Path(spool) / "pi-wartung" / "probe.json").write_text(json.dumps(

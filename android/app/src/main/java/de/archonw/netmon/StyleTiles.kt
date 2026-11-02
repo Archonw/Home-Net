@@ -235,29 +235,31 @@ fun TilesDetail(ui: DetailUi) {
             ui.message?.let { Text(it, color = p.muted, fontSize = 14.sp) }
         }
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            val allowed = d.status == "allowed"
-            val blocked = d.status == "blocked"
-            BigButton(
-                "Sperren",
-                background = if (blocked) p.card else p.danger,
-                foreground = if (blocked) p.muted else Color.White,
-                enabled = !ui.busy && !blocked,
-                modifier = Modifier.weight(1f),
-                onClick = ui.onBlock,
-            )
-            BigButton(
-                "Erlauben",
-                background = if (allowed) p.card else p.accent,
-                foreground = if (allowed) p.muted else p.onAccent,
-                enabled = !ui.busy && !allowed,
-                modifier = Modifier.weight(1f),
-                onClick = ui.onAllow,
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        TextButton(onClick = ui.onWatch, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
-            Text(if (d.watched) "Nicht mehr im Blick" else "Im Blick behalten", color = p.accentText)
+        if (ui.canManage) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                val allowed = d.status == "allowed"
+                val blocked = d.status == "blocked"
+                BigButton(
+                    "Sperren",
+                    background = if (blocked) p.card else p.danger,
+                    foreground = if (blocked) p.muted else Color.White,
+                    enabled = !ui.busy && !blocked,
+                    modifier = Modifier.weight(1f),
+                    onClick = ui.onBlock,
+                )
+                BigButton(
+                    "Erlauben",
+                    background = if (allowed) p.card else p.accent,
+                    foreground = if (allowed) p.muted else p.onAccent,
+                    enabled = !ui.busy && !allowed,
+                    modifier = Modifier.weight(1f),
+                    onClick = ui.onAllow,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = ui.onWatch, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
+                Text(if (d.watched) "Nicht mehr im Blick" else "Im Blick behalten", color = p.accentText)
+            }
         }
     }
 }

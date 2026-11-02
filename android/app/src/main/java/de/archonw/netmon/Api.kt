@@ -85,6 +85,14 @@ class Api(
     suspend fun block(mac: String): Device =
         Device.from(JSONObject(request("POST", "api/devices/${enc(mac)}/block")))
 
+    /** Ob dieses Konto Geräte ändern darf; ältere Server kennen die Frage nicht und erlauben alles. */
+    suspend fun canManage(): Boolean =
+        try {
+            JSONObject(request("GET", "api/me")).optBoolean("can_manage", true)
+        } catch (e: ApiException) {
+            true
+        }
+
     suspend fun setWatched(mac: String, watched: Boolean): Device =
         Device.from(JSONObject(request("POST", "api/devices/${enc(mac)}/${if (watched) "watch" else "unwatch"}")))
 

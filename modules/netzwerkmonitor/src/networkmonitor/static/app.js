@@ -237,6 +237,7 @@ const NM = (() => {
         ${id === active ? 'aria-current="page"' : ""}><span class="pill">${icon(id)}</span>${label}</a>`).join("");
     document.body.append(nav);
     document.body.classList.add("with-tabs");
+    api("/api/me").then(me => document.body.classList.toggle("view-only", !me.can_manage)).catch(() => {});
   }
 
   return { prefs, set, icon, tabbar, ACCENTS, STYLES, THEMES, esc, api, statusLabel, ifaceLabel, title, fmt, copy, dialog, toast, pullToRefresh };

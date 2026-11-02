@@ -54,8 +54,6 @@ class MainActivity : FragmentActivity() {
     private var unlocked by mutableStateOf(false)
     private var authError by mutableStateOf<String?>(null)
     private var screen by mutableStateOf<Screen>(Screen.Home)
-    // Von wo aus die Einstellungen geöffnet wurden; dorthin führt der Weg zurück
-    private var settingsOrigin: Screen = Screen.Home
     private var backgroundSince = 0L
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var useBiometrics by mutableStateOf(false)
@@ -122,7 +120,6 @@ class MainActivity : FragmentActivity() {
                 is Screen.Detail -> Screen.List
                 is Screen.PiDetail, Screen.PiSetup -> if (settings.isPiConfigured) Screen.PiOverview else Screen.Home
                 Screen.HubSetup, Screen.Notifications -> Screen.Setup
-                Screen.Setup -> settingsOrigin
                 else -> Screen.Home
             }
         }
@@ -209,15 +206,13 @@ class MainActivity : FragmentActivity() {
                     )
                 }
             }
-            if (settings.isConfigured && !WindowInsets.isImeVisible) {
+            // In den Diensten führt der Zurück-Pfeil heraus; die Leiste gehört nur zur Startseite und den Einstellungen
+            if (settings.isConfigured && !WindowInsets.isImeVisible && (screen == Screen.Home || inSettings())) {
                 NavBar(
                     style = appStyle,
                     settingsActive = inSettings(),
-                    onHome = { screen = if (inSettings()) settingsOrigin else Screen.Home },
-                    onSettings = {
-                        if (!inSettings()) settingsOrigin = screen
-                        screen = Screen.Setup
-                    },
+                    onHome = { screen = Screen.Home },
+                    onSettings = { screen = Screen.Setup },
                 )
             } else {
                 Spacer(Modifier.navigationBarsPadding())

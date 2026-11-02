@@ -79,3 +79,38 @@ def test_first_setup_not_from_outside():
 def test_api_docs_not_public(client):
     for path in ("/docs", "/redoc", "/openapi.json"):
         assert client.get(path).status_code == 404
+
+
+USER = {"X-Home-Net-Role": "user"}
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/settings"),
+        ("get", "/api/settings"),
+        ("put", "/api/settings"),
+        ("post", "/api/settings/test-fritzbox"),
+        ("post", "/api/settings/test-notify"),
+        ("post", "/api/app/check"),
+        ("post", "/api/devices/remove-offline"),
+        ("post", "/api/devices/aa:bb:cc:dd:ee:ff/allow"),
+        ("post", "/api/devices/aa:bb:cc:dd:ee:ff/block"),
+        ("post", "/api/devices/aa:bb:cc:dd:ee:ff/watch"),
+        ("patch", "/api/devices/aa:bb:cc:dd:ee:ff"),
+    ],
+)
+def test_plain_user_may_not_change_anything(client, method, path):
+    assert getattr(client, method)(path, auth=AUTH, headers=USER).status_code == 403
+
+
+def test_plain_user_may_look(client):
+    assert client.get("/api/devices", auth=AUTH, headers=USER).status_code == 200
+    assert client.get("/", auth=AUTH, headers=USER).status_code == 200
+    assert client.get("/api/me", auth=AUTH, headers=USER).json() == {"can_manage": False}
+
+
+def test_owner_admin_and_standalone_may_manage(client):
+    for headers in ({"X-Home-Net-Role": "owner"}, {"X-Home-Net-Role": "admin"}, {}):
+        assert client.get("/api/settings", auth=AUTH, headers=headers).status_code == 200
+        assert client.get("/api/me", auth=AUTH, headers=headers).json() == {"can_manage": True}
