@@ -289,6 +289,42 @@ def cmd_modules(_args):
         print(f"{module_id}: {module['description']}")
 
 
+def has_https():
+    try:
+        import ssl  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def extract_release(stream, fresh):
+    with tarfile.open(fileobj=stream, mode="r|gz") as tar:
+        for member in tar:
+            # GitHub puts everything below one folder named after the repository and branch
+            parts = Path(member.name).parts[1:]
+            if parts:
+                member.name = str(Path(*parts))
+                tar.extract(member, fresh, filter="data")
+
+
+def download_release(source, fresh):
+    """Python on Unraid is built without SSL; curl, which every Unraid has, then does the download."""
+    if has_https():
+        with urllib.request.urlopen(source, timeout=120) as resp:
+            extract_release(resp, fresh)
+        return
+    if not shutil.which("curl"):
+        raise HomeNetError("Python kann kein HTTPS und curl fehlt")
+    curl = subprocess.Popen(["curl", "-fsSL", "--max-time", "600", source], stdout=subprocess.PIPE)
+    try:
+        extract_release(curl.stdout, fresh)
+    finally:
+        curl.stdout.close()
+        code = curl.wait()
+    if code != 0:
+        raise OSError(f"curl Fehlercode {code}")
+
+
 def replace_program(repo, source=SOURCE):
     """Swaps the program folder for the published version; only a complete download touches the old one."""
     fresh, old = repo.with_name(repo.name + ".neu"), repo.with_name(repo.name + ".alt")
@@ -296,13 +332,7 @@ def replace_program(repo, source=SOURCE):
         shutil.rmtree(folder, ignore_errors=True)
     fresh.mkdir()
     try:
-        with urllib.request.urlopen(source, timeout=120) as resp, tarfile.open(fileobj=resp, mode="r|gz") as tar:
-            for member in tar:
-                # GitHub puts everything below one folder named after the repository and branch
-                parts = Path(member.name).parts[1:]
-                if parts:
-                    member.name = str(Path(*parts))
-                    tar.extract(member, fresh, filter="data")
+        download_release(source, fresh)
         if not (fresh / "home-net").exists():
             raise HomeNetError("Der Download enthält kein Home-Net")
         repo.rename(old)
