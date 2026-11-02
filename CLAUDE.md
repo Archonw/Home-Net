@@ -4,6 +4,10 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
 
 - `modules/netzwerkmonitor`: REST-API aus `src/networkmonitor/api.py`, genutzt in `android/.../Api.kt`.
 - `modules/pi-wartung`: Dienst aus `service/server.py`, genutzt in `android/.../PiApi.kt` und `PiScreens.kt`.
+- `modules/pc-sicherung`: Dienst aus `service/server.py`, bisher nur Weboberfläche (keine eigenen App-Seiten). Das
+  Sicherungssystem für die PCs (`live/`) wird im Dockerfile gebaut; ändert sich die Schnittstelle `/live/*`, müssen
+  `live/hn-agent` und `service/server.py` zusammen geändert werden. Der Dienst läuft im Host-Netz, weil er für den
+  Netzwerkstart Proxy-DHCP und TFTP anbietet; das Archiv `PC_DIR` legt das Installationsprogramm fest.
 
 Ändert sich eine Schnittstelle, wird die App im selben Commit mit angepasst.
 

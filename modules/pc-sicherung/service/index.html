@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PC-Sicherung</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#2f6fd0; --ok:#1a7f37; --bad:#c93a3a; --warn:#b35a0a; --soft:#2f6fd01f; }
+@media (prefers-color-scheme: dark) { :root { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#5b93ea; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#5b93ea26; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
+header { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:18px 16px 6px; max-width:1000px; margin:auto; }
+h1 { font-size:24px; margin:0 auto 0 0; cursor:pointer; }
+main { max-width:1000px; margin:auto; padding:8px 16px 48px; }
+h2 { font-size:13px; color:var(--muted); margin:20px 0 8px; font-weight:650; }
+button,a.button { font:inherit; border:1px solid var(--line); background:var(--card); color:inherit; border-radius:9px; padding:7px 13px; cursor:pointer; text-decoration:none; display:inline-block; }
+button.main { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+button.danger { color:var(--bad); }
+button:disabled { opacity:.55; cursor:default; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+.tile,.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+.tile b { display:block; font-size:21px; }
+.label,.quiet { color:var(--muted); font-size:13px; }
+.card { margin-bottom:8px; }
+.row { display:flex; gap:12px; align-items:center; cursor:pointer; }
+.row .grow { flex:1; min-width:0; }
+.name { font-weight:620; }
+.ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); } .run { color:var(--accent); }
+.note { background:var(--soft); border-color:transparent; }
+.actions { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
+progress { width:100%; height:8px; accent-color:var(--accent); }
+dl { display:grid; grid-template-columns:150px 1fr; gap:3px 10px; margin:0; }
+dt { color:var(--muted); } dd { margin:0; overflow-wrap:anywhere; }
+dialog { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:14px; width:min(620px,94vw); padding:18px; }
+dialog::backdrop { background:#0007; }
+label { display:block; margin:9px 0 3px; font-size:13px; color:var(--muted); }
+input,select,textarea { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; }
+input[type=checkbox],input[type=radio] { width:auto; margin-right:6px; }
+.check { color:inherit; font-size:15px; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+fieldset { border:0; border-top:1px solid var(--line); margin:14px 0 0; padding:6px 0 0; }
+legend { font-weight:650; padding-right:8px; }
+.err { color:var(--bad); margin:8px 0; white-space:pre-wrap; }
+.hint { font-size:12.5px; color:var(--muted); margin:3px 0 0; }
+.foot { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; flex-wrap:wrap; }
+.line { display:flex; gap:10px; align-items:center; padding:7px 0; border-top:1px solid var(--line); }
+.line:first-child { border:0; }
+.line .grow { flex:1; min-width:0; }
+pre { background:var(--bg); border-radius:8px; padding:8px; font-size:12px; overflow:auto; max-height:230px; margin:6px 0 0; white-space:pre-wrap; }
+ol { margin:6px 0; padding-left:20px; } li { margin:3px 0; }
+@media (max-width:560px) { dl { grid-template-columns:1fr; } dt { margin-top:6px; } .two { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="home">PC-Sicherung</h1>
+  <button id="add" class="main" hidden>PC hinzufügen</button>
+  <button id="settings" hidden>Einstellungen</button>
+</header>
+<main id="app">Wird geladen …</main>
+
+<dialog id="dlg"><form id="form" method="dialog"></form></dialog>
+
+<script>
+const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
+const app = document.getElementById("app"), dlg = document.getElementById("dlg"), form = document.getElementById("form");
+const RESULTS = { ok: ["Gesichert", "ok"], failed: ["Fehler", "bad"], cancelled: ["Abgebrochen", "warn"], missed: ["Nicht gestartet", "warn"] };
+const SCHEDULES = [["off", "Aus"], ["daily", "Täglich"], ["weekly", "Wöchentlich"], ["monthly", "Monatlich (am 1.)"]];
+const DAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
+const AFTER = [["poweroff", "Danach ausschalten"], ["reboot", "Danach normal starten"]];
+let current = null, timer = null, last = null;
+
+async function api(path, method = "GET", body) {
+  const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || `Fehler ${r.status}`);
+  return data;
+}
+const size = n => { const u = ["B","KB","MB","GB","TB"]; let i = 0; n = n || 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return `${i > 1 ? n.toFixed(1).replace(".", ",") : Math.round(n)} ${u[i]}`; };
+const when = s => s ? new Date(s * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "–";
+function jobText(j) {
+  const what = j.action === "restore" ? "Wiederherstellung" : "Sicherung";
+  if (j.cancel) return [`${what} wird abgebrochen`, "warn"];
+  if (j.state === "armed") return [`${what} wartet auf den Start des PCs`, "run"];
+  if (j.state === "booting") return [`${what}: PC startet das Sicherungssystem`, "run"];
+  return [`${what} läuft${j.progress ? ` (${j.progress.percent} %)` : ""}`, "run"];
+}
+const status = p => p.job ? jobText(p.job) : RESULTS[p.status] || ["Nie gesichert", "quiet"];
+function schedule(fn, ms) { clearTimeout(timer); timer = setTimeout(fn, ms); }
+function fail(e) { app.replaceChildren($("div", { className: "err", textContent: e.message })); schedule(current ? showPc.bind(null, current) : overview, 15000); }
+function planText(p) {
+  const s = Object.fromEntries(SCHEDULES)[p.schedule];
+  if (p.schedule === "off") return "Kein Zeitplan";
+  return `${s}${p.schedule === "weekly" ? " am " + DAYS[p.weekday ?? 6] : ""} ab ${p.hour} Uhr`;
+}
+
+async function overview() {
+  current = null;
+  try {
+    const d = last = await api("api/overview");
+    document.getElementById("add").hidden = document.getElementById("settings").hidden = !d.manager;
+    const tile = (l, v, s, c) => $("div", { className: "tile" }, $("span", { className: "label", textContent: l }), $("b", { textContent: v, className: c || "" }), $("span", { className: "quiet", textContent: s }));
+    const failed = d.pcs.filter(p => !p.job && (p.status === "failed" || p.status === "missed")).length;
+    const parts = [$("div", { className: "tiles" },
+      tile("PCs", d.pcs.length, `${d.pcs.filter(p => p.job).length} gerade in Arbeit`),
+      tile("Belegt", size(d.bytes), "alle Sicherungen zusammen"),
+      tile("Speicher frei", size(d.disk.avail), `von ${size(d.disk.total)}`),
+      tile("Probleme", failed, "letzte Sicherung misslungen", failed ? "bad" : "ok"))];
+    if (d.manager && !d.netboot.enabled) parts.push($("div", { className: "card note", style: "margin-top:10px" },
+      $("div", { className: "name", textContent: "Der Netzwerkstart ist noch aus." }),
+      $("div", { textContent: "Ohne ihn starten PCs nur vom Stick. Einschalten unter Einstellungen; die FritzBox bleibt dabei für die Adressen zuständig." })));
+    if (d.netboot.enabled && d.netboot.error) parts.push($("div", { className: "card bad", style: "margin-top:10px", textContent: `Netzwerkstart gestört: ${d.netboot.error}` }));
+    if (d.waiting.length) {
+      parts.push($("h2", { textContent: "Wartende PCs (vom Stick gestartet)" }));
+      for (const w of d.waiting) parts.push($("div", { className: "card row" },
+        $("div", { className: "grow" }, $("div", { className: "name", textContent: w.pc_name || [w.vendor, w.product].filter(Boolean).join(" ") || "Unbekannter PC" }),
+          $("div", { className: "quiet", textContent: `${w.mac} · seit ${when(w.since)}${w.disks ? " · " + w.disks : ""}` })),
+        $("button", { className: "main", textContent: "Auftrag geben", onclick: () => assignDialog(w) }),
+        $("button", { textContent: "Ignorieren", onclick: async () => { await api(`api/waiting/${w.id}`, "DELETE"); overview(); } })));
+    }
+    const groups = {};
+    for (const p of d.pcs) (groups[p.category || "Ohne Kategorie"] ||= []).push(p);
+    for (const [cat, rows] of Object.entries(groups)) {
+      parts.push($("h2", { textContent: cat }));
+      for (const p of rows) {
+        const [text, cls] = status(p);
+        parts.push($("div", { className: "card row", onclick: () => showPc(p.id) },
+          $("div", { className: "grow" }, $("div", { className: "name", textContent: p.name }),
+            $("div", { className: "quiet", textContent: `Gesichert ${when(p.ok_time)} · ${p.next ? "nächste " + when(p.next) : "kein Zeitplan"}` })),
+          $("div", { style: "text-align:right" }, $("div", { className: cls, textContent: text }), $("div", { className: "quiet", textContent: size(p.bytes) }))));
+      }
+    }
+    if (!d.pcs.length) parts.push($("div", { className: "card", textContent: d.manager ? "Noch keine PCs. Lege oben den ersten an oder starte einen PC vom Stick." : "Für dich sind keine PCs freigegeben." }));
+    if (d.unknown.length) {
+      parts.push($("h2", { textContent: "Unbekannte Geräte, die übers Netz starten wollten" }));
+      parts.push($("div", { className: "card" }, ...d.unknown.map(u => $("div", { className: "line" },
+        $("div", { className: "grow", textContent: `${u.mac} · ${when(u.time)}` }),
+        $("button", { textContent: "Als PC anlegen", onclick: () => addPc({ macs: [u.mac] }) })))));
+    }
+    app.replaceChildren(...parts);
+    schedule(overview, d.pcs.some(p => p.job) || d.waiting.length ? 5000 : 30000);
+  } catch (e) { fail(e); }
+}
+
+async function showPc(id) {
+  current = id;
+  try {
+    const d = await api(`api/pcs/${id}`);
+    if (current !== id) return;
+    const [text, cls] = status(d);
+    const act = (label, fn, cn) => $("button", { textContent: label, className: cn || "", onclick: async ev => { ev.target.disabled = true; try { await fn(); } catch (e) { alert(e.message); } await showPc(id); } });
+    const lastEntry = d.history[0];
+    const buttons = [$("button", { textContent: "Zurück", onclick: overview })];
+    if (d.job) buttons.push(act("Abbrechen", () => confirm("Auftrag abbrechen?") ? api(`api/pcs/${id}/cancel`, "POST") : null));
+    else {
+      buttons.push($("button", { className: "main", textContent: "Jetzt sichern", onclick: () => backupDialog(d) }));
+      if (d.manager) buttons.push($("button", { textContent: "Wiederherstellen", disabled: !d.runs.some(r => r.complete), onclick: () => restoreDialog(d) }));
+    }
+    buttons.push(act("Aufwecken", () => api(`api/pcs/${id}/wake`, "POST")));
+    if (d.manager) buttons.push($("button", { textContent: "Einstellungen", onclick: () => editPc(id) }));
+    const parts = [$("div", { className: "actions" }, ...buttons),
+      $("div", { className: "card" }, $("div", { className: "name", style: "font-size:20px", textContent: d.name }),
+        $("div", { className: cls, textContent: text }),
+        $("div", { className: "quiet", textContent: `${d.category || "Ohne Kategorie"} · ${planText(d)} · behält ${d.keep} Sicherungen · ${d.macs.join(", ")}` }),
+        !d.job && lastEntry && lastEntry.result !== "ok" ? $("div", { className: RESULTS[lastEntry.result]?.[1] || "", textContent: lastEntry.message }) : null)];
+    if (d.job) {
+      const j = d.job, p = j.progress;
+      const hint = j.state === "armed" ? "Der PC wurde per Wake-on-LAN geweckt. Läuft er schon, bitte neu starten: Er startet dann übers Netz. Ohne Netzwerkstart den Stick einstecken." : null;
+      parts.push($("div", { className: "card" }, $("div", { className: "name", textContent: p?.step || (j.action === "restore" ? `Wiederherstellung von ${j.run_label}` : "Sicherung") }),
+        p ? $("progress", { max: 100, value: p.percent }) : null,
+        p ? $("div", { className: "quiet", textContent: `${p.percent} %${p.bytes ? " · " + size(p.bytes) + " gelesen" : ""}` }) : null,
+        hint ? $("div", { className: "quiet", textContent: hint }) : null,
+        p?.log ? $("pre", { textContent: p.log }) : null));
+    }
+    if (d.archive_error) parts.push($("div", { className: "card bad", textContent: `Archiv nicht lesbar: ${d.archive_error}` }));
+    parts.push($("h2", { textContent: "Sicherungen" }), $("div", { className: "card" }, ...(d.runs.length ? d.runs.map(r => $("div", { className: "line" },
+      $("div", { className: "grow" }, $("div", { textContent: r.label }), $("div", { className: r.complete ? "quiet" : "warn", textContent: r.complete ? (r.added ? `${size(r.added)} neu gespeichert` : "vollständig") : "unvollständig, wird beim Aufräumen entfernt" })),
+      d.manager && r.complete && !d.job ? $("button", { textContent: "Zurückschreiben", onclick: () => restoreDialog(d, r.id) }) : null,
+      d.manager ? $("button", { className: "danger", textContent: "Löschen", onclick: async () => { if (confirm(`Sicherung vom ${r.label} löschen?`)) { try { await api(`api/pcs/${id}/runs/${r.id}`, "DELETE"); } catch (e) { alert(e.message); } showPc(id); } } }) : null))
+      : [$("div", { className: "quiet", textContent: "Noch keine Sicherung" })])));
+    if (d.history.length) parts.push($("h2", { textContent: "Verlauf" }), $("div", { className: "card" }, ...d.history.slice(0, 15).map(e => {
+      const [t, c] = e.action === "restore" && e.result === "ok" ? ["Fertig", "ok"] : RESULTS[e.result] || [e.result, ""];
+      const line = $("div", { className: "line" }, $("div", { className: "grow" },
+        $("div", {}, $("span", { className: c, textContent: `${e.action === "restore" ? "Wiederherstellung" : "Sicherung"}: ${t}` }), $("span", { className: "quiet", textContent: ` · ${when(e.end)} · ${Math.max(1, Math.round((e.end - e.start) / 60))} min${e.who ? " · " + e.who : ""}` })),
+        $("div", { className: "quiet", textContent: [e.message, e.action === "backup" && e.result === "ok" ? `gelesen ${size(e.processed)}, neu ${size(e.added)}` : ""].filter(Boolean).join(" · ") })));
+      if (e.log) line.querySelector(".grow").append($("details", {}, $("summary", { className: "quiet", textContent: "Protokoll" }), $("pre", { textContent: e.log })));
+      return line;
+    })));
+    if (d.notes) parts.push($("h2", { textContent: "Notizen" }), $("div", { className: "card", textContent: d.notes }));
+    app.replaceChildren(...parts);
+    schedule(() => showPc(id), d.job ? 4000 : 30000);
+  } catch (e) { fail(e); }
+}
+
+function field(name, label, value, type = "text", hint) {
+  const input = type === "textarea" ? $("textarea", { name, rows: 3, value: value ?? "" }) : $("input", { name, type, value: value ?? "" });
+  return $("div", {}, $("label", { textContent: label }), input, hint ? $("div", { className: "hint", textContent: hint }) : null);
+}
+function choice(name, label, value, options, hint) {
+  const s = $("select", { name }, ...options.map(([v, t]) => $("option", { value: v, textContent: t, selected: String(v) === String(value) })));
+  return $("div", {}, $("label", { textContent: label }), s, hint ? $("div", { className: "hint", textContent: hint }) : null);
+}
+function check(name, label, value) { return $("label", { className: "check" }, $("input", { name, type: "checkbox", checked: !!value }), label); }
+function openDialog(title, body, submitLabel, onSubmit, extra = []) {
+  const err = $("div", { className: "err" });
+  const submit = $("button", { className: "main", type: "submit", textContent: submitLabel });
+  form.replaceChildren($("h3", { textContent: title, style: "margin:0 0 6px" }), ...body, err, $("div", { className: "foot" }, ...extra, $("button", { type: "button", textContent: "Abbrechen", onclick: () => dlg.close() }), submit));
+  form.onsubmit = async ev => {
+    ev.preventDefault();
+    submit.disabled = true; err.textContent = "";
+    try { await onSubmit(new FormData(form)); dlg.close(); }
+    catch (e) { err.textContent = e.message; }
+    submit.disabled = false;
+  };
+  dlg.showModal();
+}
+function pcFields(p) {
+  return [$("fieldset", {}, $("legend", { textContent: "Allgemein" }),
+    field("name", "Name", p.name),
+    field("category", "Kategorie", p.category, "text", "Unterkategorien mit /, zum Beispiel Familie/Kinder. Benutzer sehen nur ihre Kategorien."),
+    field("macs", "MAC-Adresse der Netzwerkkarte", (p.macs || []).join(", "), "text", "Steht im BIOS, unter Windows mit »getmac«, unter Linux mit »ip link«. Mehrere mit Komma."),
+    field("notes", "Notizen", p.notes, "textarea")),
+  $("fieldset", {}, $("legend", { textContent: "Sicherung" }),
+    $("div", { className: "two" }, choice("schedule", "Zeitplan", p.schedule ?? "off", SCHEDULES), field("hour", "Ab Stunde", p.hour ?? 3, "number")),
+    $("div", { className: "two" }, choice("weekday", "Wochentag (bei wöchentlich)", p.weekday ?? 6, DAYS.map((d, i) => [i, d])), field("keep", "Behalten", p.keep ?? 3, "number", "So viele Sicherungen bleiben, ältere werden entfernt.")),
+    choice("after", "Nach der geplanten Sicherung", p.after ?? "poweroff", AFTER),
+    check("wake", "PC zum Sichern per Wake-on-LAN wecken", p.wake ?? true),
+    field("skip_disks", "Platten nicht sichern (Seriennummern)", (p.skip_disks || []).join(", "), "text", "Zum Beispiel eine große Datenplatte, die anders gesichert wird. Die Seriennummern stehen im Protokoll einer Sicherung."))];
+}
+function formValues(fd) {
+  const out = Object.fromEntries(fd.entries());
+  out.wake = fd.has("wake");
+  return out;
+}
+function addPc(p = {}) {
+  openDialog("PC hinzufügen", [...pcFields(p), setupHint()], "Hinzufügen", async fd => { const r = await api("api/pcs", "POST", formValues(fd)); showPc(r.id); });
+}
+document.getElementById("add").onclick = () => addPc();
+function setupHint() {
+  return $("fieldset", {}, $("legend", { textContent: "Am PC einmal einstellen (im BIOS/UEFI)" }), $("ol", {},
+    $("li", { textContent: "Netzwerkstart (PXE, »Network Boot«, »IPv4 PXE«) einschalten und in der Startreihenfolge an die erste Stelle setzen. Ohne Auftrag startet der PC nach wenigen Sekunden ganz normal." }),
+    $("li", { textContent: "Wake-on-LAN einschalten. Unter Windows zusätzlich »Schnellstart« ausschalten, sonst wacht mancher PC aus dem ausgeschalteten Zustand nicht auf." }),
+    $("li", { textContent: "Secure Boot darf an bleiben. Verweigert der PC den Start, im BIOS »Microsoft UEFI CA / Drittanbieter-Zertifikate« erlauben." }),
+    $("li", { textContent: "Der PC muss per Kabel im Netz sein, über WLAN geht der Netzwerkstart nicht." })));
+}
+async function editPc(id) {
+  try {
+    const p = await api(`api/pcs/${id}/config`);
+    const del = $("button", { type: "button", className: "danger", textContent: "Entfernen", style: "margin-right:auto", onclick: async () => {
+      if (!confirm(`${p.name} aus der Liste entfernen?`)) return;
+      const data = confirm("Auch alle Sicherungen dieses PCs löschen? Das lässt sich nicht rückgängig machen.\n\nOK löscht die Sicherungen, Abbrechen behält sie.");
+      try { await api(`api/pcs/${id}`, "DELETE", { data }); dlg.close(); overview(); } catch (e) { alert(e.message); }
+    } });
+    openDialog("Einstellungen", [...pcFields(p), setupHint()], "Speichern", async fd => { await api(`api/pcs/${id}`, "PUT", formValues(fd)); showPc(id); }, [del]);
+  } catch (e) { alert(e.message); }
+}
+function backupDialog(d) {
+  openDialog(`${d.name} jetzt sichern`, [
+    $("p", { textContent: "Der PC wird geweckt und startet übers Netz das Sicherungssystem. Läuft er gerade, bitte speichern und neu starten. Ohne Netzwerkstart: Stick einstecken und davon starten." }),
+    choice("after", "Wenn die Sicherung fertig ist", "reboot", AFTER)], "Sicherung starten", async fd => {
+    await api(`api/pcs/${d.id}/backup`, "POST", { after: fd.get("after") }); showPc(d.id);
+  });
+}
+async function partChooser(pcId, runId, box) {
+  box.replaceChildren($("div", { className: "quiet", textContent: "Partitionen werden gelesen …" }));
+  try {
+    const info = await api(`api/pcs/${pcId}/parts/${runId}`);
+    const kids = [];
+    for (const disk of info.disks) {
+      kids.push($("div", { className: "name", style: "margin-top:8px", textContent: `${disk.model || "Platte"} · ${size(disk.size)}` }));
+      for (const p of info.parts.filter(x => x.key.startsWith(disk.key + "p"))) {
+        kids.push($("label", { className: "check" }, $("input", { type: "checkbox", name: "part", value: p.key }),
+          `${p.key.replace(disk.key + "p", "Partition ")}: ${p.fs}${p.label ? " »" + p.label + "«" : ""}, ${size(p.size)}`));
+      }
+    }
+    box.replaceChildren(...kids);
+  } catch (e) { box.replaceChildren($("div", { className: "err", textContent: e.message })); }
+}
+function restoreDialog(d, runId) {
+  const runs = d.runs.filter(r => r.complete);
+  runId = runId || runs[0].id;
+  const box = $("div", { hidden: true });
+  const whole = $("input", { type: "radio", name: "scope", value: "all", checked: true, onchange: () => { box.hidden = true; } });
+  const some = $("input", { type: "radio", name: "scope", value: "some", onchange: () => { box.hidden = false; partChooser(d.id, form.run.value, box); } });
+  const sel = choice("run", "Stand", runId, runs.map(r => [r.id, r.label]));
+  sel.querySelector("select").onchange = () => { if (!box.hidden) partChooser(d.id, form.run.value, box); };
+  openDialog(`${d.name} wiederherstellen`, [
+    $("p", { className: "bad", textContent: "Die gewählten Daten auf dem PC werden mit dem Stand der Sicherung überschrieben." }),
+    sel,
+    $("label", { className: "check" }, whole, "Ganzen PC: alle Platten, Partitionen und Systeme"),
+    $("label", { className: "check" }, some, "Nur einzelne Partitionen, zum Beispiel nur Windows"), box,
+    choice("after", "Wenn die Wiederherstellung fertig ist", "reboot", AFTER),
+    $("p", { className: "quiet", textContent: "Der PC wird geweckt und startet übers Netz. Am PC erscheint vor dem Schreiben 30 Sekunden lang ein Hinweis, mit einer Taste lässt es sich dort noch abbrechen." })],
+    "Wiederherstellen", async fd => {
+      const parts = fd.get("scope") === "some" ? fd.getAll("part") : [];
+      if (fd.get("scope") === "some" && !parts.length) throw new Error("Bitte mindestens eine Partition wählen.");
+      if (!confirm(`Wirklich ${parts.length ? "die gewählten Partitionen" : "den ganzen PC"} ${d.name} überschreiben?`)) throw new Error("Nicht gestartet.");
+      await api(`api/pcs/${d.id}/restore`, "POST", { run: fd.get("run"), parts, after: fd.get("after") }); showPc(d.id);
+    });
+}
+async function assignDialog(w) {
+  const pcs = last.pcs;
+  const target = choice("pc", "Welcher PC ist das?", w.pc || "", [["", "Neuer PC"], ...pcs.map(p => [p.id, p.name])]);
+  const fresh = $("div", {}, field("name", "Name des neuen PCs", w.product || ""), field("category", "Kategorie", ""));
+  const what = choice("action", "Was soll passieren?", "backup", [["backup", "Sichern"], ["restore", "Wiederherstellen"]]);
+  const runBox = $("div", { hidden: true });
+  const update = async () => {
+    fresh.hidden = !!form.pc.value;
+    const restore = form.action.value === "restore";
+    runBox.hidden = !restore;
+    if (restore) {
+      if (!form.pc.value) { runBox.replaceChildren($("div", { className: "err", textContent: "Zum Wiederherstellen bitte den PC wählen, dessen Sicherung zurück soll." })); return; }
+      const d = await api(`api/pcs/${form.pc.value}`);
+      const runs = d.runs.filter(r => r.complete);
+      runBox.replaceChildren(runs.length ? choice("run", "Stand", runs[0].id, runs.map(r => [r.id, r.label])) : $("div", { className: "err", textContent: "Dieser PC hat noch keine vollständige Sicherung." }));
+    }
+  };
+  target.querySelector("select").onchange = update;
+  what.querySelector("select").onchange = update;
+  openDialog("Auftrag für wartenden PC", [
+    $("p", { className: "quiet", textContent: `${[w.vendor, w.product].filter(Boolean).join(" ")} · ${w.mac}${w.disks ? " · " + w.disks : ""}` }),
+    target, fresh, what, runBox, choice("after", "Danach", "reboot", AFTER)], "Starten", async fd => {
+    const body = { action: fd.get("action"), after: fd.get("after") };
+    if (fd.get("pc")) body.pc = fd.get("pc"); else body.new = { name: fd.get("name"), category: fd.get("category") };
+    if (body.action === "restore") {
+      body.run = fd.get("run");
+      if (!body.run) throw new Error("Bitte einen Stand wählen.");
+      if (!confirm("Die Platten dieses PCs werden komplett überschrieben. Fortfahren?")) throw new Error("Nicht gestartet.");
+    }
+    const r = await api(`api/waiting/${w.id}/assign`, "POST", body); showPc(r.id);
+  });
+  update();
+}
+document.getElementById("settings").onclick = async () => {
+  try {
+    const s = await api("api/settings"), n = s.netboot_state;
+    const state = n.enabled ? (n.running ? ["läuft", "ok"] : [`gestört: ${n.error || "startet nicht"}`, "bad"]) : ["aus", "quiet"];
+    openDialog("Einstellungen", [
+      $("fieldset", {}, $("legend", { textContent: "Netzwerkstart" }),
+        check("netboot", "PCs dürfen übers Netz starten", s.netboot),
+        $("div", { className: "hint" }, "Zustand: ", $("span", { className: state[1], textContent: state[0] })),
+        $("div", { className: "hint", textContent: "Der Server antwortet dann zusätzlich zur FritzBox auf Startanfragen von PCs (Proxy-DHCP). Adressen vergibt weiter die FritzBox." }),
+        field("server_ip", "Adresse dieses Servers im Heimnetz", s.server_ip, "text", `Leer lassen für automatisch, erkannt: ${n.server_ip}`)),
+      $("fieldset", {}, $("legend", { textContent: "Platz" }),
+        choice("compression", "Kompression", s.compression, [["max", "Am kleinsten (braucht etwas mehr Zeit beim ersten Sichern)"], ["auto", "Ausgewogen"]])),
+      $("fieldset", {}, $("legend", { textContent: "Stick" }),
+        $("div", { className: "hint", textContent: "Für PCs ohne Netzwerkstart oder wenn eine neue Festplatte noch leer ist. Mit Etcher oder dem Raspberry Pi Imager auf einen USB-Stick schreiben (ab 1 GB). Der PC meldet sich danach hier unter »Wartende PCs«." }),
+        $("p", {}, $("a", { className: "button", href: last?.stick || "#", textContent: "Stick-Abbild herunterladen", download: "home-net-pc-sicherung.img" })),
+        $("div", { className: "hint", textContent: "Der Download geht nur im Heimnetz." }))],
+      "Speichern", async fd => { await api("api/settings", "PUT", { netboot: fd.has("netboot"), server_ip: fd.get("server_ip"), compression: fd.get("compression") }); overview(); });
+  } catch (e) { alert(e.message); }
+};
+document.getElementById("home").onclick = overview;
+const start = /pc\/([0-9a-f]{12})/.exec(location.hash);
+if (start) showPc(start[1]); else overview();
+</script>
+</body>
+</html>

@@ -2,8 +2,8 @@
 """Installs and manages Home-Net: chooses modules, writes the compose file, starts everything.
 
 Usage:
-  home-net install [--data DIR] [--images DIR] [--modules a,b] [--port N] [--password PW] [--no-start]
-  home-net add <modul>       home-net remove <modul>
+  home-net install [--data DIR] [--images DIR] [--pc-dir DIR] [--modules a,b] [--port N] [--password PW] [--no-start]
+  home-net add <modul> [--dir DIR]   home-net remove <modul>
   home-net status            home-net modules
   home-net update            home-net password <konto> [neues Passwort]
   home-net apply             Erstellt alles neu aus dem vorhandenen Programmstand
@@ -152,6 +152,7 @@ class Install:
             raise HomeNetError(f"Unbekannte Module: {', '.join(unknown)}")
         self.write_private(self.state_file, json.dumps(state, indent=2) + "\n")
         self.write_private(self.env_file, f"DATA_DIR={self.data}\nIMAGES_DIR={state['images']}\n"
+                                          f"PC_DIR={pc_dir(state)}\n"
                                           f"GATEWAY_PORT={state['port']}\nTZ={state.get('tz', 'Europe/Berlin')}\n")
         self.compose_file.write_text(json.dumps(compose_document(modules, state["modules"], repo), indent=2) + "\n")
         for module_id in state["modules"]:
@@ -171,6 +172,9 @@ class Install:
             Path(state["images"]).mkdir(parents=True, exist_ok=True)
             self.write_private(self.data / "pi-wartung" / "config" / "auth.json",
                                json.dumps(password_record(state["upstream"]["pi-wartung"])) + "\n")
+        if "pc-sicherung" in state["modules"]:
+            Path(pc_dir(state)).mkdir(parents=True, exist_ok=True)
+            (self.data / "pc-sicherung" / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
 
     def set_monitor_links(self):
         """Links in notifications of the monitor lead through the gateway, once its outside address is known."""
@@ -188,6 +192,11 @@ class Install:
 
     def start(self):
         self.compose("up", "-d", "--build", "--remove-orphans")
+
+
+def pc_dir(state):
+    """Where the PC backups go: chosen at installation, otherwise beside the Pi images."""
+    return state.get("pc_dir") or str(Path(state["images"]).parent / "PC-Sicherung")
 
 
 def new_state(data, images, chosen, port, password, tz="Europe/Berlin", owner="admin"):
@@ -231,6 +240,8 @@ def cmd_install(args):
     password = args.password or ask_password()
     inst = Install(data)
     state = new_state(data, args.images, chosen, args.port, password, owner=owner)
+    if args.pc_dir:
+        state["pc_dir"] = args.pc_dir
     inst.apply(state)
     POINTER.parent.mkdir(parents=True, exist_ok=True)
     POINTER.write_text(str(data) + "\n")
@@ -249,6 +260,8 @@ def cmd_add(args):
     state["modules"].append(args.module)
     if args.module != "ntfy":
         state["upstream"][args.module] = secrets.token_urlsafe(24)
+    if args.module == "pc-sicherung":
+        state["pc_dir"] = args.dir or input(f"Ordner für die PC-Sicherungen [{pc_dir(state)}]: ").strip() or pc_dir(state)
     inst.apply(state)
     inst.start()
 
@@ -342,14 +355,18 @@ def cmd_backup(_args):
     target = inst.data.parent / f"home-net-sicherung-{time.strftime('%Y-%m-%d_%H%M')}.tar.gz"
     with tarfile.open(target, "w:gz") as tar:
         for path in inst.data.iterdir():
-            if path.name != "pi-wartung":
+            if path.name not in ("pi-wartung", "pc-sicherung"):
                 tar.add(path, arcname=path.name)
+        pc = inst.data / "pc-sicherung" / "config"
+        for name in ("pcs.json", "state.json"):
+            if (pc / name).exists():
+                tar.add(pc / name, arcname=f"pc-sicherung/config/{name}")
         pi = inst.data / "pi-wartung"
         for sub in ("ssh", "config"):
             if (pi / sub).exists():
                 tar.add(pi / sub, arcname=f"pi-wartung/{sub}")
     target.chmod(0o600)
-    print(f"Gesichert: {target}\nDie Images unter {state['images']} sind nicht enthalten.")
+    print(f"Gesichert: {target}\nDie Images unter {state['images']} und die PC-Sicherungen sind nicht enthalten.")
 
 
 def cmd_restore(args):
@@ -371,6 +388,7 @@ def main(argv=None):
     p = sub.add_parser("install")
     p.add_argument("--data")
     p.add_argument("--images")
+    p.add_argument("--pc-dir")
     p.add_argument("--modules")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p.add_argument("--owner")
@@ -380,6 +398,8 @@ def main(argv=None):
     for name, func in (("add", cmd_add), ("remove", cmd_remove)):
         p = sub.add_parser(name)
         p.add_argument("module")
+        if name == "add":
+            p.add_argument("--dir", help="Ordner für die Daten des Moduls, bei pc-sicherung die Sicherungen")
         p.set_defaults(func=func)
     for name, func in (("status", cmd_status), ("modules", cmd_modules), ("apply", cmd_apply), ("backup", cmd_backup)):
         sub.add_parser(name).set_defaults(func=func)

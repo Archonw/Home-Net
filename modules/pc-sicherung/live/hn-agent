@@ -1,0 +1,483 @@
+#!/bin/bash
+# Sichert oder schreibt die Festplatten eines PCs zurück, wie es der Auftrag aus Home-Net verlangt.
+#
+# Ablage im restic-Archiv des PCs, ein Lauf = mehrere Schnappschüsse mit dem Etikett run=<id>:
+#   d<platte>p<partition>.img  je Partition (partclone-Abbild, nur belegte Blöcke, oder roh)
+#   meta.tar                   Partitionstabellen, erster MiB jeder Platte, EFI-Starteinträge, Beschreibung
+# meta.tar kommt zuletzt: Ein Lauf ohne meta.tar ist unvollständig.
+set -o pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export RESTIC_PROGRESS_FPS=0.2
+
+SERVER="" TOKEN="" STICK=0
+for word in $(cat /proc/cmdline); do
+    case "$word" in
+        hn_server=*) SERVER="${word#hn_server=}" ;;
+        hn_token=*) TOKEN="${word#hn_token=}" ;;
+        hn_stick=1) STICK=1 ;;
+    esac
+done
+[ -f /etc/hn-server ] && [ -z "$SERVER" ] && SERVER="$(cat /etc/hn-server)"
+
+WORK=/run/hn
+mkdir -p "$WORK"
+LOG="$WORK/log"
+: >"$LOG"
+
+say() { echo "  $*"; echo "$(date +%H:%M:%S) $*" >>"$LOG"; }
+
+halt_screen() {
+    # Leaves the message on screen; nothing else is safe to do.
+    say "$1"
+    say "Der PC kann ausgeschaltet werden."
+    while true; do sleep 3600; done
+}
+
+# --- Netz ----------------------------------------------------------------------------------------
+
+network_up() {
+    local dev tries
+    for tries in $(seq 1 20); do
+        for dev in /sys/class/net/*; do
+            dev="${dev##*/}"
+            [ "$dev" = lo ] && continue
+            [ -e "/sys/class/net/$dev/device" ] || continue
+            [ -d "/sys/class/net/$dev/wireless" ] && continue
+            ip link set "$dev" up 2>/dev/null
+            if [ "$(cat "/sys/class/net/$dev/carrier" 2>/dev/null)" = 1 ]; then
+                if busybox udhcpc -i "$dev" -s /usr/local/bin/hn-udhcpc -n -q -t 5 -T 2 >/dev/null 2>&1; then
+                    IFACE="$dev"
+                    MAC="$(cat "/sys/class/net/$dev/address")"
+                    return 0
+                fi
+            fi
+        done
+        sleep 2
+    done
+    return 1
+}
+
+api() {  # api METHOD PATH [JSON]
+    local method="$1" path="$2" body="${3:-}"
+    if [ -n "$body" ]; then
+        curl -fsS --max-time 30 -X "$method" -H "Content-Type: application/json" -H "X-Token: $TOKEN" \
+            --data-binary "$body" "$SERVER$path"
+    else
+        curl -fsS --max-time 30 -X "$method" -H "X-Token: $TOKEN" "$SERVER$path"
+    fi
+}
+
+api_retry() {
+    local i
+    for i in $(seq 1 30); do
+        api "$@" && return 0
+        sleep 10
+    done
+    return 1
+}
+
+# --- Platten -------------------------------------------------------------------------------------
+
+# One line per internal disk: name size serial model. USB disks (the stick, external drives) are left alone.
+list_disks() {
+    lsblk -d -n -b -J -o NAME,SIZE,TYPE,TRAN,RM,RO,SERIAL,MODEL |
+        jq -r '.blockdevices[]
+            | select(.type == "disk" and (.rm | tostring) != "true" and (.rm | tostring) != "1"
+                     and .tran != "usb" and .size > 0
+                     and (.name | test("^(loop|ram|zram|sr|fd)") | not))
+            | [.name, (.size | tostring), ((.serial // "") | gsub("\\s+"; "_") | if . == "" then "-" else . end),
+               ((.model // "") | gsub("\\s+"; "_") | if . == "" then "-" else . end)]
+            | @tsv'
+}
+
+part_node() {  # part_node DISK NUMBER
+    case "$1" in
+        *[0-9]) echo "/dev/${1}p$2" ;;
+        *) echo "/dev/$1$2" ;;
+    esac
+}
+
+fs_method() {  # what to use for a filesystem type found by blkid
+    case "$1" in
+        ntfs) echo partclone.ntfs ;;
+        ext2|ext3|ext4) echo partclone.extfs ;;
+        vfat) echo partclone.fat ;;
+        exfat) echo partclone.exfat ;;
+        btrfs) echo partclone.btrfs ;;
+        xfs) echo partclone.xfs ;;
+        f2fs) echo partclone.f2fs ;;
+        hfsplus) echo partclone.hfsp ;;
+        swap) echo swap ;;
+        *) echo raw ;;
+    esac
+}
+
+# --- Fortschritt ---------------------------------------------------------------------------------
+
+STEP_TOTAL=1 STEP_NOW=0 STEP_TEXT="" DONE_WEIGHT=0 ALL_WEIGHT=1 CUR_WEIGHT=0 CUR_FILE=""
+
+publish() {  # the progress reporter runs in its own process and reads the state from a file
+    declare -p STEP_TOTAL STEP_NOW STEP_TEXT DONE_WEIGHT ALL_WEIGHT CUR_WEIGHT CUR_FILE >"$WORK/state.tmp" 2>/dev/null
+    mv "$WORK/state.tmp" "$WORK/state"
+}
+
+progress_loop() {
+    while sleep 10; do
+        local pct=0 cur=0 done_bytes=""
+        # shellcheck disable=SC1091
+        . "$WORK/state" 2>/dev/null
+        if [ -n "$CUR_FILE" ] && [ -f "$CUR_FILE" ]; then
+            cur="$(tr '\r' '\n' <"$CUR_FILE" | grep -o 'Completed: *[0-9.]*' | tail -1 | grep -o '[0-9.]*$' | cut -d. -f1)"
+            done_bytes="$(grep -o '"bytes_done":[0-9]*' "$CUR_FILE.json" 2>/dev/null | tail -1 | cut -d: -f2)"
+        fi
+        cur="${cur:-0}"
+        pct=$(( (DONE_WEIGHT * 100 + CUR_WEIGHT * cur) / ALL_WEIGHT ))
+        local body
+        body="$(jq -nc --arg step "$STEP_TEXT" --argjson n "$STEP_NOW" --argjson t "$STEP_TOTAL" \
+            --argjson p "$pct" --arg bytes "${done_bytes:-0}" --arg log "$(tail -5 "$LOG")" \
+            '{step: $step, step_now: $n, step_total: $t, percent: $p, bytes: ($bytes | tonumber), log: $log}')"
+        reply="$(api POST /live/progress "$body" 2>/dev/null)"
+        if [ "$(echo "$reply" | jq -r '.cancel // false' 2>/dev/null)" = true ]; then
+            touch "$WORK/cancel"
+            pkill -INT restic
+        fi
+    done
+}
+
+step() {
+    STEP_NOW=$((STEP_NOW + 1))
+    STEP_TEXT="$*"
+    publish
+    say "Schritt $STEP_NOW von $STEP_TOTAL: $*"
+}
+
+check_cancel() {
+    [ -f "$WORK/cancel" ] && { say "Abgebrochen in Home-Net."; finish 0 "Abgebrochen"; }
+}
+
+finish() {  # finish OK MESSAGE
+    local ok="$1" msg="$2" body
+    [ -n "$PROGRESS_PID" ] && kill "$PROGRESS_PID" 2>/dev/null
+    body="$(jq -nc --argjson ok "$( [ "$ok" = 1 ] && echo true || echo false)" --arg msg "$msg" \
+        --arg run "${RUN:-}" --arg log "$(tail -40 "$LOG")" --slurpfile stats <(cat "$WORK/stats.json" 2>/dev/null || echo '{}') \
+        '{ok: $ok, message: $msg, run: $run, log: $log, stats: ($stats[0] // {})}')"
+    api_retry POST /live/done "$body" >/dev/null || say "Home-Net hat das Ergebnis nicht angenommen."
+    sync
+    if [ "$ok" = 1 ]; then say "Fertig: $msg"; else say "FEHLER: $msg"; fi
+    case "$AFTER" in
+        reboot) say "Starte neu in 10 Sekunden ..."; sleep 10; busybox reboot -f ;;
+        poweroff) say "Schalte aus in 10 Sekunden ..."; sleep 10; busybox poweroff -f ;;
+        *) halt_screen "Bitte den PC neu starten." ;;
+    esac
+}
+
+# --- Sichern -------------------------------------------------------------------------------------
+
+restic_backup() {  # restic_backup FILENAME COMMAND...; stats of the snapshot go to $WORK/last.json
+    local name="$1"; shift
+    restic backup --json --no-cache --host "$PC" --tag "run=$RUN" --compression "$COMPRESSION" \
+        --stdin-filename "$name" --stdin-from-command -- "$@" >"$CUR_FILE.json" 2>>"$CUR_FILE"
+    local rc=$?
+    grep '"message_type":"summary"' "$CUR_FILE.json" | tail -1 >"$WORK/last.json"
+    return $rc
+}
+
+do_backup() {
+    mapfile -t DISKS < <(list_disks)
+    [ ${#DISKS[@]} -gt 0 ] || finish 0 "Keine interne Festplatte gefunden"
+
+    local meta="$WORK/meta" i=0 line name size serial model weight=0
+    mkdir -p "$meta"
+    : >"$meta/disks.tsv"
+    : >"$meta/parts.tsv"
+    STEP_TOTAL=1
+    for line in "${DISKS[@]}"; do
+        IFS=$'\t' read -r name size serial model <<<"$line"
+        if [ "$serial" != - ] && echo " $SKIP_SERIALS " | grep -q " $serial "; then
+            say "Platte $name ($model) wird laut Einstellung nicht gesichert."
+            continue
+        fi
+        local label
+        label="$(blkid -p -s PTTYPE -o value "/dev/$name" 2>/dev/null)"
+        printf 'd%s\t%s\t%s\t%s\t%s\t%s\n' "$i" "$name" "$size" "$serial" "$model" "${label:-none}" >>"$meta/disks.tsv"
+        sfdisk -d "/dev/$name" >"$meta/d$i.sfdisk" 2>/dev/null
+        dd if="/dev/$name" of="$meta/d$i.head" bs=1M count=1 status=none
+        [ "$label" = gpt ] && sgdisk -b "$meta/d$i.sgdisk" "/dev/$name" >/dev/null 2>&1
+        local p
+        for p in $(lsblk -n -r -o NAME,TYPE "/dev/$name" | awk '$2=="part"{print $1}'); do
+            local num psize fstype method
+            num="$(cat "/sys/class/block/$p/partition")"
+            psize="$(blockdev --getsize64 "/dev/$p")"
+            fstype="$(blkid -p -s TYPE -o value "/dev/$p" 2>/dev/null)"
+            method="$(fs_method "$fstype")"
+            local puuid plabel
+            puuid="$(blkid -p -s UUID -o value "/dev/$p" 2>/dev/null)"
+            plabel="$(blkid -p -s LABEL -o value "/dev/$p" 2>/dev/null | tr '\t' ' ')"
+            # Empty fields would vanish when read back, so they are written as -
+            printf 'd%sp%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$i" "$num" "$p" "$psize" "${fstype:-unbekannt}" "$method" \
+                "${puuid:--}" "${plabel:--}" >>"$meta/parts.tsv"
+            STEP_TOTAL=$((STEP_TOTAL + 1))
+            [ "$method" != swap ] && weight=$((weight + psize / 1048576))
+            # Some filesystems keep a copy of their start at the very end, outside what partclone copies (NTFS)
+            if [ "$method" != raw ] && [ "$method" != swap ] && [ "$psize" -ge 4194304 ]; then
+                dd if="/dev/$p" of="$meta/d${i}p$num.tail" bs=1M skip=$((psize - 1048576)) iflag=skip_bytes count=1 status=none
+            fi
+        done
+        i=$((i + 1))
+    done
+    [ -s "$meta/disks.tsv" ] || finish 0 "Keine Festplatte zum Sichern übrig"
+    ALL_WEIGHT=$((weight > 0 ? weight : 1))
+    command -v efibootmgr >/dev/null && efibootmgr -v >"$meta/efiboot.txt" 2>/dev/null
+    for f in sys_vendor product_name product_serial board_name; do
+        echo "$f=$(cat /sys/class/dmi/id/$f 2>/dev/null)" >>"$meta/machine.txt"
+    done
+    echo "mac=$MAC" >>"$meta/machine.txt"
+
+    local key
+    while IFS=$'\t' read -r key p psize fstype method uuid label; do
+        check_cancel
+        CUR_FILE="$WORK/$key.err"
+        CUR_WEIGHT=$((psize / 1048576))
+        : >"$CUR_FILE"
+        step "Partition $key ($fstype, $((psize / 1073741824)) GB)"
+        local ok=1
+        case "$method" in
+            swap) say "Auslagerungsbereich: nur Kennung gemerkt, kein Inhalt."; CUR_WEIGHT=0; continue ;;
+            raw)
+                restic_backup "$key.raw" cat "/dev/$p" || ok=0 ;;
+            *)
+                if ! restic_backup "$key.img" "$method" -c -s "/dev/$p" -o - -a0 -I -B; then
+                    check_cancel
+                    say "Abbild mit $method ging nicht, sichere die Partition vollständig."
+                    sed -i "s/^$key\t\(.*\)\t$method\t/$key\t\1\traw\t/" "$meta/parts.tsv"
+                    restic_backup "$key.raw" cat "/dev/$p" || ok=0
+                fi ;;
+        esac
+        check_cancel
+        if [ $ok = 0 ]; then
+            say "$(tail -c 400 "$CUR_FILE" | tr '\r' '\n' | grep -v '^\s*$' | tail -3)"
+            finish 0 "Partition $key ließ sich nicht sichern"
+        fi
+        jq -c --arg k "$key" '{($k): {added: .data_added_packed, size: .total_bytes_processed}}' "$WORK/last.json" \
+            >>"$WORK/parts-stats.jsonl" 2>/dev/null
+        DONE_WEIGHT=$((DONE_WEIGHT + psize / 1048576))
+        CUR_WEIGHT=0
+        publish
+    done <"$meta/parts.tsv"
+
+    step "Beschreibung der Platten"
+    CUR_FILE="$WORK/meta.err"
+    : >"$CUR_FILE"
+    restic_backup meta.tar tar -C "$meta" -cf - . || finish 0 "Beschreibung ließ sich nicht sichern"
+    jq -s 'add // {}' "$WORK/parts-stats.jsonl" >"$WORK/stats.json" 2>/dev/null
+    finish 1 "Sicherung abgeschlossen"
+}
+
+# --- Wiederherstellen ----------------------------------------------------------------------------
+
+restic_dump() {  # restic_dump FILE: the file of the chosen run to stdout
+    restic dump --no-cache "$SNAP_OF_FILE" "/$1"
+}
+
+snapshot_of() {  # id of the snapshot that holds FILE in the chosen run
+    jq -r --arg f "/$1" '[.[] | select(.paths[0] == $f)] | sort_by(.time) | last | .short_id // empty' "$WORK/snaps.json"
+}
+
+match_disk() {  # match_disk SIZE SERIAL: target disk name for a saved disk
+    local size="$1" serial="$2" line name tsize tserial tmodel
+    for line in "${TARGETS[@]}"; do
+        IFS=$'\t' read -r name tsize tserial _ <<<"$line"
+        [ "$serial" != - ] && [ "$serial" = "$tserial" ] && { echo "$name"; return; }
+    done
+    if [ "$SAVED_DISKS" = 1 ] && [ ${#TARGETS[@]} = 1 ]; then
+        IFS=$'\t' read -r name tsize _ <<<"${TARGETS[0]}"
+        [ "$tsize" -ge "$size" ] && echo "$name"
+    fi
+}
+
+do_restore() {
+    step "Sicherung vom $RUN_LABEL suchen"
+    restic snapshots --no-cache --json --tag "run=$RUN" >"$WORK/snaps.json" || finish 0 "Archiv nicht lesbar"
+    SNAP_OF_FILE="$(snapshot_of meta.tar)"
+    [ -n "$SNAP_OF_FILE" ] || finish 0 "Diese Sicherung ist unvollständig"
+    local meta="$WORK/meta"
+    mkdir -p "$meta"
+    restic_dump meta.tar | tar -C "$meta" -xf - || finish 0 "Beschreibung nicht lesbar"
+
+    mapfile -t TARGETS < <(list_disks)
+    SAVED_DISKS="$(wc -l <"$meta/disks.tsv")"
+    declare -A TARGET_OF
+    local d name size serial model label
+    while IFS=$'\t' read -r d name size serial model label; do
+        # Only disks with chosen partitions matter
+        if [ -n "$ONLY_PARTS" ] && ! echo " $ONLY_PARTS " | grep -q " ${d}p"; then continue; fi
+        TARGET_OF[$d]="$(match_disk "$size" "$serial")"
+        if [ -z "${TARGET_OF[$d]}" ]; then
+            finish 0 "Keine passende Festplatte für $model ($((size / 1000000000)) GB) gefunden"
+        fi
+    done <"$meta/disks.tsv"
+
+    echo
+    say "ACHTUNG: Gleich wird zurückgeschrieben: $PC_NAME, Stand $RUN_LABEL."
+    for d in "${!TARGET_OF[@]}"; do
+        say "  Ziel für $d: /dev/${TARGET_OF[$d]} ($(lsblk -d -n -o MODEL,SIZE "/dev/${TARGET_OF[$d]}"))"
+    done
+    if [ -z "$ONLY_PARTS" ]; then
+        say "  Alles auf diesen Platten wird überschrieben."
+    else
+        say "  Nur diese Partitionen: $ONLY_PARTS"
+    fi
+    say "Abbrechen mit einer beliebigen Taste innerhalb von 30 Sekunden."
+    if read -r -s -n 1 -t 30 </dev/console; then
+        finish 0 "Am PC abgebrochen"
+    fi
+
+    if [ -z "$ONLY_PARTS" ]; then
+        STEP_TOTAL=$(( $(grep -c . "$meta/parts.tsv") + $(grep -c . "$meta/disks.tsv") + 2 ))
+    else
+        STEP_TOTAL=$(( $(echo $ONLY_PARTS | wc -w) + 2 ))
+    fi
+    if [ -z "$ONLY_PARTS" ]; then
+        while IFS=$'\t' read -r d name size serial model label; do
+            local t="${TARGET_OF[$d]}"
+            [ -n "$t" ] || continue
+            step "Partitionstabelle auf /dev/$t"
+            blockdev --setrw "/dev/$t"
+            wipefs -a -q "/dev/$t" 2>/dev/null
+            dd if="$meta/$d.head" of="/dev/$t" bs=1M conv=fsync status=none || finish 0 "Platte $t nicht beschreibbar"
+            if [ "$label" = gpt ]; then
+                sgdisk -l "$meta/$d.sgdisk" "/dev/$t" >/dev/null 2>&1 || sgdisk -e "/dev/$t" >/dev/null 2>&1
+                sgdisk -e "/dev/$t" >/dev/null 2>&1
+            elif [ -s "$meta/$d.sfdisk" ]; then
+                sfdisk --no-reread -q "/dev/$t" <"$meta/$d.sfdisk" >/dev/null 2>&1
+            fi
+            blockdev --rereadpt "/dev/$t" 2>/dev/null; partprobe "/dev/$t" 2>/dev/null
+            udevadm settle --timeout=20
+        done <"$meta/disks.tsv"
+    fi
+
+    local key p psize fstype method uuid plabel ALL=0 n
+    while IFS=$'\t' read -r key p psize fstype method uuid plabel; do
+        if [ -n "$ONLY_PARTS" ] && ! echo " $ONLY_PARTS " | grep -q " $key "; then continue; fi
+        ALL=$((ALL + psize / 1048576))
+    done <"$meta/parts.tsv"
+    ALL_WEIGHT=$((ALL > 0 ? ALL : 1))
+
+    while IFS=$'\t' read -r key p psize fstype method uuid plabel; do
+        if [ -n "$ONLY_PARTS" ] && ! echo " $ONLY_PARTS " | grep -q " $key "; then continue; fi
+        check_cancel
+        d="${key%%p*}"; n="${key#*p}"
+        local node
+        node="$(part_node "${TARGET_OF[$d]}" "$n")"
+        [ -b "$node" ] || finish 0 "Partition $node fehlt auf der Zielplatte"
+        blockdev --setrw "/dev/${TARGET_OF[$d]}"; blockdev --setrw "$node"
+        CUR_FILE="$WORK/$key.err"; : >"$CUR_FILE"
+        CUR_WEIGHT=$((psize / 1048576))
+        step "Partition $key ($fstype) nach $node"
+        case "$method" in
+            swap)
+                [ "$uuid" = - ] && uuid=""
+                [ "$plabel" = - ] && plabel=""
+                mkswap ${uuid:+-U "$uuid"} ${plabel:+-L "$plabel"} "$node" >/dev/null || finish 0 "Auslagerung $key nicht angelegt" ;;
+            raw)
+                SNAP_OF_FILE="$(snapshot_of "$key.raw")"
+                [ -n "$SNAP_OF_FILE" ] || finish 0 "$key fehlt in der Sicherung"
+                restic_dump "$key.raw" | dd of="$node" bs=4M conv=fsync status=none 2>>"$CUR_FILE" ||
+                    finish 0 "Partition $key ließ sich nicht schreiben" ;;
+            *)
+                SNAP_OF_FILE="$(snapshot_of "$key.img")"
+                [ -n "$SNAP_OF_FILE" ] || finish 0 "$key fehlt in der Sicherung"
+                restic_dump "$key.img" | partclone.restore -C -s - -o "$node" -B 2>>"$CUR_FILE" ||
+                    finish 0 "Partition $key ließ sich nicht schreiben: $(tr '\r' '\n' <"$CUR_FILE" | grep -v '^\s*$' | tail -1)"
+                if [ -s "$meta/$key.tail" ]; then
+                    dd if="$meta/$key.tail" of="$node" bs=1M seek=$((psize - 1048576)) oflag=seek_bytes conv=fsync,notrunc status=none ||
+                        finish 0 "Ende der Partition $key ließ sich nicht schreiben"
+                fi ;;
+        esac
+        DONE_WEIGHT=$((DONE_WEIGHT + psize / 1048576)); CUR_WEIGHT=0
+        publish
+    done <"$meta/parts.tsv"
+
+    step "Starteinträge prüfen"
+    restore_boot_entries "$meta/efiboot.txt"
+    sync
+    finish 1 "Wiederherstellung abgeschlossen"
+}
+
+restore_boot_entries() {
+    # Entries of the saved PC that this firmware lacks (new board, cleared settings) are added behind the existing ones
+    local saved="$1" line label path guid num file disk order added=""
+    [ -s "$saved" ] && [ -d /sys/firmware/efi/efivars ] || return 0
+    order="$(efibootmgr | sed -n 's/^BootOrder: //p')"
+    while IFS= read -r line; do
+        [[ "$line" =~ ^Boot[0-9A-Fa-f]{4}\*?\ (.*)$'\t'?HD\(([0-9]+),GPT,([0-9a-fA-F-]+),[^\)]*\)/File\(([^\)]*)\) ]] || continue
+        label="$(echo "${BASH_REMATCH[1]}" | sed 's/[[:space:]]*$//')"
+        num="${BASH_REMATCH[2]}"; guid="${BASH_REMATCH[3]}"; file="${BASH_REMATCH[4]}"
+        efibootmgr -v | grep -qi "$guid" && continue
+        disk="$(lsblk -n -r -o PKNAME,PARTUUID | awk -v g="$(echo "$guid" | tr 'A-Z' 'a-z')" 'tolower($2)==g{print $1; exit}')"
+        [ -n "$disk" ] || continue
+        efibootmgr -q -c -d "/dev/$disk" -p "$num" -L "$label" -l "$file" >/dev/null 2>&1 && added="$added $label"
+    done <"$saved"
+    if [ -n "$added" ]; then
+        local new
+        new="$(efibootmgr | sed -n 's/^BootOrder: //p' | tr ',' '\n' | grep -v -x -F -f <(echo "$order" | tr ',' '\n') | paste -sd,)"
+        [ -n "$order" ] && efibootmgr -q -o "$order${new:+,$new}" >/dev/null 2>&1
+        say "Starteinträge ergänzt:$added"
+    fi
+}
+
+# --- Ablauf --------------------------------------------------------------------------------------
+
+say "Netzwerk wird gesucht ..."
+network_up || halt_screen "Kein Netzwerk mit Kabel gefunden. Bitte LAN-Kabel prüfen."
+say "Netzwerk: $IFACE ($MAC), Adresse $(ip -4 -o addr show "$IFACE" | awk '{print $4}')"
+[ -n "$SERVER" ] || halt_screen "Keine Adresse von Home-Net bekannt."
+
+if [ -z "$TOKEN" ]; then
+    # Started from a stick: announce this PC and wait for a task chosen in Home-Net
+    hello="$(jq -nc --arg mac "$MAC" --arg vendor "$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)" \
+        --arg product "$(cat /sys/class/dmi/id/product_name 2>/dev/null)" \
+        --arg disks "$(list_disks | awk -F'\t' '{printf "%s %d GB; ", $4, $2/1000000000}' | tr '_' ' ')" \
+        '{mac: $mac, vendor: $vendor, product: $product, disks: $disks}')"
+    TOKEN="$(api_retry POST /live/hello "$hello" | jq -r '.token // empty')"
+    [ -n "$TOKEN" ] || halt_screen "Home-Net unter $SERVER antwortet nicht."
+fi
+
+shown=0
+while true; do
+    JOB="$(api GET /live/job)"
+    ACTION="$(echo "$JOB" | jq -r '.action // "wait"' 2>/dev/null)"
+    case "$ACTION" in
+        backup|restore) break ;;
+        none) AFTER=reboot; halt_screen "Für diesen PC liegt kein Auftrag vor." ;;
+    esac
+    if [ $shown = 0 ]; then
+        say ""
+        say "Dieser PC wartet auf einen Auftrag aus Home-Net."
+        say "Bitte in Home-Net unter PC-Sicherung bei \"Wartende PCs\" auswählen, was passieren soll."
+        say "Netzwerkkarte: $MAC"
+        shown=1
+    fi
+    sleep 5
+done
+
+PC="$(echo "$JOB" | jq -r .pc)"
+PC_NAME="$(echo "$JOB" | jq -r .pc_name)"
+RUN="$(echo "$JOB" | jq -r .run)"
+RUN_LABEL="$(echo "$JOB" | jq -r '.run_label // ""')"
+AFTER="$(echo "$JOB" | jq -r '.after // "reboot"')"
+COMPRESSION="$(echo "$JOB" | jq -r '.compression // "max"')"
+SKIP_SERIALS="$(echo "$JOB" | jq -r '(.skip_disks // []) | join(" ")')"
+ONLY_PARTS="$(echo "$JOB" | jq -r '(.parts // []) | join(" ")')"
+export RESTIC_REPOSITORY="$(echo "$JOB" | jq -r .repository)"
+export RESTIC_PASSWORD="$(echo "$JOB" | jq -r .password)"
+
+progress_loop &
+PROGRESS_PID=$!
+
+if [ "$ACTION" = backup ]; then
+    say "Sicherung von $PC_NAME beginnt."
+    do_backup
+else
+    do_restore
+fi

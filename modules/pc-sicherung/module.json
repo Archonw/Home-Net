@@ -1,0 +1,82 @@
+{
+  "id": "pc-sicherung",
+  "name": "PC-Sicherung",
+  "description": "Sichert ganze PCs samt Windows und Linux über den Netzwerkstart und stellt sie komplett wieder her",
+  "icon": "assets/icons/pc-sicherung.png",
+  "api": {
+    "socket": "/run/pc-sicherung/api.sock",
+    "health": "/health",
+    "public": [
+      "/health"
+    ],
+    "web": true
+  },
+  "services": {
+    "pc-sicherung": {
+      "build": "modules/pc-sicherung",
+      "network_mode": "host",
+      "cap_add": [
+        "NET_ADMIN",
+        "NET_RAW"
+      ],
+      "environment": [
+        "TZ=${TZ}",
+        "DATA=/data",
+        "BACKUPS=/backups",
+        "LISTEN_SOCKET=/run/pc-sicherung/api.sock",
+        "EVENTS_DIR=/run/home-net-events",
+        "BOOT_PORT=8095",
+        "REST_PORT=8094"
+      ],
+      "volumes": [
+        "${DATA_DIR}/pc-sicherung/config:/data",
+        "${DATA_DIR}/pc-sicherung/run:/run/pc-sicherung",
+        "${PC_DIR}:/backups",
+        "${DATA_DIR}/events/pc-sicherung:/run/home-net-events"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python3",
+          "-c",
+          "import socket;s=socket.socket(socket.AF_UNIX);s.connect('/run/pc-sicherung/api.sock');s.send(b'GET /health HTTP/1.0\\r\\n\\r\\n');assert b' 200 ' in s.recv(64)"
+        ]
+      }
+    }
+  },
+  "events": [
+    {
+      "id": "backup_failed",
+      "label": "Sicherung fehlgeschlagen"
+    },
+    {
+      "id": "pc_not_reached",
+      "label": "PC zur Sicherung nicht gestartet"
+    },
+    {
+      "id": "backup_recovered",
+      "label": "Sicherung klappt wieder"
+    },
+    {
+      "id": "backup_ok",
+      "label": "Sicherung erfolgreich",
+      "default": false
+    },
+    {
+      "id": "backup_overdue",
+      "label": "Sicherung überfällig"
+    },
+    {
+      "id": "restore_done",
+      "label": "Wiederherstellung fertig"
+    },
+    {
+      "id": "restore_failed",
+      "label": "Wiederherstellung fehlgeschlagen"
+    },
+    {
+      "id": "disk_low",
+      "label": "Speicherplatz für PC-Sicherungen knapp"
+    }
+  ]
+}
