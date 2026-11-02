@@ -25,8 +25,8 @@
         "BACKUPS=/backups",
         "LISTEN_SOCKET=/run/pc-sicherung/api.sock",
         "EVENTS_DIR=/run/home-net-events",
-        "BOOT_PORT=8095",
-        "REST_PORT=8094"
+        "BOOT_PORT=8395",
+        "REST_PORT=8394"
       ],
       "volumes": [
         "${DATA_DIR}/pc-sicherung/config:/data",
