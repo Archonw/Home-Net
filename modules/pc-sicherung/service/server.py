@@ -316,6 +316,8 @@ dhcp-range={network},proxy
 enable-tftp
 tftp-root={tftp_root}
 log-facility=-
+# Every step of a network start goes to the log: rare, and needed when a PC does not start
+log-dhcp
 dhcp-userclass=set:ipxe,iPXE
 pxe-prompt="Home-Net",0
 pxe-service=tag:!ipxe,x86PC,"Home-Net PC-Sicherung",ipxe
