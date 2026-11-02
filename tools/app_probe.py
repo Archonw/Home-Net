@@ -159,14 +159,8 @@ def main():
     find("Pi-Wartung", 40)
     wait_for(service_running, "Hintergrunddienst läuft nach dem Koppeln nicht")
     report("notice", "Gekoppelt, Hintergrunddienst läuft")
-    time.sleep(5)
 
-    (Path(spool) / "pi-wartung" / "probe.json").write_text(json.dumps(
-        {"type": "backup_failed", "title": "Sicherung von Probe fehlgeschlagen", "message": "Testfehler",
-         "priority": "high", "category": "Familie", "link": "pi/a1"}))
-    wait_for(lambda: "Sicherung von Probe fehlgeschlagen" in notifications(), "Meldung kommt nicht als Benachrichtigung an")
-    report("notice", "Meldung kam auf dem Gerät an")
-
+    # Vor der ersten Meldung: Deren Einblendung läge sonst über der Kachel
     tap("Pi-Wartung")
     find("Zurück")
     tap("Einstellungen")
@@ -175,6 +169,13 @@ def main():
     report("notice", "Start führt aus den Einstellungen zurück in den Dienst")
     tap("Start")
     find("Home-Net")
+    time.sleep(5)
+
+    (Path(spool) / "pi-wartung" / "probe.json").write_text(json.dumps(
+        {"type": "backup_failed", "title": "Sicherung von Probe fehlgeschlagen", "message": "Testfehler",
+         "priority": "high", "category": "Familie", "link": "pi/a1"}))
+    wait_for(lambda: "Sicherung von Probe fehlgeschlagen" in notifications(), "Meldung kommt nicht als Benachrichtigung an")
+    report("notice", "Meldung kam auf dem Gerät an")
 
     tap("Einstellungen")
     tap("Benachrichtigungen", scroll=True)
