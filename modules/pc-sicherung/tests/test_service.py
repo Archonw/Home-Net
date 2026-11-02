@@ -1,4 +1,6 @@
 import base64
+import socket
+import struct
 import json
 import os
 import sys
@@ -14,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "service"))
 
+import proxydhcp  # noqa: E402
 import server  # noqa: E402
 import store as store_mod  # noqa: E402
 from store import Store, due_key, next_due, pc_from_form  # noqa: E402
@@ -285,13 +288,75 @@ class Http(unittest.TestCase):
         self.assertEqual(self.engine.store.find(made["id"])["macs"], ["aa:bb:cc:dd:ee:02"])
         self.assertEqual(self.woken, [])
 
-    def test_netboot_config_leaves_addresses_to_the_router(self):
-        text = server.dnsmasq_config("br0", "192.168.1.0", "/t")
-        self.assertIn("dhcp-range=192.168.1.0,proxy", text)
+    def test_dnsmasq_only_serves_files(self):
+        text = server.dnsmasq_config("br0", "/t")
         self.assertIn("port=0", text)
-        self.assertIn("shimx64.efi", text)
-        self.assertIn("tag:!ipxe,x86PC", text)
+        self.assertIn("enable-tftp", text)
+        self.assertNotIn("dhcp-range", text)
 
+
+def discover(arch, user_class=b"", kind=1, server=None):
+    """A PXE request as a Dell Latitude 7490 sends it (option 97 and 94 included)."""
+    def o(code, value):
+        return bytes([code, len(value)]) + value
+    opts = o(53, bytes([kind])) + o(97, bytes(17)) + o(94, b"\x01\x03\x10") + o(93, struct.pack("!H", arch))
+    opts += o(60, f"PXEClient:Arch:{arch:05d}:UNDI:003016".encode())
+    if user_class:
+        opts += o(77, user_class)
+    if server:
+        opts += o(54, socket.inet_aton(server))
+    head = struct.pack("!BBBBIHH4s4s4s4s16s64s128s", 1, 1, 6, 0, 874012070, 4, 0x8000, bytes(4), bytes(4), bytes(4),
+                       bytes(4), bytes.fromhex("e4b97a6e2393") + bytes(10), bytes(64), bytes(128))
+    return head + b"\x63\x82\x53\x63" + opts + b"\xff"
+
+
+class ProxyDhcp(unittest.TestCase):
+    def answer(self, packet):
+        parsed = proxydhcp.parse(packet)
+        self.assertIsNotNone(parsed)
+        head, options = parsed
+        name = proxydhcp.boot_file(options)
+        return name, (proxydhcp.reply(head, options, 2, "192.168.1.10", name) if name else None)
+
+    def test_uefi_gets_the_file_in_the_first_offer(self):
+        for arch in (7, 9):
+            name, out = self.answer(discover(arch))
+            self.assertEqual(name, "shimx64.efi")
+            self.assertEqual(out[108:119], b"shimx64.efi")
+            self.assertEqual(socket.inet_ntoa(out[20:24]), "192.168.1.10")
+            _, options = proxydhcp.parse(b"\x01" + out[1:])
+            self.assertEqual(options[53], b"\x02")
+            self.assertEqual(options[60], b"PXEClient")
+            self.assertEqual(options[43], bytes([6, 1, 8, 255]))
+            self.assertEqual(options[67], b"shimx64.efi")
+            self.assertEqual(options[97], bytes(17))
+            self.assertEqual(out[4:8], struct.pack("!I", 874012070))
+
+    def test_bios_gets_ipxe_then_its_script(self):
+        self.assertEqual(self.answer(discover(0))[0], "ipxe.0")
+        self.assertEqual(self.answer(discover(0, b"iPXE"))[0], "start.0")
+
+    def test_other_clients_are_left_alone(self):
+        self.assertEqual(self.answer(discover(11))[0], None)
+        plain = discover(7).replace(b"PXEClient:Arch:00007:UNDI:003016", b"MSFT 5.0:Arch:00007:UNDI:003016")
+        self.assertEqual(self.answer(plain)[0], None)
+        self.assertIsNone(proxydhcp.parse(b"\x02" + bytes(300)))
+
+    def test_answers_over_udp_and_ignores_requests_for_the_router(self):
+        sent = []
+
+        class Sock:
+            def sendto(self, data, addr):
+                sent.append((data, addr))
+
+        proxy = proxydhcp.ProxyDHCP("lo", "192.168.1.10", log=lambda text: None)
+        proxy.handle(Sock(), 67, discover(7), ("0.0.0.0", 68))
+        self.assertEqual(sent[-1][1], ("255.255.255.255", 68))
+        proxy.handle(Sock(), 67, discover(7, kind=3, server="192.168.1.1"), ("0.0.0.0", 68))
+        self.assertEqual(len(sent), 1)
+        proxy.handle(Sock(), 4011, discover(7, kind=3, server="192.168.1.10"), ("192.168.1.93", 4011))
+        self.assertEqual(sent[-1][1], ("192.168.1.93", 4011))
+        self.assertEqual(proxydhcp.parse(b"\x01" + sent[-1][0][1:])[1][53], b"\x05")
 
 if __name__ == "__main__":
     unittest.main()
