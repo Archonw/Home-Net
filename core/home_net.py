@@ -17,14 +17,17 @@ import json
 import os
 import secrets
 import shlex
+import shutil
 import subprocess
 import sys
 import tarfile
 import time
+import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 POINTER = Path.home() / ".config" / "home-net" / "location"
+SOURCE = "https://github.com/Archonw/Home-Net/archive/refs/heads/main.tar.gz"
 RAW_ICONS = "https://raw.githubusercontent.com/Archonw/Home-Net/main/"
 PBKDF2_ROUNDS = 200_000
 GATEWAY = "home-net-gateway"
@@ -124,6 +127,10 @@ class Install:
     def locate(cls):
         if os.environ.get("HOME_NET_DATA"):
             return cls(os.environ["HOME_NET_DATA"])
+        # Beside the program: survives where the home folder does not, as on Unraid after a restart
+        beside = REPO.parent / "data"
+        if (beside / "home-net.json").exists() and not POINTER.exists():
+            return cls(beside)
         if not POINTER.exists():
             raise HomeNetError("Keine Installation gefunden. Bitte zuerst: home-net install")
         return cls(POINTER.read_text().strip())
@@ -269,8 +276,39 @@ def cmd_modules(_args):
         print(f"{module_id}: {module['description']}")
 
 
-def cmd_update(_args):
-    subprocess.run(["git", "-C", str(REPO), "pull", "--ff-only"], check=True)
+def replace_program(repo, source=SOURCE):
+    """Swaps the program folder for the published version; only a complete download touches the old one."""
+    fresh, old = repo.with_name(repo.name + ".neu"), repo.with_name(repo.name + ".alt")
+    for folder in (fresh, old):
+        shutil.rmtree(folder, ignore_errors=True)
+    fresh.mkdir()
+    try:
+        with urllib.request.urlopen(source, timeout=120) as resp, tarfile.open(fileobj=resp, mode="r|gz") as tar:
+            for member in tar:
+                # GitHub puts everything below one folder named after the repository and branch
+                parts = Path(member.name).parts[1:]
+                if parts:
+                    member.name = str(Path(*parts))
+                    tar.extract(member, fresh, filter="data")
+        if not (fresh / "home-net").exists():
+            raise HomeNetError("Der Download enthält kein Home-Net")
+        repo.rename(old)
+        fresh.rename(repo)
+    except (OSError, tarfile.TarError) as exc:
+        shutil.rmtree(fresh, ignore_errors=True)
+        raise HomeNetError(f"Neue Version nicht geladen, die alte bleibt: {exc}") from exc
+    shutil.rmtree(old, ignore_errors=True)
+
+
+def cmd_update(args):
+    if not args.installed:
+        if (REPO / ".git").exists():
+            subprocess.run(["git", "-C", str(REPO), "pull", "--ff-only"], check=True)
+        else:
+            replace_program(REPO)
+        # The rest belongs to the new version
+        os.chdir(REPO.parent)
+        os.execv(sys.executable, [sys.executable, str(REPO / "home-net"), "update", "--installed"])
     inst = Install.locate()
     inst.apply(inst.load())
     inst.compose("pull", "--ignore-buildable", check=False)
@@ -343,9 +381,11 @@ def main(argv=None):
         p = sub.add_parser(name)
         p.add_argument("module")
         p.set_defaults(func=func)
-    for name, func in (("status", cmd_status), ("modules", cmd_modules), ("update", cmd_update), ("apply", cmd_apply),
-                       ("backup", cmd_backup)):
+    for name, func in (("status", cmd_status), ("modules", cmd_modules), ("apply", cmd_apply), ("backup", cmd_backup)):
         sub.add_parser(name).set_defaults(func=func)
+    p = sub.add_parser("update")
+    p.add_argument("--installed", action="store_true", help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_update)
     p = sub.add_parser("password")
     p.add_argument("user")
     p.add_argument("password", nargs="?")

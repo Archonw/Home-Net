@@ -1,13 +1,16 @@
 import base64
 import hashlib
 import http.client
+import io
 import json
 import os
 import struct
 import sys
+import tarfile
 import tempfile
 import threading
 import unittest
+import unittest.mock
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -58,6 +61,58 @@ class Modules(unittest.TestCase):
         self.assertIn("${DATA_DIR}/netzwerkmonitor/run:/run/netzwerkmonitor", doc["services"]["networkmonitor"]["volumes"])
         self.assertIn("LISTEN_SOCKET=/run/netzwerkmonitor/api.sock", doc["services"]["networkmonitor"]["environment"])
         self.assertNotIn("ports", doc["services"]["networkmonitor"])
+
+
+class ProgramUpdate(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        (self.repo / "home-net").write_text("alt")
+        (self.repo / "weg.txt").write_text("alt")
+
+    def archive(self, files):
+        path = self.root / "main.tar.gz"
+        with tarfile.open(path, "w:gz") as tar:
+            for name, text in files.items():
+                info = tarfile.TarInfo(f"Home-Net-main/{name}")
+                info.size = len(text)
+                tar.addfile(info, io.BytesIO(text.encode()))
+        return path.as_uri()
+
+    def test_new_version_replaces_the_folder(self):
+        home_net.replace_program(self.repo, self.archive({"home-net": "neu", "core/a.py": "x"}))
+        self.assertEqual((self.repo / "home-net").read_text(), "neu")
+        self.assertEqual((self.repo / "core" / "a.py").read_text(), "x")
+        self.assertFalse((self.repo / "weg.txt").exists())
+        self.assertEqual(sorted(p.name for p in self.root.glob("repo*")), ["repo"])
+
+    def test_failed_or_wrong_download_keeps_the_old_version(self):
+        for source in ((self.root / "fehlt.tar.gz").as_uri(), self.archive({"anderes": "x"})):
+            with self.assertRaises(home_net.HomeNetError):
+                home_net.replace_program(self.repo, source)
+            self.assertEqual((self.repo / "home-net").read_text(), "alt")
+
+    def test_broken_archive_keeps_the_old_version(self):
+        broken = self.root / "kaputt.tar.gz"
+        broken.write_bytes(b"kein archiv")
+        with self.assertRaises(home_net.HomeNetError):
+            home_net.replace_program(self.repo, broken.as_uri())
+        self.assertEqual((self.repo / "home-net").read_text(), "alt")
+        self.assertEqual(sorted(p.name for p in self.root.glob("repo*")), ["repo"])
+
+    def test_finds_the_data_folder_beside_the_program(self):
+        data = self.root / "data"
+        data.mkdir()
+        (data / "home-net.json").write_text("{}")
+        for name, value in (("REPO", self.repo), ("POINTER", self.root / "fehlt")):
+            self.addCleanup(setattr, home_net, name, getattr(home_net, name))
+            setattr(home_net, name, value)
+        with unittest.mock.patch.dict(os.environ):
+            os.environ.pop("HOME_NET_DATA", None)
+            self.assertEqual(home_net.Install.locate().data, data)
 
 
 class Installation(unittest.TestCase):

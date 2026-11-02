@@ -20,7 +20,7 @@ Das Programm fragt nach Datenordner, Modulen und Passwort. Danach läuft alles u
 | `./home-net modules` | Zeigt die verfügbaren Module |
 | `./home-net add <modul>` / `remove <modul>` | Modul ergänzen oder stoppen, seine Daten bleiben |
 | `./home-net status` | Zeigt, was läuft |
-| `./home-net update` | Holt die neue Version und startet neu |
+| `./home-net update` | Lädt die neue Version von GitHub, baut und startet neu. Schlägt der Download fehl, bleibt die alte |
 | `./home-net password` | Ändert das Passwort |
 | `./home-net backup` / `restore <archiv>` | Sichert Einstellungen und Geheimnisse oder spielt sie zurück |
 
