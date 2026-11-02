@@ -103,6 +103,14 @@ class ProgramUpdate(unittest.TestCase):
         self.assertEqual((self.repo / "home-net").read_text(), "alt")
         self.assertEqual(sorted(p.name for p in self.root.glob("repo*")), ["repo"])
 
+    def test_without_ssl_curl_downloads(self):
+        with unittest.mock.patch.object(home_net, "has_https", return_value=False):
+            home_net.replace_program(self.repo, self.archive({"home-net": "neu"}))
+            self.assertEqual((self.repo / "home-net").read_text(), "neu")
+            with self.assertRaises(home_net.HomeNetError):
+                home_net.replace_program(self.repo, (self.root / "fehlt.tar.gz").as_uri())
+            self.assertEqual((self.repo / "home-net").read_text(), "neu")
+
     def test_finds_the_data_folder_beside_the_program(self):
         data = self.root / "data"
         data.mkdir()
