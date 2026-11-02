@@ -125,6 +125,8 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
 
     suspend fun postJson(path: String, json: String): String = request("POST", path, json)
 
+    suspend fun putJson(path: String, json: String): String = request("PUT", path, json)
+
     suspend fun delete(path: String): String = request("DELETE", path)
 
     suspend fun overview(): PiOverview {
@@ -201,7 +203,7 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
             conn.readTimeout = 130000
             conn.setRequestProperty("Authorization", authHeader(password))
             conn.setRequestProperty("Accept", "application/json")
-            if (method == "POST") {
+            if (method == "POST" || method == "PUT") {
                 conn.doOutput = true
                 if (json != null) conn.setRequestProperty("Content-Type", "application/json")
                 conn.outputStream.use { out -> json?.let { out.write(it.toByteArray()) } }

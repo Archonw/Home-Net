@@ -13,7 +13,8 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
   (`requires` in `module.json`, geprüft von `home-net add`). Änderungen schickt es als die Formulare der Unraid-Oberfläche an
   den Socket von emhttpd; die Feldnamen stammen aus `emhttp/plugins/dynamix/*.page` im Repo `unraid/webgui`. Neue
   Unraid-Versionen erst prüfen, dann in `TESTED` eintragen. Docker und VMs über die offizielle API mit API-Schlüssel.
-  Noch ohne App-Ansicht.
+  Genutzt in `android/.../UnraidApi.kt` und `UnraidScreens.kt` (Übersicht, Freigaben, Benutzer, Docker/VMs; Dateien und
+  Einstellungen bleiben in der Weboberfläche).
 
 Ändert sich eine Schnittstelle, wird die App im selben Commit mit angepasst.
 
