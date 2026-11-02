@@ -72,3 +72,16 @@ jobs:
       - run: TZ=Europe/Berlin python -m unittest discover tests
       - run: bash -n live/hn-agent && bash -n live/init && bash -n live/trim.sh && sh -n live/hn-udhcpc
       - run: docker build -q -t pc-sicherung:test .
+
+  unraid:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/unraid
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover tests
+      - run: docker build -q -t unraid-verwaltung:test .

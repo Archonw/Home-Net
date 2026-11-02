@@ -1,0 +1,64 @@
+{
+  "id": "unraid",
+  "name": "Unraid",
+  "description": "Verwaltet den Unraid-Server: Freigaben, Benutzer, Einstellungen, Docker und VMs",
+  "icon": "assets/icons/unraid.png",
+  "requires": {
+    "path": "/var/local/emhttp/var.ini",
+    "message": "Das Modul unraid läuft nur direkt auf einem Unraid-Server."
+  },
+  "api": {
+    "socket": "/run/unraid/api.sock",
+    "health": "/health",
+    "public": [
+      "/health"
+    ],
+    "web": true
+  },
+  "services": {
+    "unraid-verwaltung": {
+      "build": "modules/unraid",
+      "network_mode": "none",
+      "environment": [
+        "TZ=${TZ}",
+        "DATA=/data",
+        "LISTEN_SOCKET=/run/unraid/api.sock",
+        "EVENTS_DIR=/run/home-net-events"
+      ],
+      "volumes": [
+        "${DATA_DIR}/unraid/config:/data",
+        "${DATA_DIR}/unraid/run:/run/unraid",
+        "${DATA_DIR}/events/unraid:/run/home-net-events",
+        "/var/local/emhttp:/host/emhttp:ro",
+        "/var/run/emhttpd.socket:/host/emhttpd.socket",
+        "/var/run/unraid-api.sock:/host/unraid-api.sock",
+        "/tmp/notifications:/host/notifications:ro",
+        "/boot/config/plugins/dynamix:/host/dynamix",
+        "/mnt/user:/mnt/user:ro,rslave"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python3",
+          "-c",
+          "import socket;s=socket.socket(socket.AF_UNIX);s.connect('/run/unraid/api.sock');s.send(b'GET /health HTTP/1.0\\r\\n\\r\\n');assert b' 200 ' in s.recv(64)"
+        ]
+      }
+    }
+  },
+  "events": [
+    {
+      "id": "unraid_alert",
+      "label": "Unraid meldet einen Alarm"
+    },
+    {
+      "id": "unraid_warning",
+      "label": "Unraid meldet eine Warnung"
+    },
+    {
+      "id": "unraid_info",
+      "label": "Sonstige Meldungen von Unraid",
+      "default": false
+    }
+  ]
+}

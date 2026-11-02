@@ -156,7 +156,7 @@ internal fun TextAction(label: String, onClick: () -> Unit) {
 
 /** Startseite: eine Kachel je Modul. Mit gemeinsamem Zugang kommt die Liste vom Server. */
 @Composable
-fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onPc: () -> Unit) {
+fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onPc: () -> Unit, onUnraid: () -> Unit) {
     val p = LocalPalette.current
     var network by remember { mutableStateOf("Wird geladen …") }
     var networkAlert by remember { mutableStateOf(false) }
@@ -166,6 +166,8 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     var piAlert by remember { mutableStateOf(false) }
     var pc by remember { mutableStateOf("Wird geladen …") }
     var pcAlert by remember { mutableStateOf(false) }
+    var unraid by remember { mutableStateOf("Wird geladen …") }
+    var unraidAlert by remember { mutableStateOf(false) }
     var installed by remember { mutableStateOf<Set<String>?>(null) }
     var hubError by remember { mutableStateOf<String?>(null) }
 
@@ -221,6 +223,18 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                 }
             }
         }
+        if (installed?.contains("unraid") == true) {
+            launch {
+                try {
+                    val o = settings.unraidApi().overview()
+                    unraid = unraidTileText(o)
+                    unraidAlert = o.problems > 0 || !o.available
+                } catch (e: ApiException) {
+                    unraid = e.message ?: "Nicht erreichbar"
+                    unraidAlert = true
+                }
+            }
+        }
     }
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
@@ -239,6 +253,9 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
             // Nur über den gemeinsamen Zugang, darum erst sichtbar, wenn der Server das Modul meldet
             if (installed?.contains("pc-sicherung") == true) {
                 ServiceTile("PC-Sicherung", pc, pcAlert, R.drawable.ic_tile_pc, onPc)
+            }
+            if (installed?.contains("unraid") == true) {
+                ServiceTile("Unraid", unraid, unraidAlert, R.drawable.ic_tile_unraid, onUnraid)
             }
         }
     }

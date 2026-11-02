@@ -100,6 +100,11 @@ class Settings(context: Context) {
         PiApi("$hubUrl/m/pc-sicherung", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/pc-sicherung"),
     )
 
+    /** Unraid-Verwaltung, ebenfalls nur über den gemeinsamen Zugang. */
+    fun unraidApi() = UnraidApi(
+        PiApi("$hubUrl/m/unraid", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/unraid"),
+    )
+
     fun piApi() = PiApi(piUrl, if (isHubConfigured) hubSecret else piPassword, piExternalUrl)
 
     var sortOrder: SortOrder
