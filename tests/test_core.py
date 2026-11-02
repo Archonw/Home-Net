@@ -10,6 +10,7 @@ import tarfile
 import tempfile
 import threading
 import unittest
+from unittest import mock
 import unittest.mock
 import urllib.error
 import urllib.request
@@ -32,10 +33,21 @@ from security import Security  # noqa: E402
 class Modules(unittest.TestCase):
     def test_every_module_has_what_the_core_needs(self):
         modules = home_net.available_modules()
-        self.assertEqual(set(modules), {"netzwerkmonitor", "pi-wartung", "pc-sicherung", "ntfy"})
+        self.assertEqual(set(modules), {"netzwerkmonitor", "pi-wartung", "pc-sicherung", "ntfy", "unraid"})
         for module in modules.values():
             for key in ("id", "name", "description", "icon", "services"):
                 self.assertIn(key, module)
+
+    def test_unraid_module_only_on_unraid(self):
+        modules = home_net.available_modules()
+        with mock.patch.object(home_net.Path, "exists", return_value=False):
+            self.assertFalse(home_net.usable(modules["unraid"]))
+            with self.assertRaises(home_net.HomeNetError):
+                home_net.check_usable(modules, ["pi-wartung", "unraid"])
+        home_net.check_usable(modules, ["pi-wartung"])
+        doc = home_net.compose_document(modules, ["unraid"])
+        self.assertEqual(doc["services"]["unraid-verwaltung"]["network_mode"], "none")
+        self.assertIn("${DATA_DIR}/unraid/run:/run/unraid", doc["services"]["home-net-gateway"]["volumes"])
 
     def test_compose_only_holds_chosen_modules(self):
         doc = home_net.compose_document(home_net.available_modules(), ["pi-wartung"])

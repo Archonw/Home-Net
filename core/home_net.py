@@ -175,6 +175,8 @@ class Install:
         if "pc-sicherung" in state["modules"]:
             Path(pc_dir(state)).mkdir(parents=True, exist_ok=True)
             (self.data / "pc-sicherung" / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
+        if "unraid" in state["modules"]:
+            (self.data / "unraid" / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
 
     def set_monitor_links(self):
         """Links in notifications of the monitor lead through the gateway, once its outside address is known."""
@@ -205,9 +207,21 @@ def new_state(data, images, chosen, port, password, tz="Europe/Berlin", owner="a
             "tz": tz, "owner": owner, "auth": password_record(password), "upstream": upstream}
 
 
+def usable(module):
+    """Some modules only work on a certain system, e.g. unraid only directly on an Unraid server."""
+    need = module.get("requires")
+    return not need or Path(need["path"]).exists()
+
+
+def check_usable(modules, chosen):
+    for module_id in chosen:
+        if module_id in modules and not usable(modules[module_id]):
+            raise HomeNetError(modules[module_id]["requires"].get("message", f"{module_id} passt nicht zu diesem Rechner"))
+
+
 def ask_modules(modules):
     print("Verfügbare Module:")
-    ids = list(modules)
+    ids = [m for m in modules if usable(modules[m])]
     for i, module_id in enumerate(ids, 1):
         print(f"  {i}. {modules[module_id]['name']}: {modules[module_id]['description']}")
     answer = input("Welche installieren? Nummern mit Komma, leer für alle: ").strip()
@@ -236,6 +250,7 @@ def cmd_install(args):
     modules = available_modules()
     data = Path(args.data or input(f"Datenordner [{Path.home() / 'home-net'}]: ").strip() or Path.home() / "home-net")
     chosen = args.modules.split(",") if args.modules else ask_modules(modules)
+    check_usable(modules, chosen)
     owner = args.owner or input("Dein Benutzername [admin]: ").strip() or "admin"
     password = args.password or ask_password()
     inst = Install(data)
@@ -257,6 +272,7 @@ def cmd_add(args):
         raise HomeNetError(f"{args.module} ist schon installiert")
     if args.module not in available_modules():
         raise HomeNetError(f"Unbekanntes Modul: {args.module}")
+    check_usable(available_modules(), [args.module])
     state["modules"].append(args.module)
     if args.module != "ntfy":
         state["upstream"][args.module] = secrets.token_urlsafe(24)

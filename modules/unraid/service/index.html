@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unraid</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#2f6fd0; --ok:#1a7f37; --bad:#c93a3a; --warn:#b35a0a; --soft:#2f6fd01f; }
+@media (prefers-color-scheme: dark) { :root { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#5b93ea; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#5b93ea26; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
+header { padding:18px 16px 0; max-width:1000px; margin:auto; }
+h1 { font-size:24px; margin:0 0 10px; }
+nav { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); }
+nav button { border:0; border-bottom:2px solid transparent; border-radius:0; background:none; padding:8px 10px; color:var(--muted); }
+nav button.on { color:var(--text); border-color:var(--accent); font-weight:620; }
+main { max-width:1000px; margin:auto; padding:8px 16px 48px; }
+h2 { font-size:13px; color:var(--muted); margin:20px 0 8px; font-weight:650; }
+button,a.button { font:inherit; border:1px solid var(--line); background:var(--card); color:inherit; border-radius:9px; padding:7px 13px; cursor:pointer; text-decoration:none; display:inline-block; }
+button.main { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+button.danger { color:var(--bad); }
+button.small { padding:3px 9px; font-size:13px; }
+button:disabled { opacity:.55; cursor:default; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+.tile,.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+.tile b { display:block; font-size:21px; }
+.label,.quiet { color:var(--muted); font-size:13px; }
+.card { margin-bottom:8px; }
+.name { font-weight:620; }
+.ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); } .run { color:var(--accent); }
+.note { background:var(--soft); border-color:transparent; }
+.actions { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; align-items:center; }
+progress { width:100%; height:8px; accent-color:var(--accent); }
+dialog { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:14px; width:min(620px,94vw); padding:18px; }
+dialog::backdrop { background:#0007; }
+label { display:block; margin:9px 0 3px; font-size:13px; color:var(--muted); }
+input,select { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; }
+input[type=checkbox] { width:auto; margin-right:6px; }
+.check { color:inherit; font-size:15px; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+fieldset { border:0; border-top:1px solid var(--line); margin:14px 0 0; padding:6px 0 0; }
+legend { font-weight:650; padding-right:8px; }
+.err { color:var(--bad); margin:8px 0; white-space:pre-wrap; }
+.hint { font-size:12.5px; color:var(--muted); margin:3px 0 0; }
+.foot { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; flex-wrap:wrap; }
+.line { display:flex; gap:10px; align-items:center; padding:8px 0; border-top:1px solid var(--line); }
+.line:first-child { border:0; }
+.line .grow { flex:1; min-width:0; overflow-wrap:anywhere; }
+.click { cursor:pointer; }
+.pill { font-size:12px; border-radius:20px; padding:1px 8px; background:var(--soft); white-space:nowrap; }
+.crumbs { display:flex; gap:4px; flex-wrap:wrap; align-items:center; margin:6px 0 10px; }
+.crumbs a { color:var(--accent); cursor:pointer; }
+.right { display:grid; grid-template-columns:1fr 200px; gap:6px 10px; align-items:center; }
+@media (max-width:560px) { .two { grid-template-columns:1fr; } .right { grid-template-columns:1fr 175px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Unraid</h1>
+  <nav id="nav"></nav>
+</header>
+<main id="app">Wird geladen …</main>
+<dialog id="dlg"><form id="form" method="dialog"></form></dialog>
+
+<script>
+const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
+const app = document.getElementById("app"), dlg = document.getElementById("dlg"), form = document.getElementById("form"), nav = document.getElementById("nav");
+const TABS = [["overview", "Übersicht"], ["shares", "Freigaben"], ["users", "Benutzer"], ["docker", "Docker"], ["vms", "VMs"], ["files", "Dateien"], ["settings", "Einstellungen"]];
+const RIGHTS = [["read-write", "Lesen und schreiben"], ["read-only", "Nur lesen"], ["no-access", "Kein Zugriff"]];
+const EXPORT = [["-", "Nein"], ["e", "Ja"], ["eh", "Ja (versteckt)"], ["et", "Ja, Time Machine"], ["eth", "Ja, Time Machine (versteckt)"]];
+const SECURITY = [["public", "Öffentlich: alle lesen und schreiben"], ["secure", "Geschützt: alle lesen, Ausgewählte schreiben"], ["private", "Privat: nur Ausgewählte"]];
+let tab = "overview", timer = null, info = null, filePath = "";
+
+async function api(path, method = "GET", body) {
+  const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || `Fehler ${r.status}`);
+  return data;
+}
+const size = n => { const u = ["B","KB","MB","GB","TB","PB"]; let i = 0; n = n || 0; while (n >= 1024 && i < 5) { n /= 1024; i++; } return `${i > 1 ? n.toFixed(1).replace(".", ",") : Math.round(n)} ${u[i]}`; };
+const when = s => s ? new Date(s * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "–";
+const duration = s => { const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600); return d ? `${d} Tage ${h} Std.` : `${h} Std. ${Math.floor(s % 3600 / 60)} Min.`; };
+const option = (value, text, current) => $("option", { value, textContent: text, selected: value === current });
+const select = (name, list, current) => $("select", { name }, ...list.map(([v, t]) => option(v, t, current)));
+const field = (text, input, hint) => $("div", {}, $("label", { textContent: text }), input, hint ? $("p", { className: "hint", textContent: hint }) : null);
+const input = (name, value = "", extra = {}) => $("input", { name, value, ...extra });
+function schedule(fn, ms) { clearTimeout(timer); timer = setTimeout(fn, ms); }
+function fail(e) { app.replaceChildren($("div", { className: "card note err", textContent: e.message })); }
+function readOnlyNote(writable) {
+  return writable ? null : $("div", { className: "card note" }, $("div", { className: "name", textContent: "Nur ansehen" }),
+    $("div", { className: "quiet", textContent: `Änderungen sind für diese Unraid-Version noch nicht freigegeben. Der Eigentümer kann sie unter Einstellungen erlauben.` }));
+}
+
+function showNav() {
+  const tabs = info && info.manager ? TABS : TABS.slice(0, 1);
+  nav.replaceChildren(...tabs.map(([id, text]) => $("button", { textContent: text, className: id === tab ? "on" : "", onclick: () => go(id) })));
+}
+function go(id) { tab = id; clearTimeout(timer); showNav(); app.textContent = "Wird geladen …"; ({ overview, shares, users, docker, vms, files, settings })[id]().catch(fail); }
+
+function ask(title, build, submit, { label = "Speichern", danger = false } = {}) {
+  const error = $("div", { className: "err" });
+  const ok = $("button", { className: danger ? "main danger" : "main", textContent: label, type: "submit", value: "ok" });
+  form.replaceChildren($("h3", { textContent: title, style: "margin-top:0" }), ...build(), error,
+    $("div", { className: "foot" }, $("button", { textContent: "Abbrechen", type: "button", onclick: () => dlg.close() }), ok));
+  form.onsubmit = async ev => {
+    ev.preventDefault();
+    ok.disabled = true; error.textContent = "";
+    try { await submit(new FormData(form)); dlg.close(); go(tab); }
+    catch (e) { error.textContent = e.message; ok.disabled = false; }
+  };
+  dlg.showModal();
+}
+function confirmStep(title, text, run, label = "Ja") {
+  ask(title, () => [$("p", { textContent: text })], run, { label, danger: true });
+}
+
+// --- Übersicht ---
+async function overview() {
+  const d = info = await api("api/overview");
+  document.getElementById("title").textContent = d.name ? `Unraid: ${d.name}` : "Unraid";
+  showNav();
+  if (!d.available) return fail(new Error("Die Daten von Unraid sind nicht sichtbar. Läuft Home-Net direkt auf dem Unraid-Server?"));
+  const a = d.array, mem = d.memory;
+  const tile = (l, v, s, c) => $("div", { className: "tile" }, $("span", { className: "label", textContent: l }), $("b", { textContent: v, className: c || "" }), $("span", { className: "quiet", textContent: s }));
+  const arrayText = a.started ? (a.check.running ? "Prüfung läuft" : "Gestartet") : (a.state || "Unbekannt");
+  const used = mem.total ? Math.round((mem.total - mem.available) * 100 / mem.total) : 0;
+  const parts = [$("div", { className: "tiles" },
+    tile("Array", arrayText, a.missing ? `${a.missing} Platte fehlt` : (n => n === 1 ? "1 Datenplatte" : `${n} Datenplatten`)(d.disks.filter(x => x.kind === "data").length), a.started ? (a.missing ? "bad" : "ok") : "warn"),
+    tile("Prozessor", `${d.load[0].toFixed(1).replace(".", ",")}`, `Last bei ${d.cpus} Kernen`),
+    tile("Arbeitsspeicher", `${used} %`, `von ${size(mem.total)} belegt`, used > 90 ? "warn" : ""),
+    tile("Läuft seit", duration(d.uptime), `Unraid ${d.version}`))];
+  parts.push($("h2", { textContent: "Platten" }));
+  const disks = $("div", { className: "card" });
+  for (const x of d.disks) {
+    const kind = { parity: "Parität", data: "Daten", pool: "Pool", flash: "USB-Stick" }[x.kind];
+    const fill = x.size && x.mounted ? Math.round((x.size - x.free) * 100 / x.size) : null;
+    const temp = x.spundown ? "schläft" : x.temp != null ? `${x.temp} °C` : "";
+    disks.append($("div", { className: "line" },
+      $("div", { className: "grow" }, $("span", { className: "name", textContent: x.name }), " ", $("span", { className: "quiet", textContent: `${kind} · ${x.model || x.device}` }),
+        fill != null ? $("div", { className: "quiet", textContent: `${fill} % belegt, ${size(x.free)} frei von ${size(x.size)}` }) : null),
+      $("span", { className: x.temp >= (x.ssd ? d.temps.maxssd : d.temps.max) ? "bad" : x.temp >= (x.ssd ? d.temps.hotssd : d.temps.hot) ? "warn" : "quiet", textContent: temp }),
+      $("span", { className: x.ok && !x.errors ? "ok" : "bad", textContent: x.errors ? `${x.status_text}, ${x.errors} Fehler` : x.status_text })));
+  }
+  parts.push(disks);
+  parts.push($("h2", { textContent: "Paritätsprüfung" }));
+  const c = a.check, check = $("div", { className: "card" });
+  if (c.running) {
+    check.append($("div", { textContent: c.paused ? "Angehalten" : `Läuft: ${c.percent ?? 0} %`, className: "name run" }), $("progress", { max: 100, value: c.percent || 0 }));
+  } else {
+    check.append($("div", { textContent: c.last ? `Zuletzt am ${when(c.last)}: ${c.last_exit ? "abgebrochen" : c.last_errors ? c.last_errors + " Fehler" : "keine Fehler"}` : "Noch keine Prüfung", className: c.last_errors ? "bad" : "" }));
+  }
+  if (d.manager && d.writable && a.started) {
+    const run = (cmd, text) => $("button", { textContent: text, onclick: () => confirmStep(text, cmd === "cancel" ? "Die laufende Prüfung abbrechen?" : `${text}? Die Platten sind dabei stark beschäftigt.`, () => api(`api/array/${cmd}`, "POST")) });
+    check.append($("div", { className: "actions" }, ...(c.running ? [c.paused ? run("resume", "Fortsetzen") : run("pause", "Anhalten"), run("cancel", "Abbrechen")]
+      : [run("check", "Prüfung starten (mit Korrektur)"), run("check_nocorrect", "Nur prüfen")]),
+      !c.running && !a.mover ? run("mover", "Mover jetzt starten") : $("span", { className: "quiet", textContent: a.mover ? "Mover läuft" : "" })));
+  }
+  parts.push(check);
+  if (d.notifications.length) {
+    parts.push($("h2", { textContent: "Ungelesene Meldungen von Unraid" }));
+    parts.push($("div", { className: "card" }, ...d.notifications.map(n => $("div", { className: "line" },
+      $("div", { className: "grow" }, $("div", { className: "name " + ({ alert: "bad", warning: "warn" }[n.importance] || ""), textContent: n.subject || n.event }), $("div", { className: "quiet", textContent: `${n.description} · ${when(n.time)}` }))))));
+  }
+  if (d.manager && !d.api) parts.push($("div", { className: "card note", style: "margin-top:12px" }, "Für Docker und VMs fehlt noch der API-Schlüssel. ", $("a", { href: "#", textContent: "Zu den Einstellungen", onclick: e => { e.preventDefault(); go("settings"); } })));
+  app.replaceChildren(...parts);
+  schedule(() => tab === "overview" && overview().catch(fail), 15000);
+}
+
+// --- Freigaben ---
+const storageText = s => {
+  const name = p => p === "array" ? "Array" : p;
+  if (!s.secondary) return name(s.primary);
+  return s.mover === "to_primary" ? `${name(s.secondary)} → ${name(s.primary)}` : `${name(s.primary)} → ${name(s.secondary)}`;
+};
+async function shares() {
+  const d = await api("api/shares");
+  const parts = [readOnlyNote(d.writable), $("div", { className: "actions" }, d.writable ? $("button", { className: "main", textContent: "Freigabe anlegen", onclick: () => editShare(null, d) }) : null)];
+  const list = $("div", { className: "card" });
+  for (const s of d.shares) {
+    const smb = s.smb.export === "-" ? "nicht im Netz" : ({ public: "öffentlich", secure: "geschützt", private: "privat" })[s.smb.security];
+    list.append($("div", { className: "line click", onclick: () => editShare(s, d) },
+      $("div", { className: "grow" }, $("div", { className: "name", textContent: s.name }), $("div", { className: "quiet", textContent: [s.comment, storageText(s.storage)].filter(Boolean).join(" · ") })),
+      $("span", { className: "pill", textContent: `SMB ${smb}` }),
+      $("button", { className: "small", textContent: "Ansehen", onclick: e => { e.stopPropagation(); filePath = s.name; go("files"); } })));
+  }
+  parts.push(list);
+  app.replaceChildren(...parts.filter(Boolean));
+}
+function storageInputs(s, pools) {
+  const places = [["array", "Array"], ...pools.map(p => [p, `Pool ${p}`])];
+  const primary = select("primary", places, s.primary), secondary = select("secondary", [["", "Keiner"], ...places], s.secondary), mover = select("mover", [["to_secondary", "Vom ersten zum zweiten Speicher"], ["to_primary", "Vom zweiten zum ersten Speicher"]], s.mover || "to_secondary");
+  return [$("div", { className: "two" }, field("Erster Speicher (neue Dateien)", primary), field("Zweiter Speicher", secondary)), field("Mover schiebt", mover, "Nur wichtig, wenn es einen zweiten Speicher gibt.")];
+}
+function editShare(s, d) {
+  const isNew = !s;
+  s = s || { name: "", comment: "", storage: { primary: d.pools[0] || "array", secondary: d.pools.length ? "array" : "", mover: "to_secondary" }, smb: { export: "e", security: "private", case: "auto", access: {} } };
+  const userRows = () => d.users.map(u => {
+    const current = s.smb.security === "public" ? "read-write" : s.smb.access[u] || (s.smb.security === "secure" ? "read-only" : "no-access");
+    return $("div", { className: "right" }, $("span", { textContent: u }), select(`user:${u}`, RIGHTS, current));
+  });
+  ask(isNew ? "Freigabe anlegen" : `Freigabe ${s.name}`, () => [
+    field("Name", input("name", s.name, { required: true, maxLength: 40, disabled: !d.writable }), isNew ? "Buchstaben, Ziffern, . _ und -, am Anfang ein Buchstabe." : "Umbenennen ändert auch den Ordnernamen."),
+    field("Beschreibung", input("comment", s.comment, { maxLength: 256 })),
+    $("fieldset", {}, $("legend", { textContent: "Speicherort" }), ...storageInputs(s.storage, d.pools)),
+    $("fieldset", {}, $("legend", { textContent: "Im Netzwerk (SMB)" }),
+      $("div", { className: "two" }, field("Freigeben", select("export", d.fruit ? EXPORT : EXPORT.slice(0, 3), s.smb.export)), field("Sicherheit", select("security", SECURITY, s.smb.security))),
+      $("label", { textContent: "Rechte je Benutzer (bei geschützt und privat)" }), ...userRows()),
+    !isNew && d.writable ? $("fieldset", {}, $("legend", { textContent: "Löschen" }), $("p", { className: "hint", textContent: "Unraid löscht nur leere Freigaben." }),
+      $("button", { type: "button", className: "danger", textContent: "Freigabe löschen", onclick: () => { dlg.close(); confirmStep(`${s.name} löschen?`, `Die Freigabe ${s.name} wird in Unraid entfernt. Das geht nur, wenn sie leer ist.`, () => api(`api/shares/${encodeURIComponent(s.name)}`, "DELETE"), "Löschen"); } })) : null,
+  ].filter(Boolean), async f => {
+    if (!d.writable) throw new Error("Änderungen sind gesperrt.");
+    const storage = { primary: f.get("primary"), secondary: f.get("secondary"), mover: f.get("mover") };
+    const smb = { export: f.get("export"), security: f.get("security") };
+    const access = Object.fromEntries(d.users.map(u => [u, f.get(`user:${u}`)]));
+    if (isNew) return api("api/shares", "POST", { name: f.get("name"), comment: f.get("comment"), storage, smb, access: smb.security === "public" ? null : access });
+    const where = x => x.secondary ? `${x.primary}|${x.secondary}|${x.mover}` : x.primary;
+    const changedBase = f.get("name") !== s.name || f.get("comment") !== s.comment || where(storage) !== where(s.storage);
+    let name = s.name;
+    if (changedBase) name = (await api(`api/shares/${encodeURIComponent(s.name)}`, "PUT", { name: f.get("name"), comment: f.get("comment"), storage })).name;
+    if (smb.export !== s.smb.export || smb.security !== s.smb.security) await api(`api/shares/${encodeURIComponent(name)}/security`, "PUT", smb);
+    if (smb.security !== "public") {
+      const before = Object.fromEntries(d.users.map(u => [u, s.smb.security === "public" ? "read-write" : s.smb.access[u] || (s.smb.security === "secure" ? "read-only" : "no-access")]));
+      if (JSON.stringify(before) !== JSON.stringify(access) || smb.security !== s.smb.security) await api(`api/shares/${encodeURIComponent(name)}/access`, "PUT", { access, security: smb.security });
+    }
+  }, { label: isNew ? "Anlegen" : "Speichern" });
+}
+
+// --- Benutzer ---
+async function users() {
+  const d = await api("api/users");
+  const parts = [readOnlyNote(d.writable), $("div", { className: "actions" }, d.writable ? $("button", { className: "main", textContent: "Benutzer anlegen", onclick: addUser }) : null)];
+  const list = $("div", { className: "card" });
+  for (const u of d.users) {
+    const rights = Object.entries(u.rights).filter(([, r]) => r !== "no-access");
+    list.append($("div", { className: "line" },
+      $("div", { className: "grow" }, $("div", { className: "name", textContent: u.name }),
+        $("div", { className: "quiet", textContent: u.name === "root" ? "Anmeldung an Unraid selbst" : [u.desc, rights.length ? `Zugriff auf ${rights.map(([s, r]) => r === "read-only" ? s + " (lesen)" : s).join(", ")}` : "keine Freigaben"].filter(Boolean).join(" · ") })),
+      d.writable ? $("button", { className: "small", textContent: "Passwort", onclick: () => changePassword(u) }) : null,
+      d.writable && u.name !== "root" ? $("button", { className: "small", textContent: "Ändern", onclick: () => editUser(u) }) : null));
+  }
+  parts.push(list, $("p", { className: "hint", textContent: "Welche Freigaben ein Benutzer sehen darf, stellst du bei der jeweiligen Freigabe ein." }));
+  app.replaceChildren(...parts.filter(Boolean));
+}
+const passwordFields = () => [field("Passwort", input("password", "", { type: "password", required: true, maxLength: 128, autocomplete: "new-password" })), field("Passwort wiederholen", input("password2", "", { type: "password", required: true, maxLength: 128, autocomplete: "new-password" }))];
+function checkPasswords(f) { if (f.get("password") !== f.get("password2")) throw new Error("Die Passwörter stimmen nicht überein."); }
+function addUser() {
+  ask("Benutzer anlegen", () => [field("Name", input("name", "", { required: true, maxLength: 40, pattern: "[a-z_][a-z0-9_\\-]*" }), "Kleinbuchstaben, Ziffern, _ und -."), field("Beschreibung", input("desc", "", { maxLength: 64 })), ...passwordFields()],
+    f => { checkPasswords(f); return api("api/users", "POST", { name: f.get("name"), desc: f.get("desc"), password: f.get("password") }); }, { label: "Anlegen" });
+}
+function changePassword(u) {
+  ask(`Passwort für ${u.name}`, () => [u.name === "root" ? $("p", { className: "warn", textContent: "Das ist das Passwort für die Anmeldung an Unraid selbst (Weboberfläche und SSH)." }) : null, ...passwordFields()].filter(Boolean),
+    f => { checkPasswords(f); return api(`api/users/${encodeURIComponent(u.name)}/password`, "PUT", { password: f.get("password") }); });
+}
+function editUser(u) {
+  ask(`Benutzer ${u.name}`, () => [field("Beschreibung", input("desc", u.desc, { maxLength: 64 })),
+    $("fieldset", {}, $("legend", { textContent: "Löschen" }), $("button", { type: "button", className: "danger", textContent: "Benutzer löschen", onclick: () => { dlg.close(); confirmStep(`${u.name} löschen?`, `Der Benutzer ${u.name} wird in Unraid gelöscht und verliert jeden Zugriff auf die Freigaben.`, () => api(`api/users/${encodeURIComponent(u.name)}`, "DELETE"), "Löschen"); } }))],
+    f => api(`api/users/${encodeURIComponent(u.name)}`, "PUT", { desc: f.get("desc") }));
+}
+
+// --- Docker und VMs ---
+const STATE = { running: ["Läuft", "ok"], exited: ["Gestoppt", "quiet"], paused: ["Angehalten", "warn"], shutoff: ["Aus", "quiet"], idle: ["Leerlauf", "quiet"], crashed: ["Abgestürzt", "bad"] };
+async function docker() {
+  const d = await api("api/docker");
+  const list = $("div", { className: "card" });
+  for (const c of d.containers) {
+    const [text, cls] = STATE[c.state] || [c.state, "quiet"];
+    const act = (cmd, label) => $("button", { className: "small", textContent: label, onclick: () => confirmStep(`${c.name}: ${label}?`, `Den Container ${c.name} ${label.toLowerCase()}?`, () => api("api/docker", "POST", { id: c.id, command: cmd }), label) });
+    list.append($("div", { className: "line" },
+      $("div", { className: "grow" }, $("div", { className: "name", textContent: c.name }), $("div", { className: "quiet", textContent: `${c.image}${c.status ? " · " + c.status : ""}` })),
+      $("span", { className: cls, textContent: text }),
+      c.protected ? $("span", { className: "pill", textContent: "Home-Net" }) : c.state === "running" ? $("span", { className: "actions", style: "margin:0" }, act("restart", "Neu starten"), act("stop", "Stoppen")) : act("start", "Starten")));
+  }
+  app.replaceChildren(list);
+  schedule(() => tab === "docker" && docker().catch(fail), 20000);
+}
+async function vms() {
+  const d = await api("api/vms");
+  if (!d.vms.length) return app.replaceChildren($("div", { className: "card quiet", textContent: "Keine virtuellen Maschinen vorhanden." }));
+  const list = $("div", { className: "card" });
+  for (const v of d.vms) {
+    const [text, cls] = STATE[v.state] || [v.state, "quiet"];
+    const act = (cmd, label) => $("button", { className: "small", textContent: label, onclick: () => confirmStep(`${v.name}: ${label}?`, `Die VM ${v.name} ${label.toLowerCase()}?`, () => api("api/vms", "POST", { id: v.id, command: cmd }), label) });
+    const buttons = v.state === "running" ? [act("stop", "Herunterfahren"), act("reboot", "Neu starten"), act("force", "Hart ausschalten")] : v.state === "paused" ? [act("resume", "Fortsetzen")] : [act("start", "Starten")];
+    list.append($("div", { className: "line" }, $("div", { className: "grow name", textContent: v.name }), $("span", { className: cls, textContent: text }), $("span", { className: "actions", style: "margin:0" }, ...buttons)));
+  }
+  app.replaceChildren(list);
+  schedule(() => tab === "vms" && vms().catch(fail), 20000);
+}
+
+// --- Dateien ---
+async function files() {
+  const d = await api(`api/files?path=${encodeURIComponent(filePath)}`);
+  const crumbs = $("div", { className: "crumbs" }, $("a", { textContent: "Freigaben", onclick: () => { filePath = ""; files().catch(fail); } }));
+  let acc = "";
+  for (const part of (d.path || "").split("/").filter(Boolean)) {
+    acc = acc ? `${acc}/${part}` : part;
+    const target = acc;
+    crumbs.append(" / ", $("a", { textContent: part, onclick: () => { filePath = target; files().catch(fail); } }));
+  }
+  const list = $("div", { className: "card" });
+  if (!d.entries.length) list.append($("div", { className: "quiet", textContent: "Leer" }));
+  for (const e of d.entries) {
+    const full = d.path ? `${d.path}/${e.name}` : e.name;
+    list.append($("div", { className: "line" + (e.dir ? " click" : ""), onclick: e.dir ? () => { filePath = full; files().catch(fail); } : null },
+      $("span", { textContent: e.dir ? "📁" : "📄" }),
+      $("div", { className: "grow" }, $("div", { textContent: e.name }), $("div", { className: "quiet", textContent: e.dir ? when(e.mtime) : `${size(e.size)} · ${when(e.mtime)}` })),
+      e.dir ? null : $("a", { className: "button small", href: `api/download?path=${encodeURIComponent(full)}`, download: e.name, textContent: "Laden" })));
+  }
+  app.replaceChildren(crumbs, list, d.more ? $("p", { className: "hint", textContent: "Es werden nur die ersten 5000 Einträge gezeigt." }) : "", $("p", { className: "hint", textContent: "Nur ansehen und herunterladen (bis 200 MB). Ändern geht über das Netzlaufwerk." }));
+}
+
+// --- Einstellungen ---
+async function settings() {
+  const [g, m] = await Promise.all([api("api/general"), api("api/settings")]);
+  const v = g.values, yesno = [["yes", "Ja"], ["no", "Nein"]];
+  const section = (title, key, build, hint) => {
+    const box = $("form", { className: "card" }, $("div", { className: "name", textContent: title }), hint ? $("p", { className: "hint", textContent: hint }) : null, ...build());
+    const err = $("div", { className: "err" }), btn = $("button", { className: "main", textContent: "Übernehmen", disabled: !g.writable });
+    box.append(err, $("div", { className: "foot" }, btn));
+    box.onsubmit = async ev => {
+      ev.preventDefault(); btn.disabled = true; err.textContent = "";
+      try { await api(`api/general/${key}`, "PUT", Object.fromEntries(new FormData(box))); btn.textContent = "Übernommen ✓"; setTimeout(() => go("settings"), 1200); }
+      catch (e) { err.textContent = e.message; btn.disabled = false; }
+    };
+    return box;
+  };
+  const parts = [readOnlyNote(g.writable), $("h2", { textContent: "Unraid" }),
+    section("Server", "identity", () => [$("div", { className: "two" }, field("Name im Netzwerk", input("NAME", v.NAME, { maxLength: 15, required: true })), field("Beschreibung", input("COMMENT", v.COMMENT))), input("SYS_MODEL", v.SYS_MODEL, { type: "hidden" })], "Achtung: Ein neuer Name ändert die Adresse des Servers im Netzwerk."),
+    section("Windows-Freigaben (SMB)", "smb", () => [$("div", { className: "two" }, field("SMB eingeschaltet", select("shareSMBEnabled", v.shareSMBEnabled === "ads" ? [["ads", "Ja (Active Directory)"], ["no", "Nein"]] : yesno, v.shareSMBEnabled)), field("Erweiterungen für Mac", select("enableFruit", yesno, v.enableFruit))),
+      field("Versteckte Dateien (mit Punkt) ausblenden", select("hideDotFiles", yesno, v.hideDotFiles)),
+      ...["serverMultiChannel", "USE_NETBIOS", "USE_WSD", "WSD2_OPT"].map(k => input(k, v[k], { type: "hidden" }))], "Ausschalten trennt alle Netzlaufwerke."),
+    section("Arbeitsgruppe", "workgroup", () => [$("div", { className: "two" }, field("Arbeitsgruppe", input("WORKGROUP", v.WORKGROUP, { maxLength: 15 })), field("Lokaler Master", select("localMaster", yesno, v.localMaster)))]),
+    section("NFS", "nfs", () => [field("NFS eingeschaltet", select("shareNFSEnabled", yesno, v.shareNFSEnabled)), input("fuse_remember", v.fuse_remember, { type: "hidden" })]),
+    section("Zeitserver", "time", () => [$("div", { className: "two" }, ...[1, 2, 3, 4].map(n => field(`Zeitserver ${n}`, input(`NTP_SERVER${n}`, v[`NTP_SERVER${n}`], { maxLength: 40 }))))],
+      `Zeitzone: ${v.timeZone}. Zeitzone und manuelle Zeit stellst du in der Unraid-Oberfläche ein.`),
+    section("Platten", "disks", () => [$("div", { className: "two" }, field("Platten schlafen legen nach", select("spindownDelay", [["0", "Nie"], ["15", "15 Minuten"], ["30", "30 Minuten"], ["45", "45 Minuten"], ["1", "1 Stunde"], ["2", "2 Stunden"], ["3", "3 Stunden"], ["4", "4 Stunden"], ["5", "5 Stunden"], ["6", "6 Stunden"], ["7", "7 Stunden"], ["8", "8 Stunden"], ["9", "9 Stunden"]], v.spindownDelay)), field("Gemeinsam aufwecken", select("spinupGroups", yesno, v.spinupGroups)))]),
+    section("Temperatur-Warnungen", "temps", () => [$("div", { className: "two" },
+      field("Festplatten: Warnung ab °C", input("hot", g.temps.hot, { type: "number", min: 20, max: 90 })), field("Festplatten: kritisch ab °C", input("max", g.temps.max, { type: "number", min: 20, max: 90 })),
+      field("SSDs: Warnung ab °C", input("hotssd", g.temps.hotssd, { type: "number", min: 20, max: 90 })), field("SSDs: kritisch ab °C", input("maxssd", g.temps.maxssd, { type: "number", min: 20, max: 90 })))],
+      "Gilt für alle Platten ohne eigenen Wert. Unraid meldet sich, sobald eine Platte darüber liegt."),
+  ];
+  // module settings
+  const mod = $("form", { className: "card" }, $("div", { className: "name", textContent: "Verbindung" }),
+    field("API-Schlüssel für Docker und VMs", input("api_key", "", { type: "password", placeholder: m.api_key_set ? "gespeichert (zum Ändern neu eingeben)" : "noch nicht eingetragen", autocomplete: "off" }),
+      "In Unraid unter Einstellungen → Management Access → API Keys einen Schlüssel mit der Rolle „admin“ anlegen und hier einfügen."),
+    $("label", { className: "check" }, $("input", { type: "checkbox", name: "forward", checked: m.forward }), "Meldungen von Unraid ans Handy weitergeben"),
+    m.version && !m.tested.some(t => m.version.startsWith(t)) ? $("label", { className: "check" }, $("input", { type: "checkbox", name: "allow_untested", checked: m.allow_untested, disabled: !info?.owner }), `Änderungen trotzdem erlauben (Unraid ${m.version} ist noch nicht geprüft)`) : null);
+  const err = $("div", { className: "err" }), btn = $("button", { className: "main", textContent: "Speichern" });
+  mod.append(err, $("div", { className: "foot" }, btn));
+  mod.onsubmit = async ev => {
+    ev.preventDefault(); btn.disabled = true; err.textContent = "";
+    const f = new FormData(mod), body = { forward: f.get("forward") === "on" };
+    if (f.get("api_key")) body.api_key = f.get("api_key");
+    if (mod.querySelector("[name=allow_untested]")) body.allow_untested = f.get("allow_untested") === "on";
+    try { await api("api/settings", "PUT", body); btn.textContent = "Gespeichert ✓"; setTimeout(() => go("settings"), 1000); }
+    catch (e) { err.textContent = e.message; btn.disabled = false; }
+  };
+  parts.push($("h2", { textContent: "Modul" }), mod);
+  app.replaceChildren(...parts.filter(Boolean));
+}
+
+go("overview");
+</script>
+</body>
+</html>

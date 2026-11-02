@@ -9,6 +9,11 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
   Sicherungssystem für die PCs (`live/`) wird im Dockerfile gebaut; ändert sich die Schnittstelle `/live/*`, müssen
   `live/hn-agent` und `service/server.py` zusammen geändert werden. Der Dienst läuft im Host-Netz, weil er für den
   Netzwerkstart Proxy-DHCP und TFTP anbietet; das Archiv `PC_DIR` legt das Installationsprogramm fest.
+- `modules/unraid`: Dienst aus `service/server.py`, der Zugriff auf Unraid in `service/host.py`. Nur auf einem Unraid-Server
+  (`requires` in `module.json`, geprüft von `home-net add`). Änderungen schickt es als die Formulare der Unraid-Oberfläche an
+  den Socket von emhttpd; die Feldnamen stammen aus `emhttp/plugins/dynamix/*.page` im Repo `unraid/webgui`. Neue
+  Unraid-Versionen erst prüfen, dann in `TESTED` eintragen. Docker und VMs über die offizielle API mit API-Schlüssel.
+  Noch ohne App-Ansicht.
 
 Ändert sich eine Schnittstelle, wird die App im selben Commit mit angepasst.
 
