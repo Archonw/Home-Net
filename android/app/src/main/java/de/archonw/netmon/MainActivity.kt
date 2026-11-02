@@ -54,6 +54,8 @@ class MainActivity : FragmentActivity() {
     private var unlocked by mutableStateOf(false)
     private var authError by mutableStateOf<String?>(null)
     private var screen by mutableStateOf<Screen>(Screen.Home)
+    // Von wo aus die Einstellungen geöffnet wurden; dorthin führt der Weg zurück
+    private var settingsOrigin: Screen = Screen.Home
     private var backgroundSince = 0L
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var useBiometrics by mutableStateOf(false)
@@ -120,6 +122,7 @@ class MainActivity : FragmentActivity() {
                 is Screen.Detail -> Screen.List
                 is Screen.PiDetail, Screen.PiSetup -> if (settings.isPiConfigured) Screen.PiOverview else Screen.Home
                 Screen.HubSetup, Screen.Notifications -> Screen.Setup
+                Screen.Setup -> settingsOrigin
                 else -> Screen.Home
             }
         }
@@ -209,9 +212,12 @@ class MainActivity : FragmentActivity() {
             if (settings.isConfigured && !WindowInsets.isImeVisible) {
                 NavBar(
                     style = appStyle,
-                    settingsActive = screen == Screen.Setup || screen == Screen.HubSetup || screen == Screen.Notifications,
-                    onHome = { screen = Screen.Home },
-                    onSettings = { screen = Screen.Setup },
+                    settingsActive = inSettings(),
+                    onHome = { screen = if (inSettings()) settingsOrigin else Screen.Home },
+                    onSettings = {
+                        if (!inSettings()) settingsOrigin = screen
+                        screen = Screen.Setup
+                    },
                 )
             } else {
                 Spacer(Modifier.navigationBarsPadding())
@@ -251,6 +257,8 @@ class MainActivity : FragmentActivity() {
         openLink("${data.host}/$target")
         return true
     }
+
+    private fun inSettings() = screen == Screen.Setup || screen == Screen.HubSetup || screen == Screen.Notifications
 
     private fun openLink(link: String) {
         if (!settings.isConfigured) return

@@ -167,6 +167,15 @@ def main():
     wait_for(lambda: "Sicherung von Probe fehlgeschlagen" in notifications(), "Meldung kommt nicht als Benachrichtigung an")
     report("notice", "Meldung kam auf dem Gerät an")
 
+    tap("Pi-Wartung")
+    find("Zurück")
+    tap("Einstellungen")
+    tap("Start")
+    find("Zurück")
+    report("notice", "Start führt aus den Einstellungen zurück in den Dienst")
+    tap("Start")
+    find("Home-Net")
+
     tap("Einstellungen")
     tap("Benachrichtigungen", scroll=True)
     find("Auf diesem Handy empfangen")
