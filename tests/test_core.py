@@ -32,7 +32,7 @@ from security import Security  # noqa: E402
 class Modules(unittest.TestCase):
     def test_every_module_has_what_the_core_needs(self):
         modules = home_net.available_modules()
-        self.assertEqual(set(modules), {"netzwerkmonitor", "pi-wartung", "ntfy"})
+        self.assertEqual(set(modules), {"netzwerkmonitor", "pi-wartung", "pc-sicherung", "ntfy"})
         for module in modules.values():
             for key in ("id", "name", "description", "icon", "services"):
                 self.assertIn(key, module)
@@ -140,6 +140,22 @@ class Installation(unittest.TestCase):
             inst.apply(state)
             self.assertTrue((data / "netzwerkmonitor.env").exists())
             self.assertEqual(oct((data / "gateway" / "gateway.json").stat().st_mode)[-3:], "600")
+
+    def test_pc_backups_get_their_own_folder_and_socket(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst = home_net.Install(d)
+            state = home_net.new_state(d, str(Path(d, "bilder", "pi")), ["pc-sicherung"], 8093, "geheim123")
+            inst.apply(state)
+            self.assertIn(f"PC_DIR={d}/bilder/PC-Sicherung", Path(d, ".env").read_text())
+            self.assertTrue(Path(d, "bilder", "PC-Sicherung").is_dir())
+            state["pc_dir"] = str(Path(d, "pcs"))
+            inst.apply(state)
+            self.assertIn(f"PC_DIR={d}/pcs", Path(d, ".env").read_text())
+            doc = json.loads(Path(d, "docker-compose.yml").read_text())
+            self.assertIn("${DATA_DIR}/pc-sicherung/run:/run/pc-sicherung", doc["services"]["home-net-gateway"]["volumes"])
+            self.assertEqual(doc["services"]["pc-sicherung"]["network_mode"], "host")
+            cfg = json.loads(Path(d, "gateway", "gateway.json").read_text())
+            self.assertEqual(cfg["modules"][0]["upstream"], "unix:/run/pc-sicherung/api.sock")
 
     def test_monitor_links_follow_the_outside_address(self):
         with tempfile.TemporaryDirectory() as d:

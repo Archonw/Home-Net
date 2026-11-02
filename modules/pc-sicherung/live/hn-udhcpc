@@ -1,0 +1,12 @@
+#!/bin/sh
+# Wendet die Antwort des DHCP-Servers auf die Netzwerkkarte an (für busybox udhcpc).
+case "$1" in
+    deconfig) ip -4 addr flush dev "$interface"; ip link set "$interface" up ;;
+    bound|renew)
+        ip -4 addr flush dev "$interface"
+        ip -4 addr add "$ip/${mask:-24}" dev "$interface"
+        for r in $router; do ip -4 route add default via "$r" dev "$interface" 2>/dev/null; break; done
+        : >/etc/resolv.conf
+        for d in $dns; do echo "nameserver $d" >>/etc/resolv.conf; done ;;
+esac
+exit 0

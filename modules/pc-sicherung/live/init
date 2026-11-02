@@ -1,0 +1,39 @@
+#!/bin/bash
+# Erster Prozess des Startsystems der PC-Sicherung: Geräte, Netz, dann der Auftrag aus Home-Net.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export HOME=/root TERM=linux LANG=C.UTF-8
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mkdir -p /dev/pts /run /tmp
+mount -t devpts devpts /dev/pts
+ln -sf /proc/self/fd /dev/fd
+ln -sf /proc/self/fd/0 /dev/stdin; ln -sf /proc/self/fd/1 /dev/stdout; ln -sf /proc/self/fd/2 /dev/stderr
+mount -t tmpfs tmpfs /run
+[ -d /sys/firmware/efi/efivars ] && mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null
+dmesg -n 3
+
+# The kernel console may be a serial port in tests; keep the screen for messages
+exec </dev/console >/dev/console 2>&1
+
+echo
+echo "  Home-Net PC-Sicherung startet ..."
+echo
+
+/usr/lib/systemd/systemd-udevd --daemon --resolve-names=never
+udevadm trigger --type=subsystems --action=add
+udevadm trigger --type=devices --action=add
+udevadm settle --timeout=30
+
+# The live system never writes to a disk unless a restore asks for it
+for dev in /sys/block/*; do
+    case "${dev##*/}" in loop*|ram*|zram*) continue ;; esac
+    blockdev --setro "/dev/${dev##*/}" 2>/dev/null
+done
+
+if grep -qw hn_debug /proc/cmdline; then
+    lsmod | head -40; lsblk; ls /sys/block; dmesg | grep -iE "nvme|ata|scsi|error" | tail -20
+fi
+
+exec /usr/local/bin/hn-agent

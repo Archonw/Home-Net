@@ -18,7 +18,7 @@ Das Programm fragt nach Datenordner, Modulen und Passwort. Danach läuft alles u
 | Befehl | Wirkung |
 | --- | --- |
 | `./home-net modules` | Zeigt die verfügbaren Module |
-| `./home-net add <modul>` / `remove <modul>` | Modul ergänzen oder stoppen, seine Daten bleiben |
+| `./home-net add <modul>` / `remove <modul>` | Modul ergänzen oder stoppen, seine Daten bleiben. `add pc-sicherung --dir <ordner>` legt fest, wohin die PC-Sicherungen kommen |
 | `./home-net status` | Zeigt, was läuft |
 | `./home-net update` | Lädt die neue Version von GitHub, baut und startet neu. Schlägt der Download fehl, bleibt die alte |
 | `./home-net password` | Ändert das Passwort |
@@ -45,6 +45,7 @@ Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sond
 | `android/` | Android-App, zeigt eine Kachel je Modul |
 | `modules/netzwerkmonitor/` | Überwacht die Geräte im Netz |
 | `modules/pi-wartung/` | Sichert Raspberry Pis als Images, die sich auf SD-Karten schreiben lassen |
+| `modules/pc-sicherung/` | Sichert ganze PCs (Windows, Linux, beides) über den Netzwerkstart und stellt sie wieder her, siehe [README](modules/pc-sicherung/README.md) |
 | `modules/ntfy/` | Eigener Server für Benachrichtigungen |
 | `tools/` | Hilfsprogramme, zum Beispiel die Sicherung der Einstellungen |
 | `assets/icons/` | Logos |
@@ -63,8 +64,8 @@ Signiert wird mit den Secrets `NETMON_KEYSTORE_BASE64`, `NETMON_KEYSTORE_PASSWOR
 
 ## Logos
 
-In `assets/icons` liegen die Logos als SVG und PNG: `home-net` für die App und die Gruppe auf dem Unraid, `netzwerk` und
-`pi-wartung` für die beiden Dienste. Die Container auf dem Unraid laden sie von hier.
+In `assets/icons` liegen die Logos als SVG und PNG: `home-net` für die App und die Gruppe auf dem Unraid, `netzwerk`,
+`pi-wartung` und `pc-sicherung` für die Dienste. Die Container auf dem Unraid laden sie von hier.
 
 ## Ein Modul hinzufügen
 
