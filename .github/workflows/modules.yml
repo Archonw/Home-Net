@@ -99,6 +99,19 @@ jobs:
       - run: python -m unittest discover tests
       - run: docker build -q -t pocket-id-verwaltung:test .
 
+  wireguard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/wireguard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover tests
+      - run: docker build -q -t wireguard-verwaltung:test .
+
   pihole:
     runs-on: ubuntu-latest
     defaults:

@@ -438,7 +438,7 @@ fun SoftSettings(ui: SettingsUi) {
         ui.message?.let { Text(it, color = p.muted, fontSize = 14.sp) }
         SoftCard {
             CardTitle("Über die App")
-            AboutContent()
+            AboutContent(ui.updateApi)
         }
         Spacer(Modifier.height(8.dp))
     }

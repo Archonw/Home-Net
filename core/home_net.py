@@ -180,7 +180,8 @@ class Install:
         self.write_private(self.env_file, f"DATA_DIR={self.data}\nIMAGES_DIR={state['images']}\n"
                                           f"PC_DIR={pc_dir(state)}\n"
                                           f"GATEWAY_PORT={state['port']}\nTZ={state.get('tz', 'Europe/Berlin')}\n"
-                                          f"POCKET_ID_DATA={pool_path(self.data) / 'pocket-id-server' / 'data'}\n")
+                                          f"POCKET_ID_DATA={pool_path(self.data) / 'pocket-id-server' / 'data'}\n"
+                                          f"WG_EASY_DATA={pool_path(self.data) / 'wireguard-server' / 'data'}\n")
         document = compose_document(modules, state["modules"], repo)
         self.compose_file.write_text(json.dumps(document, indent=2) + "\n")
         if sync_unraid_folder([svc["container_name"] for svc in document["services"].values()]):
@@ -205,11 +206,13 @@ class Install:
         if "pc-sicherung" in state["modules"]:
             Path(pc_dir(state)).mkdir(parents=True, exist_ok=True)
             (self.data / "pc-sicherung" / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
-        for module_id in ("unraid", "pocket-id", "pihole"):
+        for module_id in ("unraid", "pocket-id", "wireguard", "pihole"):
             if module_id in state["modules"]:
                 (self.data / module_id / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
         if "pocket-id-server" in state["modules"]:
             self.pocket_id_server(state)
+        if "wireguard-server" in state["modules"]:
+            self.wireguard_server(state)
 
     def pocket_id_server(self, state):
         """Pocket ID installed by Home-Net: its keys are made once, and the module pocket-id gets the API key."""
@@ -224,6 +227,24 @@ class Install:
             key = self.data / "pocket-id" / "config" / "api-key"
             if not key.exists():
                 self.write_private(key, (secrets_dir / "api-key").read_text())
+
+    def wireguard_server(self, state):
+        """WireGuard-Easy installed by Home-Net: its first account is made at the first start from the env file, and the
+        module wireguard gets the same login. The password is made once."""
+        secrets_dir = self.data / "wireguard-server" / "secrets"
+        secrets_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        (self.data / "wireguard-server" / "data").mkdir(parents=True, exist_ok=True)
+        password_file = secrets_dir / "password"
+        if not password_file.exists():
+            self.write_private(password_file, secrets.token_urlsafe(24) + "\n")
+        password = password_file.read_text().strip()
+        self.write_private(self.data / "wireguard-server.env",
+                           "INIT_ENABLED=true\nINIT_USERNAME=home-net\n"
+                           f"INIT_PASSWORD={password}\nINIT_HOST={state.get('wireguard_host', '')}\nINIT_PORT=51820\n")
+        if "wireguard" in state["modules"]:
+            login = self.data / "wireguard" / "config" / "login.json"
+            self.write_private(login, json.dumps({"url": "http://wireguard-server:51821", "username": "home-net",
+                                                  "password": password}) + "\n")
 
     def set_monitor_links(self):
         """Links in notifications of the monitor lead through the gateway, once its outside address is known."""
@@ -311,6 +332,15 @@ def ask_pocket_id_url(given=None):
     return url.rstrip("/")
 
 
+def ask_wireguard_host(given=None):
+    """The address phones use from outside: the public name (DynDNS) or IP of the internet connection."""
+    host = (given or input("Adresse, unter der dein Heimnetz von außen erreichbar ist (z. B. vpn.example.org): ")).strip()
+    host = host.removeprefix("https://").removeprefix("http://").rstrip("/")
+    if not host or any(c in host for c in " /:@"):
+        raise HomeNetError("Bitte nur den Namen oder die IP-Adresse angeben, z. B. vpn.example.org")
+    return host
+
+
 def ask_password():
     while True:
         first = getpass.getpass("Passwort für Home-Net: ")
@@ -337,6 +367,8 @@ def cmd_install(args):
         state["pc_dir"] = args.pc_dir
     if "pocket-id-server" in chosen:
         state["pocket_id_url"] = ask_pocket_id_url(args.pocket_id_url)
+    if "wireguard-server" in chosen:
+        state["wireguard_host"] = ask_wireguard_host(args.wireguard_host)
     inst.apply(state)
     POINTER.parent.mkdir(parents=True, exist_ok=True)
     POINTER.write_text(str(data) + "\n")
@@ -364,11 +396,23 @@ def cmd_add(args):
             state["modules"].append("pocket-id-server")
     if "pocket-id-server" in state["modules"] and not state.get("pocket_id_url"):
         state["pocket_id_url"] = ask_pocket_id_url(args.url)
+    if args.module == "wireguard" and "wireguard-server" not in state["modules"]:
+        if args.with_server or (not args.existing and ask_yes(
+                "Läuft schon WireGuard-Easy ab Version 15? Mit Nein installiert Home-Net es gleich mit. [J/n]: ", True) is False):
+            state["modules"].append("wireguard-server")
+    if "wireguard-server" in state["modules"] and not state.get("wireguard_host"):
+        state["wireguard_host"] = ask_wireguard_host(args.host)
     inst.apply(state)
     inst.start()
     if args.module in ("pocket-id", "pocket-id-server") and "pocket-id-server" in state["modules"]:
         print(f"Pocket ID läuft auf Port 1411. Über deinen Reverse-Proxy unter {state['pocket_id_url']} erreichbar machen "
               f"und dort unter {state['pocket_id_url']}/setup den ersten Admin mit Passkey anlegen.")
+    if args.module in ("wireguard", "wireguard-server") and "wireguard-server" in state["modules"]:
+        print("WireGuard-Easy läuft. Im Router den Port 51820 (UDP) an diesen Rechner weiterleiten, sonst kommen die "
+              "Handys von außen nicht hinein. Die Zugänge legst du in der App von Home-Net an.")
+    elif args.module == "wireguard":
+        print("In Home-Net im Browser beim Modul WireGuard unter Einstellungen die Adresse und die Anmeldung von "
+              "WireGuard-Easy eintragen.")
     if args.module == "pihole":
         print("Pi-hole: In Home-Net im Browser beim Modul Pi-hole unter Einstellungen die Adressen und Passwörter "
               "deiner Pi-holes eintragen (Pi-hole 6 nötig).")
@@ -533,6 +577,7 @@ def main(argv=None):
     p.add_argument("--password", default=os.environ.get("HOME_NET_PASSWORD"))
     p.add_argument("--no-start", action="store_true")
     p.add_argument("--pocket-id-url", help="Adresse von Pocket ID, wenn pocket-id-server mitinstalliert wird")
+    p.add_argument("--wireguard-host", help="Adresse des Heimnetzes von außen, wenn wireguard-server mitinstalliert wird")
     p.set_defaults(func=cmd_install)
     for name, func in (("add", cmd_add), ("remove", cmd_remove)):
         p = sub.add_parser(name)
@@ -540,9 +585,12 @@ def main(argv=None):
         if name == "add":
             p.add_argument("--dir", help="Ordner für die Daten des Moduls, bei pc-sicherung die Sicherungen")
             p.add_argument("--url", help="bei pocket-id-server: Adresse, unter der Pocket ID erreichbar ist")
+            p.add_argument("--host", help="bei wireguard-server: Adresse des Heimnetzes von außen (DynDNS oder IP)")
             server = p.add_mutually_exclusive_group()
-            server.add_argument("--with-server", action="store_true", help="bei pocket-id: Pocket ID mitinstallieren")
-            server.add_argument("--existing", action="store_true", help="bei pocket-id: vorhandenes Pocket ID nutzen")
+            server.add_argument("--with-server", action="store_true",
+                                help="bei pocket-id und wireguard: den Server mitinstallieren")
+            server.add_argument("--existing", action="store_true",
+                                help="bei pocket-id und wireguard: den vorhandenen Server nutzen")
         p.set_defaults(func=func)
     for name, func in (("status", cmd_status), ("modules", cmd_modules), ("apply", cmd_apply), ("backup", cmd_backup)):
         sub.add_parser(name).set_defaults(func=func)

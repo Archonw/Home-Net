@@ -156,7 +156,7 @@ internal fun TextAction(label: String, onClick: () -> Unit) {
 
 /** Startseite: eine Kachel je Modul. Mit gemeinsamem Zugang kommt die Liste vom Server. */
 @Composable
-fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onPc: () -> Unit, onUnraid: () -> Unit, onPocketId: () -> Unit, onPihole: () -> Unit) {
+fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onPc: () -> Unit, onUnraid: () -> Unit, onPocketId: () -> Unit, onWireGuard: () -> Unit, onPihole: () -> Unit) {
     val p = LocalPalette.current
     var network by remember { mutableStateOf("Wird geladen …") }
     var networkAlert by remember { mutableStateOf(false) }
@@ -170,6 +170,8 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     var unraidAlert by remember { mutableStateOf(false) }
     var pocketId by remember { mutableStateOf("Wird geladen …") }
     var pocketIdAlert by remember { mutableStateOf(false) }
+    var wireGuard by remember { mutableStateOf("Wird geladen …") }
+    var wireGuardAlert by remember { mutableStateOf(false) }
     var pihole by remember { mutableStateOf("Wird geladen …") }
     var piholeAlert by remember { mutableStateOf(false) }
     var installed by remember { mutableStateOf<Set<String>?>(null) }
@@ -253,6 +255,18 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                 }
             }
         }
+        if (installed?.contains("wireguard") == true) {
+            launch {
+                try {
+                    val o = settings.wireGuardApi().overview()
+                    wireGuard = wireGuardTileText(o)
+                    wireGuardAlert = !o.configured || o.error.isNotBlank()
+                } catch (e: ApiException) {
+                    wireGuard = e.message ?: "Nicht erreichbar"
+                    wireGuardAlert = true
+                }
+            }
+        }
         if (installed?.contains("pihole") == true) {
             launch {
                 try {
@@ -279,6 +293,7 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                 "pc" -> installed?.contains("pc-sicherung") == true
                 "unraid" -> installed?.contains("unraid") == true
                 "pocketid" -> installed?.contains("pocket-id") == true
+                "wireguard" -> installed?.contains("wireguard") == true
                 "pihole" -> installed?.contains("pihole") == true
                 else -> false
             }
@@ -306,6 +321,7 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                         "pc" -> ServiceTile("PC-Sicherung", pc, pcAlert, R.drawable.ic_tile_pc, onPc)
                         "unraid" -> ServiceTile("Unraid", unraid, unraidAlert, R.drawable.ic_tile_unraid, onUnraid)
                         "pocketid" -> ServiceTile("Pocket ID", pocketId, pocketIdAlert, R.drawable.ic_tile_pocketid, onPocketId)
+                        "wireguard" -> ServiceTile("WireGuard", wireGuard, wireGuardAlert, R.drawable.ic_tile_wireguard, onWireGuard)
                         "pihole" -> ServiceTile("Pi-hole", pihole, piholeAlert, R.drawable.ic_tile_pihole, onPihole)
                     }
                 }
@@ -314,9 +330,10 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     }
 }
 
-val HOME_TILES = listOf("network", "pi", "pc", "unraid", "pocketid", "pihole")
+val HOME_TILES = listOf("network", "pi", "pc", "unraid", "pocketid", "wireguard", "pihole")
 private val HOME_TILE_LABELS = mapOf(
-    "network" to "Netzwerk", "pi" to "Pi-Wartung", "pc" to "PC-Sicherung", "unraid" to "Unraid", "pocketid" to "Pocket ID", "pihole" to "Pi-hole",
+    "network" to "Netzwerk", "pi" to "Pi-Wartung", "pc" to "PC-Sicherung", "unraid" to "Unraid", "pocketid" to "Pocket ID",
+    "wireguard" to "WireGuard", "pihole" to "Pi-hole",
 )
 
 /** Eine Adresse und ein Passwort für alle Module. */

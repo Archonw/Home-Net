@@ -22,6 +22,11 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
   Schalter nehmen Benutzer in diese Gruppen auf. Genutzt in `android/.../PocketIdApi.kt` und `PocketIdScreens.kt`.
   `modules/pocket-id-server` installiert Pocket ID selbst; seine Schlüssel erzeugt der Kern (`Install.pocket_id_server`)
   und gibt den API-Schlüssel an `pocket-id` weiter. Die Anleitung zum Anbinden der Apps steht in `modules/pocket-id/README.md`.
+- `modules/wireguard`: Dienst aus `service/server.py`, der Zugriff auf WireGuard-Easy ab Version 15 (REST-API mit
+  Basic-Anmeldung, Quelle `src/server/api` im Repo `wg-easy/wg-easy`) in `service/wgeasy.py`. Die App zeichnet den
+  QR-Code selbst aus `/api/clients/<id>/config` (zxing). Genutzt in `android/.../WireGuardApi.kt` und
+  `WireGuardScreens.kt`. `modules/wireguard-server` installiert WireGuard-Easy selbst; das Passwort des ersten Kontos
+  erzeugt der Kern (`Install.wireguard_server`) und legt die Anmeldung als `login.json` für `wireguard` ab.
 - `modules/pihole`: Dienst aus `service/server.py`, der Zugriff auf Pi-hole 6 (REST-API, Anmeldung mit Passwort oder
   App-Passwort, Sitzung wird wiederverwendet) in `service/pihole.py`. Mehrere Pi-holes gelten als ein Netz: Pausieren geht
   an alle, die Statistik wird zusammengezählt. Ansehen und Pausieren mit Ablaufzeit darf jeder mit Zugriff auf das Modul;

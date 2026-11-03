@@ -33,7 +33,7 @@ private val LIBRARIES = listOf(
 
 /** Version, Datenschutzhinweis und Lizenzen; steht in beiden Designs unten in den Einstellungen. */
 @Composable
-fun AboutContent() {
+fun AboutContent(updateApi: Api? = null) {
     val p = LocalPalette.current
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -43,6 +43,7 @@ fun AboutContent() {
     var showLicenses by remember { mutableStateOf(false) }
 
     Text("Home-Net $version", color = p.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+    updateApi?.let { AppUpdateCheck(it) }
     Spacer(Modifier.height(8.dp))
     Text(
         "Datenschutz: Die App spricht nur mit deinem eigenen Monitor. Adresse und Passwort liegen " +

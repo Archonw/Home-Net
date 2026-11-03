@@ -1,0 +1,7 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="512" android:viewportHeight="512">
+    <!-- assets/icons/wireguard.svg -->
+    <path android:fillColor="#C8372D" android:pathData="M0,0 H512 V512 H0 Z" />
+    <path android:fillColor="#FFFFFF" android:fillType="evenOdd" android:pathData="M256,88 L396,138 V246 C396,334 336,398 256,428 C176,398 116,334 116,246 V138 Z M222,226 A34,34 0 1 1 276,253 L290,322 H222 L236,253 A34,34 0 0 1 222,226 Z" />
+</vector>
