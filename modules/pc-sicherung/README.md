@@ -12,8 +12,13 @@ oder teilweise zurück.
   werden vollständig gelesen.
 - Die Daten gehen in ein restic-Archiv je PC. Gleiche Blöcke liegen nur einmal darin. Jede Sicherung lässt sich für
   sich zurückschreiben, braucht auf der Platte aber meist nur, was sich seit der letzten geändert hat.
-- Der Server antwortet zusätzlich zur FritzBox auf Startanfragen (Proxy-DHCP mit der Startdatei gleich im ersten Angebot; dnsmasq liefert die Dateien per TFTP). Die FritzBox vergibt weiter die
-  Adressen. Hat ein PC keinen Auftrag, schickt der Server ihn sofort zu seiner eigenen Platte weiter.
+- Der Server antwortet zusätzlich zur FritzBox auf Startanfragen. Fremden PCs nennt er nur die Startdatei (Proxy-DHCP).
+  PCs, die im Modul angelegt sind, bekommen ein vollständiges Angebot mit der Adresse, die ihnen die FritzBox gerade
+  angeboten hat, denn manche Firmware (Dell Latitude) übergeht reine Proxy-Angebote. Die Dateien liefert ein eigener
+  TFTP-Server; fragt der Startlader nach einem Namen aus der Firmware (Dell: »Onboard«), bekommt er GRUB. Hat ein PC
+  keinen Auftrag, schickt der Server ihn sofort zu seiner eigenen Platte weiter.
+- Unraid: Anfragen an die Server-Adresse kommen teils über shim-br0 an. Port 4011 und TFTP hören darum auf die Adresse,
+  nicht auf die Netzwerkkarte.
 - UEFI-PCs starten über den signierten shim und GRUB von Ubuntu, Secure Boot darf an bleiben. Alte BIOS-PCs starten
   über iPXE.
 - Nächtliche Sicherungen: Der Server weckt den PC per Wake-on-LAN, der PC startet übers Netz, sichert und schaltet

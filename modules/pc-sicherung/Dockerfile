@@ -52,7 +52,7 @@ RUN mkdir -p /out/live /out/tftp/grub /out/stick \
 FROM ${UBUNTU}
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-      python3 dnsmasq-base apache2-utils mtools fdisk ca-certificates iproute2 tzdata >/dev/null \
+      python3 apache2-utils mtools fdisk ca-certificates iproute2 tzdata >/dev/null \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=tools /usr/local/bin/restic /usr/local/bin/rest-server /usr/local/bin/
 COPY --from=pack /out /srv

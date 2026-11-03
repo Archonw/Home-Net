@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "service"))
 import proxydhcp  # noqa: E402
 import server  # noqa: E402
 import store as store_mod  # noqa: E402
+import tftp  # noqa: E402
 from store import Store, due_key, next_due, pc_from_form  # noqa: E402
 
 MAC = "52:54:00:12:34:56"
@@ -288,11 +289,43 @@ class Http(unittest.TestCase):
         self.assertEqual(self.engine.store.find(made["id"])["macs"], ["aa:bb:cc:dd:ee:02"])
         self.assertEqual(self.woken, [])
 
-    def test_dnsmasq_only_serves_files(self):
-        text = server.dnsmasq_config("br0", "/t")
-        self.assertIn("port=0", text)
-        self.assertIn("enable-tftp", text)
-        self.assertNotIn("dhcp-range", text)
+    def test_tftp_serves_files_and_gives_grub_for_firmware_names(self):
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "grubx64.efi").write_bytes(b"G" * 3000)
+            Path(root, "grub").mkdir()
+            Path(root, "grub", "grub.cfg").write_text("cfg")
+            self.assertEqual(tftp.resolve(root, "/grub/grub.cfg", "grubx64.efi")[0], os.path.join(root, "grub/grub.cfg"))
+            # What shim asks for on a Dell Latitude: the boot entry's name with an unprintable character before it
+            self.assertEqual(tftp.resolve(root, "\x01Onboard", "grubx64.efi")[0],
+                             os.path.join(root, "grubx64.efi"))
+            self.assertIsNone(tftp.resolve(root, "revocations.efi", "grubx64.efi")[0])
+            self.assertIsNone(tftp.resolve(root, "../etc/passwd", "grubx64.efi")[0])
+
+            server_ = tftp.TFTPServer(root, "127.0.0.1", log=lambda text: None, port=0)
+            server_.start()
+            port = server_.sock.getsockname()[1]
+            client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            client.settimeout(3)
+            try:
+                client.sendto(b"\0\x01\x01Onboard\0octet\0blksize\x001468\0tsize\x000\0", ("127.0.0.1", port))
+                data, peer = client.recvfrom(2048)
+                self.assertEqual(data[:2], b"\0\x06")
+                self.assertIn(b"tsize\x003000\x00", data)
+                client.sendto(b"\0\x04\0\0", peer)
+                got = b""
+                while True:
+                    data, peer = client.recvfrom(4096)
+                    got += data[4:]
+                    client.sendto(b"\0\x04" + data[2:4], peer)
+                    if len(data) - 4 < 1468:
+                        break
+                self.assertEqual(got, b"G" * 3000)
+                client.sendto(b"\0\x01revocations.efi\0octet\0", ("127.0.0.1", port))
+                data, _ = client.recvfrom(2048)
+                self.assertEqual(data[:4], b"\0\x05\0\x01")
+            finally:
+                client.close()
+                server_.stop()
 
 
 def discover(arch, user_class=b"", kind=1, server=None):
@@ -327,9 +360,9 @@ class ProxyDhcp(unittest.TestCase):
             _, options = proxydhcp.parse(b"\x01" + out[1:])
             self.assertEqual(options[53], b"\x02")
             self.assertEqual(options[60], b"PXEClient")
-            self.assertEqual(options[43], bytes([6, 1, 8, 255]))
-            self.assertEqual(options[67], b"shimx64.efi")
+            self.assertNotIn(43, options)
             self.assertEqual(options[97], bytes(17))
+            self.assertGreaterEqual(len(out), 548)
             self.assertEqual(out[4:8], struct.pack("!I", 874012070))
 
     def test_bios_gets_ipxe_then_its_script(self):
@@ -357,6 +390,63 @@ class ProxyDhcp(unittest.TestCase):
         proxy.handle(Sock(), 4011, discover(7, kind=3, server="192.168.1.10"), ("192.168.1.93", 4011))
         self.assertEqual(sent[-1][1], ("192.168.1.93", 4011))
         self.assertEqual(proxydhcp.parse(b"\x01" + sent[-1][0][1:])[1][53], b"\x05")
+
+    def test_known_pcs_get_the_routers_address_in_a_full_offer(self):
+        """A Dell Latitude ignores proxy offers; PCs of the module get the router's offer plus our boot file."""
+        sent = []
+
+        class Sock:
+            def sendto(self, data, addr):
+                sent.append((data, addr))
+
+        proxy = proxydhcp.ProxyDHCP("lo", "192.168.1.10", log=lambda text: None, known=lambda mac: True)
+        proxy.sniffer = object()
+        xid = struct.pack("!I", 874012070)
+        router = {1: socket.inet_aton("255.255.255.0"), 3: socket.inet_aton("192.168.1.1"), 51: struct.pack("!I", 864000),
+                  12: b"fritz"}
+
+        def router_answers():
+            with proxy.cond:
+                proxy.offers[xid] = (time.time(), socket.inet_aton("192.168.1.52"), router)
+                proxy.cond.notify_all()
+
+        threading.Timer(0.2, router_answers).start()
+        proxy.handle(Sock(), 67, discover(7), ("0.0.0.0", 68))
+        for _ in range(50):
+            if sent:
+                break
+            time.sleep(0.05)
+        out = sent[-1][0]
+        head, options = proxydhcp.parse(out, op=2)
+        self.assertEqual(socket.inet_ntoa(head["yiaddr"]), "192.168.1.52")
+        self.assertEqual(options[3], socket.inet_aton("192.168.1.1"))
+        self.assertEqual(options[51], struct.pack("!I", 864000))
+        self.assertNotIn(12, options)
+        self.assertEqual(options[54], socket.inet_aton("192.168.1.10"))
+        self.assertEqual(out[108:119], b"shimx64.efi")
+        # The PC confirms with us, and asks again on port 4011
+        proxy.handle(Sock(), 67, discover(7, kind=3, server="192.168.1.10"), ("0.0.0.0", 68))
+        head, options = proxydhcp.parse(sent[-1][0], op=2)
+        self.assertEqual((options[53], socket.inet_ntoa(head["yiaddr"])), (b"\x05", "192.168.1.52"))
+        proxy.handle(Sock(), 4011, discover(7, kind=3, server="192.168.1.10"), ("192.168.1.52", 4011))
+        self.assertEqual(sent[-1][1], ("192.168.1.52", 4011))
+
+    def test_known_pc_without_router_offer_gets_a_proxy_offer(self):
+        sent = []
+
+        class Sock:
+            def sendto(self, data, addr):
+                sent.append((data, addr))
+
+        proxydhcp.ROUTER_WAIT, wait = 0.2, proxydhcp.ROUTER_WAIT
+        try:
+            proxy = proxydhcp.ProxyDHCP("lo", "192.168.1.10", log=lambda text: None, known=lambda mac: True)
+            proxy.sniffer = object()
+            proxy.handle(Sock(), 67, discover(7), ("0.0.0.0", 68))
+            time.sleep(0.5)
+        finally:
+            proxydhcp.ROUTER_WAIT = wait
+        self.assertEqual(proxydhcp.parse(sent[-1][0], op=2)[0]["yiaddr"], bytes(4))
 
 if __name__ == "__main__":
     unittest.main()
