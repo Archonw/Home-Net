@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Takes the screenshots for the README: the app in an emulator against the real gateway with made-up data.
 
-Started by the CI workflow Screenshots. Pocket ID and PC-Sicherung run as their real services (with stand-ins for
-Pocket ID and the backup archive); the other modules answer with fixed example data. Nothing personal appears.
+Started by the CI workflow Screenshots. Pocket ID, Pi-hole and PC-Sicherung run as their real services (with stand-ins
+for Pocket ID, the Pi-holes and the backup archive); the other modules answer with fixed example data. Nothing personal appears.
 """
 
 import json
@@ -146,6 +146,52 @@ def start_pocket_id():
     return f"http://127.0.0.1:{httpd.server_address[1]}"
 
 
+def load(name, path):
+    """Loads a module file under its own name (several modules call their files server.py and test_service.py)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def start_pihole():
+    """The real module against two stand-in Pi-holes from its tests, with made-up numbers."""
+    folder = REPO / "modules" / "pihole"
+    sys.path.insert(0, str(folder / "service"))
+    import pihole
+    ph_server = load("pihole_server", folder / "service" / "server.py")
+    ph_tests = load("pihole_tests", folder / "tests" / "test_service.py")
+
+    def state(total, blocked, clients):
+        s = ph_tests.fake_state(total, blocked, clients=clients)
+        s["blocked"] = [{"domain": d, "count": blocked * share // 100} for d, share in
+                        (("ads.example.com", 31), ("tracker.example.net", 22), ("telemetry.example.org", 14),
+                         ("pixel.example.com", 9), ("metrics.example.io", 6))]
+        s["permitted"] = [{"domain": d, "count": total * share // 100} for d, share in
+                          (("example.org", 18), ("cdn.example.net", 12), ("mail.example.com", 7))]
+        for i, h in enumerate(s["history"]):  # quieter at night
+            hour = (NOW // 3600 - i // 6) % 24
+            factor = 0.25 if hour < 6 else 1.6 if 18 <= hour <= 22 else 1
+            h["total"], h["blocked"] = int(h["total"] * factor), int(h["blocked"] * factor)
+        return s
+
+    pis = [ph_tests.start_fake(state(18342, 3987, [{"ip": "192.168.1.31", "name": "Handy Anna", "count": 6120},
+                                                   {"ip": "192.168.1.40", "name": "Fernseher", "count": 4380},
+                                                   {"ip": "192.168.1.32", "name": "Laptop Ben", "count": 2950}])),
+           ph_tests.start_fake(state(2210, 412, [{"ip": "192.168.1.31", "name": "Handy Anna", "count": 800}]))]
+    settings = ph_server.Settings(tempfile.mkdtemp())
+    settings.update({"instances": [
+        {"name": "Pi im Flur", "url": f"http://127.0.0.1:{pis[0].server_address[1]}", "password": ph_tests.PASSWORD},
+        {"name": "Ersatz auf dem Server", "url": f"http://127.0.0.1:{pis[1].server_address[1]}",
+         "password": ph_tests.PASSWORD}]})
+    handler = type("PiholeApi", (ph_server.ApiHandler,), {"settings": settings, "piholes": pihole.Piholes(settings.get)})
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{httpd.server_address[1]}"
+
+
 def shot(name):
     time.sleep(2)
     png = subprocess.run(["adb", "exec-out", "screencap", "-p"], capture_output=True, check=True, timeout=60).stdout
@@ -171,6 +217,7 @@ def main():
         "pc-sicherung": pc_url,
         "unraid": canned({"/api/overview": UNRAID}),
         "pocket-id": start_pocket_id(),
+        "pihole": start_pihole(),
     }
     catalog = [{"id": m, "name": modules[m]["name"], "description": "d", "icon": "", "upstream": url,
                 "events": modules[m].get("events", [])} for m, url in upstreams.items()]
@@ -234,6 +281,23 @@ def main():
     tap("Einladungslink")
     find("Einladung für Ben", 30)
     shot("pocket-id-einladung")
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    time.sleep(1)
+    tap("Zurück")
+    find("Gisela Muster", 30)
+    tap("Zurück")
+
+    tap("Pi-hole", scroll=True)
+    find("Pausieren für", 30)
+    shot("pihole")
+    tap("5 min")
+    find("Wieder einschalten", 30)
+    shot("pihole-pausiert")
+    tap("Wieder einschalten")
+    find("Werbefilter an", 30)
+    tap("Statistik")
+    find("Am häufigsten geblockt", 30)
+    shot("pihole-statistik")
     probe.report("notice", "Alle Bilder aufgenommen")
 
 

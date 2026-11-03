@@ -37,6 +37,10 @@ Alle Bilder zeigen erfundene Beispieldaten. Sie entstehen im Emulator mit `tools
 | --- | --- | --- | --- |
 | <img src="docs/screenshots/unraid.png" width="200" alt="Übersicht Unraid"> | <img src="docs/screenshots/pocket-id.png" width="200" alt="Benutzer von Pocket ID"> | <img src="docs/screenshots/pocket-id-benutzer.png" width="200" alt="Apps eines Benutzers an- und abschalten"> | <img src="docs/screenshots/pocket-id-einladung.png" width="200" alt="Einladungslink teilen"> |
 
+| Pi-hole | Pi-hole: pausiert | Pi-hole: Statistik |
+| --- | --- | --- |
+| <img src="docs/screenshots/pihole.png" width="200" alt="Werbefilter aller Pi-holes"> | <img src="docs/screenshots/pihole-pausiert.png" width="200" alt="Werbefilter für 5 Minuten pausiert"> | <img src="docs/screenshots/pihole-statistik.png" width="200" alt="Statistik aller Pi-holes zusammen"> |
+
 ## Konten und Anmeldung
 
 Jeder meldet sich mit Benutzername und Passwort an. Im Heimnetz reicht das, von außen, über einen Reverse Proxy mit HTTPS, gehört ein Passkey dazu.
@@ -62,6 +66,7 @@ Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sond
 | `modules/unraid/` | Verwaltet den Unraid-Server: Freigaben, Benutzer, Einstellungen, Docker, VMs und User Scripts, siehe [README](modules/unraid/README.md) |
 | `modules/pocket-id/` | Verwaltet die Benutzer von Pocket ID (Anmeldung mit Passkey): anlegen, einladen, sperren, Apps zuordnen, siehe [README](modules/pocket-id/README.md) |
 | `modules/pocket-id-server/` | Installiert Pocket ID selbst, falls noch keins läuft (`home-net add pocket-id --with-server`) |
+| `modules/pihole/` | Pausiert den Werbefilter aller Pi-holes gleichzeitig und zeigt ihre Statistik zusammen, siehe [README](modules/pihole/README.md) |
 | `modules/ntfy/` | Eigener Server für Benachrichtigungen |
 | `tools/` | Hilfsprogramme, zum Beispiel die Sicherung der Einstellungen |
 | `assets/icons/` | Logos |

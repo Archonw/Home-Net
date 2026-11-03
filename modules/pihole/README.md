@@ -1,0 +1,25 @@
+# Pi-hole
+
+Zeigt in Home-Net und in der App, ob der Werbefilter läuft, pausiert ihn kurz und zeigt die Statistik der letzten 24 Stunden.
+Gedacht für ein Netz mit einem oder mehreren Pi-holes, die gemeinsam arbeiten (zum Beispiel gleich gehalten mit
+[nebula-sync](https://github.com/lovelaze/nebula-sync) und mit einer gemeinsamen Adresse über keepalived):
+
+- **Pausieren** geht immer an alle eingetragenen Pi-holes gleichzeitig, denn der Schalter wird nicht mit synchronisiert.
+  Zur Wahl stehen 30 Sekunden, 5 Minuten, 30 Minuten und 1 Stunde; danach schalten sich die Pi-holes von selbst wieder ein.
+  Ohne Ende pausieren dürfen nur Eigentümer und Admins von Home-Net.
+- **Statistik:** Anfragen, geblockte Anfragen, Verlauf, häufigste geblockte und erlaubte Domains und die aktivsten Geräte,
+  zusammengezählt über alle Pi-holes. Ist eins nicht erreichbar, steht das dabei.
+
+Wer das Modul sieht, legt der Zugang fest (Rechte je Dienst unter **Benutzer**).
+
+## Einrichten
+
+1. Auf dem Server: `./home-net add pihole`
+2. In Home-Net im Browser das Modul **Pi-hole** öffnen und unter **Einstellungen** jedes Pi-hole eintragen: Name,
+   Adresse (z. B. `http://192.168.1.2`) und Passwort. Besser als das normale Passwort ist ein App-Passwort: in Pi-hole unter
+   **Einstellungen → Web-Oberfläche / API → App-Passwort** erzeugen (Expertenmodus). Es bleibt nur auf dem Server.
+
+Nötig ist Pi-hole 6, ältere Versionen haben diese Schnittstelle nicht. Pi-hole mit https und eigenem Zertifikat geht auch;
+das Zertifikat wird im Heimnetz nicht geprüft.
+
+Ein Pi-hole ohne Passwort funktioniert, lässt sich dann aber von jedem im Netz umstellen. Ein Passwort ist darum ratsam.

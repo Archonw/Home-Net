@@ -53,6 +53,8 @@ sealed interface Screen {
     data object UnraidScripts : Screen
     data object PocketId : Screen
     data class PocketIdUser(val id: String) : Screen
+    data object Pihole : Screen
+    data object PiholeStats : Screen
     data object HubSetup : Screen
     data object Notifications : Screen
 }
@@ -131,6 +133,7 @@ class MainActivity : FragmentActivity() {
                 is Screen.PcDetail -> Screen.PcOverview
                 Screen.UnraidShares, Screen.UnraidUsers, Screen.UnraidDocker, Screen.UnraidScripts -> Screen.UnraidOverview
                 is Screen.PocketIdUser -> Screen.PocketId
+                Screen.PiholeStats -> Screen.Pihole
                 Screen.HubSetup, Screen.Notifications -> Screen.Setup
                 else -> Screen.Home
             }
@@ -171,6 +174,7 @@ class MainActivity : FragmentActivity() {
                         onPc = { screen = Screen.PcOverview },
                         onUnraid = { screen = Screen.UnraidOverview },
                         onPocketId = { screen = Screen.PocketId },
+                        onPihole = { screen = Screen.Pihole },
                     )
                     Screen.UnraidOverview -> UnraidOverviewScreen(
                         api = settings.unraidApi(),
@@ -191,6 +195,12 @@ class MainActivity : FragmentActivity() {
                         onBack = { screen = Screen.Home },
                     )
                     is Screen.PocketIdUser -> PocketIdUserScreen(settings.pocketIdApi(), s.id) { screen = Screen.PocketId }
+                    Screen.Pihole -> PiholeScreen(
+                        api = settings.piholeApi(),
+                        onStats = { screen = Screen.PiholeStats },
+                        onBack = { screen = Screen.Home },
+                    )
+                    Screen.PiholeStats -> PiholeStatsScreen(settings.piholeApi()) { screen = Screen.Pihole }
                     Screen.PcOverview -> PcOverviewScreen(
                         api = settings.pcApi(),
                         onOpen = { screen = Screen.PcDetail(it) },

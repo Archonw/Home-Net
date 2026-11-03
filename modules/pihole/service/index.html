@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pi-hole</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#c4111b; --ok:#1a7f37; --bad:#c93a3a; --warn:#b35a0a; --soft:#c4111b1a; }
+@media (prefers-color-scheme: dark) { :root { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#ef5a5f; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#ef5a5f26; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
+header { padding:18px 16px 0; max-width:900px; margin:auto; }
+h1 { font-size:24px; margin:0 0 10px; }
+nav { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); }
+nav button { border:0; border-bottom:2px solid transparent; border-radius:0; background:none; padding:8px 10px; color:var(--muted); }
+nav button.on { color:var(--text); border-color:var(--accent); font-weight:620; }
+main { max-width:900px; margin:auto; padding:8px 16px 48px; }
+h2 { font-size:13px; color:var(--muted); margin:20px 0 8px; font-weight:650; }
+button { font:inherit; border:1px solid var(--line); background:var(--card); color:inherit; border-radius:9px; padding:7px 13px; cursor:pointer; }
+button.main { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+button.danger { color:var(--bad); }
+button:disabled { opacity:.55; cursor:default; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:8px; }
+.click { cursor:pointer; }
+.name { font-weight:620; }
+.quiet { color:var(--muted); font-size:13px; }
+.bad { color:var(--bad); } .warn { color:var(--warn); } .ok { color:var(--ok); }
+.note { background:var(--soft); border-color:transparent; }
+.pills { display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
+.pill { font-size:12px; border-radius:20px; padding:1px 8px; background:var(--soft); white-space:nowrap; }
+.actions { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; align-items:center; }
+dialog { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:14px; width:min(560px,94vw); padding:18px; }
+dialog::backdrop { background:#0007; }
+label { display:block; margin:9px 0 3px; font-size:13px; color:var(--muted); }
+label.check { color:inherit; font-size:15px; margin:6px 0; display:flex; align-items:center; gap:8px; }
+input { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; }
+input[type=checkbox] { width:auto; margin:0; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+.err { color:var(--bad); margin:8px 0; white-space:pre-wrap; }
+.hint { font-size:12.5px; color:var(--muted); margin:3px 0 0; }
+.foot { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; flex-wrap:wrap; }
+.link { overflow-wrap:anywhere; font-family:ui-monospace,monospace; font-size:13px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; }
+@media (max-width:560px) { .two { grid-template-columns:1fr; } }
+.big { font-size:22px; font-weight:680; }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; }
+.stats .card { margin:0; }
+.row { display:flex; justify-content:space-between; gap:10px; padding:3px 0; }
+.row span:first-child { overflow-wrap:anywhere; }
+.bar { display:flex; align-items:flex-end; gap:1px; height:90px; margin-top:6px; }
+.bar div { flex:1; background:var(--line); position:relative; min-height:1px; border-radius:2px 2px 0 0; }
+.bar div i { position:absolute; left:0; right:0; bottom:0; background:var(--accent); border-radius:2px 2px 0 0; }
+.inst { display:grid; grid-template-columns:2fr 3fr auto; gap:8px; align-items:end; }
+@media (max-width:560px) { .inst { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pi-hole</h1>
+  <nav id="nav"></nav>
+</header>
+<main id="app">Wird geladen …</main>
+
+<script>
+const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
+const app = document.getElementById("app"), nav = document.getElementById("nav");
+const PAUSES = [[30, "30 Sekunden"], [300, "5 Minuten"], [1800, "30 Minuten"], [3600, "1 Stunde"]];
+let tab = "overview", manager = false, timer = null;
+const num = n => Number(n || 0).toLocaleString("de-DE");
+const time = t => new Date(t * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+
+async function api(path, method = "GET", body) {
+  const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.detail || `Fehler ${r.status}`);
+  return out;
+}
+
+function drawNav() {
+  const tabs = [["overview", "Übersicht"], ["stats", "Statistik"], ...(manager ? [["settings", "Einstellungen"]] : [])];
+  nav.replaceChildren(...tabs.map(([id, label]) => $("button", { textContent: label, className: id === tab ? "on" : "", onclick: () => { tab = id; show(); } })));
+}
+
+const err = text => $("p", { className: "err", textContent: text });
+const needSetup = () => $("div", { className: "card note" }, "Es ist noch kein Pi-hole eingetragen. ",
+  manager ? $("a", { href: "#", textContent: "Jetzt unter Einstellungen eintragen.", onclick: e => { e.preventDefault(); tab = "settings"; show(); } }) : "Das kann ein Admin unter Einstellungen.");
+
+async function show() {
+  clearTimeout(timer);
+  let o;
+  try { o = await api("api/overview"); manager = o.manager; } catch (e) { drawNav(); app.replaceChildren(err(e.message)); return; }
+  drawNav();
+  if (tab === "settings") return showSettings();
+  if (!o.configured) return app.replaceChildren(needSetup());
+  if (tab === "stats") return showStats();
+  showOverview(o);
+}
+
+function stateText(o) {
+  const paused = o.instances.filter(i => i.online && i.blocking === "disabled");
+  const until = paused.map(i => i.timer).filter(t => t);
+  if (o.blocking === "enabled") return ["Werbefilter an", "ok"];
+  if (o.blocking === "disabled") return [until.length ? `Pausiert, noch ${Math.ceil(Math.max(...until) / 60)} min` : "Pausiert ohne Ende", "warn"];
+  if (o.blocking === "mixed") return ["Nicht überall gleich", "warn"];
+  return ["Kein Pi-hole erreichbar", "bad"];
+}
+
+function showOverview(o) {
+  const [text, cls] = stateText(o);
+  const msg = $("p", { className: "quiet" });
+  const run = async (path, body) => {
+    try {
+      const r = await api(path, "POST", body);
+      const bad = r.instances.filter(i => !i.ok);
+      await show();
+      if (bad.length) app.prepend(err(bad.map(i => i.error).join("\n")));
+    } catch (e) { msg.textContent = e.message; }
+  };
+  const buttons = o.blocking === "enabled" ? [] : [$("button", { className: "main", textContent: "Wieder einschalten", onclick: () => run("api/resume") })];
+  PAUSES.forEach(([s, label]) => buttons.push($("button", { textContent: label, onclick: () => run("api/pause", { seconds: s }) })));
+  if (manager) buttons.push($("button", { className: "danger", textContent: "Ohne Ende", onclick: () => confirm("Werbefilter ohne Ende pausieren? Er bleibt dann aus, bis jemand ihn wieder einschaltet.") && run("api/pause", {}) }));
+  const rows = o.instances.map(i => $("div", { className: "card" },
+    $("div", { className: "name" }, i.name, $("span", { className: "quiet", textContent: ` · ${i.url.replace(/^https?:\/\//, "")}` })),
+    i.online ? $("div", { className: i.blocking === "enabled" ? "ok" : "warn",
+      textContent: (i.blocking === "enabled" ? "Filter an" : i.timer ? `Pausiert, noch ${Math.ceil(i.timer / 60)} min` : "Pausiert") + ((i.version || i.ftl) ? ` · Pi-hole ${i.version || "FTL " + i.ftl}` : "") })
+      : $("div", { className: "bad", textContent: i.error })));
+  app.replaceChildren(
+    $("div", { className: "card" }, $("div", { className: `big ${cls}`, textContent: text }),
+      $("p", { className: "hint", textContent: "Pausieren gilt für alle Pi-holes gleichzeitig. Danach schalten sie sich von selbst wieder ein." }),
+      $("div", { className: "actions" }, ...buttons), msg),
+    $("h2", { textContent: "Pi-holes" }), ...rows);
+  if (o.blocking !== "enabled") timer = setTimeout(show, 15000);
+}
+
+function list(title, items, label) {
+  return $("div", { className: "card" }, $("div", { className: "name", textContent: title }),
+    ...(items.length ? items.map(x => $("div", { className: "row" }, $("span", { textContent: label(x) }), $("span", { className: "quiet", textContent: num(x.count) }))) : [$("div", { className: "quiet", textContent: "Noch nichts" })]));
+}
+
+async function showStats() {
+  let s;
+  try { s = await api("api/stats"); } catch (e) { app.replaceChildren(err(e.message)); return; }
+  const tile = (label, value, detail) => $("div", { className: "card" }, $("div", { className: "quiet", textContent: label }), $("div", { className: "big", textContent: value }), detail ? $("div", { className: "quiet", textContent: detail }) : null);
+  const max = Math.max(1, ...s.history.map(h => h.total));
+  const bars = $("div", { className: "bar" }, ...s.history.map(h => {
+    const d = $("div", { title: `${time(h.time)}: ${num(h.total)} Anfragen, ${num(h.blocked)} geblockt`, style: `height:${100 * h.total / max}%` });
+    d.append($("i", { style: `height:${h.total ? 100 * h.blocked / h.total : 0}%` })); return d;
+  }));
+  app.replaceChildren(
+    ...s.errors.map(e => err(e.error)),
+    $("div", { className: "stats" },
+      tile("Anfragen (24 h)", num(s.total), `${num(s.clients_active)} Geräte aktiv`),
+      tile("Geblockt", num(s.blocked), `${s.percent.toLocaleString("de-DE")} %`),
+      tile("Blockliste", num(s.gravity), s.gravity_update ? `Stand ${time(s.gravity_update)}` : "")),
+    $("div", { className: "card" }, $("div", { className: "name", textContent: "Verlauf (24 h)" }), bars,
+      $("div", { className: "hint", textContent: "Grau: alle Anfragen, rot: davon geblockt" })),
+    list("Am häufigsten geblockt", s.top_blocked, x => x.domain),
+    list("Häufigste Geräte", s.top_clients, x => x.name || x.ip),
+    list("Am häufigsten erlaubt", s.top_permitted, x => x.domain),
+    $("p", { className: "hint", textContent: `Zusammengezählt aus ${s.answered} von ${s.instances} Pi-holes.` }));
+}
+
+async function showSettings() {
+  let s;
+  try { s = await api("api/settings"); } catch (e) { app.replaceChildren(err(e.message)); return; }
+  const box = $("div");
+  const msg = $("p", { className: "quiet" });
+  const add = (item = { name: "", url: "", password_set: false }) => {
+    const name = $("input", { value: item.name, placeholder: "z. B. Küche" });
+    const url = $("input", { value: item.url, placeholder: "http://192.168.1.2" });
+    const pw = $("input", { type: "password", placeholder: item.password_set ? "gespeichert – leer lassen zum Behalten" : "leer, wenn keins gesetzt" });
+    const row = $("div", { className: "card" },
+      $("div", { className: "inst" }, $("div", {}, $("label", { textContent: "Name" }), name), $("div", {}, $("label", { textContent: "Adresse" }), url),
+        $("button", { className: "danger", textContent: "Entfernen", onclick: () => row.remove() })),
+      $("label", { textContent: "Passwort (oder App-Passwort)" }), pw);
+    row.read = () => ({ name: name.value, url: url.value, ...(pw.value || !item.password_set || url.value.replace(/\/+$/, "") !== item.url ? { password: pw.value } : {}) });
+    box.append(row);
+  };
+  s.instances.forEach(add);
+  if (!s.instances.length) add();
+  app.replaceChildren(
+    $("p", { className: "hint", textContent: "Alle Pi-holes, die zusammen dein Netz versorgen. Pausieren geht an alle, die Statistik zählt sie zusammen. Nötig ist Pi-hole 6. Am besten in Pi-hole unter Einstellungen → Web-Oberfläche/API ein App-Passwort erzeugen und hier eintragen; es bleibt nur auf dem Server." }),
+    box,
+    $("div", { className: "foot" }, $("button", { textContent: "Pi-hole hinzufügen", onclick: () => add() }),
+      $("button", { className: "main", textContent: "Speichern", onclick: async () => {
+        try { await api("api/settings", "PUT", { instances: [...box.children].map(r => r.read()) }); msg.textContent = "Gespeichert."; showSettings(); }
+        catch (e) { msg.textContent = e.message; }
+      } })), msg);
+}
+
+show();
+</script>
+</body>
+</html>

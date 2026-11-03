@@ -22,6 +22,11 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
   Schalter nehmen Benutzer in diese Gruppen auf. Genutzt in `android/.../PocketIdApi.kt` und `PocketIdScreens.kt`.
   `modules/pocket-id-server` installiert Pocket ID selbst; seine Schlüssel erzeugt der Kern (`Install.pocket_id_server`)
   und gibt den API-Schlüssel an `pocket-id` weiter. Die Anleitung zum Anbinden der Apps steht in `modules/pocket-id/README.md`.
+- `modules/pihole`: Dienst aus `service/server.py`, der Zugriff auf Pi-hole 6 (REST-API, Anmeldung mit Passwort oder
+  App-Passwort, Sitzung wird wiederverwendet) in `service/pihole.py`. Mehrere Pi-holes gelten als ein Netz: Pausieren geht
+  an alle, die Statistik wird zusammengezählt. Ansehen und Pausieren mit Ablaufzeit darf jeder mit Zugriff auf das Modul;
+  Pausieren ohne Ende und die Einstellungen nur Eigentümer und Admins. Genutzt in `android/.../PiholeApi.kt` und
+  `PiholeScreens.kt`.
 
 Ändert sich eine Schnittstelle, wird die App im selben Commit mit angepasst.
 
