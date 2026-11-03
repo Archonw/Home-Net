@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import app_probe as probe  # noqa: E402
 from app_probe import REPO, adb, find, fill, tap  # noqa: E402
 
-OUT = Path("screenshots")
+OUT = Path("docs/screenshots")
 NOW = int(time.time())
 GB = 1024 ** 3
 TB = 1000 ** 4
@@ -229,7 +229,7 @@ def main():
     find("Gisela Muster", 30)
     shot("pocket-id")
     tap("Ben Muster")
-    find("Gruppe immich_users", 30)
+    find("Einladungslink", 30)
     shot("pocket-id-benutzer")
     tap("Einladungslink")
     find("Einladung für Ben", 30)
