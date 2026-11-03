@@ -132,9 +132,20 @@ progress_loop() {
         fi
         cur="${cur:-0}"
         pct=$(( (DONE_WEIGHT * 100 + CUR_WEIGHT * cur) / ALL_WEIGHT ))
+        # What the programs say right now, and read errors of the disk: shown in Home-Net if a step stalls
+        local detail=""
+        if [ -n "$CUR_FILE" ] && [ -f "$CUR_FILE" ]; then
+            detail="$(tr '\r' '\n' <"$CUR_FILE" | grep -v '^\s*$' | tail -1 | cut -c1-200)"
+        fi
+        local disk_errors
+        disk_errors="$(dmesg 2>/dev/null | grep -iE 'i/o error|medium error|uncorrect|nvme.*(timeout|reset)|ata[0-9.]*: (exception|failed)' | tail -2)"
+        local log_text
+        log_text="$(tail -5 "$LOG")"
+        [ -n "$detail" ] && log_text="$log_text"$'\n'"Programm: $detail"
+        [ -n "$disk_errors" ] && log_text="$log_text"$'\n'"Platte: $disk_errors"
         local body
         body="$(jq -nc --arg step "$STEP_TEXT" --argjson n "$STEP_NOW" --argjson t "$STEP_TOTAL" \
-            --argjson p "$pct" --arg bytes "${done_bytes:-0}" --arg log "$(tail -5 "$LOG")" \
+            --argjson p "$pct" --arg bytes "${done_bytes:-0}" --arg log "$log_text" \
             '{step: $step, step_now: $n, step_total: $t, percent: $p, bytes: ($bytes | tonumber), log: $log}')"
         reply="$(api POST /live/progress "$body" 2>/dev/null)"
         if [ "$(echo "$reply" | jq -r '.cancel // false' 2>/dev/null)" = true ]; then
@@ -152,7 +163,12 @@ step() {
 }
 
 check_cancel() {
-    [ -f "$WORK/cancel" ] && { say "Abgebrochen in Home-Net."; finish 0 "Abgebrochen"; }
+    if [ -f "$WORK/cancel" ]; then
+        # The last words of the running program show where it stood
+        [ -n "$CUR_FILE" ] && [ -f "$CUR_FILE" ] && say "$(tr '\r' '\n' <"$CUR_FILE" | grep -v '^\s*$' | tail -3)"
+        say "Abgebrochen in Home-Net."
+        finish 0 "Abgebrochen"
+    fi
 }
 
 finish() {  # finish OK MESSAGE
