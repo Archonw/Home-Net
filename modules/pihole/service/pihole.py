@@ -99,12 +99,12 @@ class Instance:
         blocking = self.request("GET", "/api/dns/blocking")
         try:
             version = self.request("GET", "/api/info/version").get("version") or {}
-            core = ((version.get("core") or {}).get("local") or {}).get("version") or ""
-            ftl = ((version.get("ftl") or {}).get("local") or {}).get("version") or ""
         except PiholeError:
-            core = ftl = ""
+            version = {}
+        core = ((version.get("core") or {}).get("local") or {}).get("version") or ""
+        ftl = ((version.get("ftl") or {}).get("local") or {}).get("version") or ""
         return {"blocking": blocking.get("blocking", "unknown"), "timer": blocking.get("timer"),
-                "version": core, "ftl": ftl}
+                "version": core, "ftl": ftl, "updates": updates(version)}
 
     def stats(self):
         return {
@@ -155,7 +155,7 @@ class Piholes:
         rows = []
         for inst, st, err in self.each(self.instances(), Instance.status):
             row = {"name": inst.name, "url": inst.url, "online": not err, "error": err}
-            row.update(st or {"blocking": "unknown", "timer": None, "version": "", "ftl": ""})
+            row.update(st or {"blocking": "unknown", "timer": None, "version": "", "ftl": "", "updates": []})
             rows.append(row)
         return {"instances": rows, "blocking": combined(rows)}
 
@@ -169,6 +169,36 @@ class Piholes:
         results = self.each(self.instances(), lambda inst: inst.set_blocking(on, seconds))
         rows = [{"name": inst.name, "ok": not err, "error": err, **(r or {})} for inst, r, err in results]
         return {"instances": rows, "until": int(time.time()) + int(seconds) if not on and seconds else None}
+
+
+COMPONENTS = (("core", "Core"), ("web", "Web"), ("ftl", "FTL"), ("docker", "Docker"))
+
+
+def updates(version):
+    """Parts of Pi-hole with a newer release than installed, as reported by Pi-hole itself ("Core v6.1 → v6.2")."""
+    out = []
+    for key, label in COMPONENTS:
+        part = version.get(key) or {}
+        local = part.get("local") or {}
+        remote = part.get("remote") or {}
+        if isinstance(local, str):  # docker: plain tags
+            have, new = local, remote if isinstance(remote, str) else ""
+        else:
+            have, new = local.get("version") or "", (remote.get("version") if isinstance(remote, dict) else "") or ""
+        if have and new and have != new and newer(new, have):
+            out.append({"part": label, "installed": have, "available": new})
+    return out
+
+
+def newer(a, b):
+    """True when version a is newer than b (v6.2.1 > v6.2); anything unreadable counts as different = newer."""
+    def nums(v):
+        parts = [p for p in v.lstrip("vV").split(".")]
+        return [int(p) if p.isdigit() else -1 for p in parts]
+    try:
+        return nums(a) > nums(b)
+    except ValueError:
+        return True
 
 
 def combined(rows):

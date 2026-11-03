@@ -11,6 +11,7 @@ import socketserver
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -21,6 +22,10 @@ from pihole import Piholes, PiholeError  # noqa: E402
 DATA = os.environ.get("DATA", "/data")
 LISTEN_SOCKET = os.environ.get("LISTEN_SOCKET", "")
 API_PORT = int(os.environ.get("PORT", "0"))  # only for tests without the gateway
+EVENTS_DIR = os.environ.get("EVENTS_DIR", "")
+CHECK_EVERY = 60  # seconds between checks of the Pi-holes
+OFFLINE_AFTER = 3  # failed checks in a row before "not reachable" is reported
+UPDATE_EVERY = 6 * 3600
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
 MAX_INSTANCES = 8
 MAX_PAUSE = 24 * 3600
@@ -90,6 +95,97 @@ class Settings:
             os.chmod(tmp, 0o600)
             os.replace(tmp, self.path)
             self.data = data
+
+
+# --- Meldungen an die App ------------------------------------------------------------------------
+
+def spool_event(kind, title, message, priority="default"):
+    if not EVENTS_DIR:
+        return
+    try:
+        fd, tmp = tempfile.mkstemp(dir=EVENTS_DIR, suffix=".tmp")
+        with os.fdopen(fd, "w") as f:
+            json.dump({"type": kind, "title": title, "message": message, "priority": priority, "category": "",
+                       "link": ""}, f, ensure_ascii=False)
+        os.rename(tmp, tmp[:-4] + ".json")
+    except OSError as exc:
+        log(f"Meldung nicht abgelegt: {exc}")
+
+
+class Watcher:
+    """Checks the Pi-holes regularly: reports one that stays unreachable, its return, and new Pi-hole versions.
+
+    Every report is made once; what was reported is kept in watch.json, so a restart repeats nothing.
+    """
+
+    def __init__(self, piholes, folder):
+        self.piholes = piholes
+        self.path = os.path.join(folder, "watch.json")
+        try:
+            with open(self.path) as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            data = {}
+        self.down = set(data.get("down", []))  # urls reported as unreachable
+        self.updates = set(data.get("updates", []))  # "url|part|version" already reported
+        self.fails = {}
+        self.last_update_check = 0
+
+    def save(self):
+        try:
+            with open(self.path + ".tmp", "w") as f:
+                json.dump({"down": sorted(self.down), "updates": sorted(self.updates)}, f)
+            os.replace(self.path + ".tmp", self.path)
+        except OSError as exc:
+            log(f"Stand der Überwachung nicht gespeichert: {exc}")
+
+    def tick(self, now=None):
+        now = now or time.time()
+        rows = self.piholes.overview()["instances"]
+        changed = False
+        urls = {r["url"] for r in rows}
+        for row in rows:
+            url, name = row["url"], row["name"]
+            if not row["online"]:
+                self.fails[url] = self.fails.get(url, 0) + 1
+                if self.fails[url] >= OFFLINE_AFTER and url not in self.down:
+                    self.down.add(url)
+                    changed = True
+                    spool_event("pihole_offline", f"{name} ist nicht erreichbar",
+                                f"{row['error']} Der Werbefilter läuft weiter über die anderen Pi-holes, "
+                                "falls sie die gemeinsame Adresse übernehmen.", "high")
+                continue
+            self.fails[url] = 0
+            if url in self.down:
+                self.down.discard(url)
+                changed = True
+                spool_event("pihole_online", f"{name} ist wieder erreichbar", "Es antwortet wieder normal.")
+        if self.down - urls:  # removed from the settings
+            self.down &= urls
+            changed = True
+        if now - self.last_update_check >= UPDATE_EVERY:
+            self.last_update_check = now
+            for row in rows:
+                for u in row.get("updates") or []:
+                    key = f"{row['url']}|{u['part']}|{u['available']}"
+                    if key not in self.updates:
+                        self.updates.add(key)
+                        changed = True
+                        spool_event("pihole_update", f"Update für {row['name']}",
+                                    f"Pi-hole {u['part']} {u['available']} ist erschienen, installiert ist "
+                                    f"{u['installed']}. Einspielen auf dem Gerät mit „pihole -up“.")
+        if changed:
+            self.save()
+
+
+def watch(watcher):
+    while True:
+        time.sleep(CHECK_EVERY)
+        try:
+            if watcher.piholes.settings().get("instances"):
+                watcher.tick()
+        except Exception as exc:  # noqa: BLE001 – the watcher must keep running
+            log(f"Überwachung: {exc}")
 
 
 class ApiHandler(BaseHTTPRequestHandler):
@@ -202,6 +298,8 @@ def main():
     os.makedirs(DATA, exist_ok=True)
     ApiHandler.settings = Settings(DATA)
     ApiHandler.piholes = Piholes(ApiHandler.settings.get)
+    if EVENTS_DIR:
+        threading.Thread(target=watch, args=(Watcher(ApiHandler.piholes, DATA),), daemon=True).start()
     if API_PORT:
         threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", API_PORT), ApiHandler).serve_forever,
                          daemon=True).start()

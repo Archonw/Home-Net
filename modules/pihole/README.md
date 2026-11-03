@@ -10,6 +10,10 @@ Gedacht für ein Netz mit einem oder mehreren Pi-holes, die gemeinsam arbeiten (
 - **Statistik:** Anfragen, geblockte Anfragen, Verlauf, häufigste geblockte und erlaubte Domains und die aktivsten Geräte,
   zusammengezählt über alle Pi-holes. Ist eins nicht erreichbar, steht das dabei.
 
+- **Meldungen** in der App: wenn ein Pi-hole drei Minuten lang nicht antwortet, wenn es wieder da ist, und wenn es
+  eine neue Pi-hole-Version gibt (alle sechs Stunden geprüft, nur für Eigentümer und Admins). Jedes Konto wählt unter
+  **Mein Konto** oder in der App unter **Einstellungen → Benachrichtigungen**, welche es haben möchte.
+
 Wer das Modul sieht, legt der Zugang fest (Rechte je Dienst unter **Benutzer**).
 
 ## Einrichten

@@ -133,6 +133,9 @@ fun PiholeScreen(api: PiholeApi, onStats: () -> Unit, onBack: () -> Unit) {
                             } else {
                                 Text(i.error, color = p.blocked, fontSize = 13.sp)
                             }
+                            if (i.updates.isNotEmpty()) {
+                                Text("Update verfügbar: ${i.updates.joinToString(", ")}", color = p.accentText, fontSize = 13.sp)
+                            }
                         }
                     }
                     Spacer(Modifier.height(16.dp))
