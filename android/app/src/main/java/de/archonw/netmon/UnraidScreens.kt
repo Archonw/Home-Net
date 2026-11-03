@@ -70,7 +70,7 @@ private fun uptimeText(seconds: Long): String {
 
 /** Lädt [load] neu, sobald sich [reload] ändert, und dann alle [every] Millisekunden. */
 @Composable
-private fun <T> rememberLoaded(reload: Int, every: Long, load: suspend () -> T): Pair<T?, String?> {
+internal fun <T> rememberLoaded(reload: Int, every: Long, load: suspend () -> T): Pair<T?, String?> {
     var data by remember { mutableStateOf<T?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(reload) {
@@ -329,7 +329,7 @@ private class Submitter {
 }
 
 @Composable
-private fun FormDialog(
+internal fun FormDialog(
     title: String,
     confirm: String,
     onDismiss: () -> Unit,

@@ -156,7 +156,7 @@ internal fun TextAction(label: String, onClick: () -> Unit) {
 
 /** Startseite: eine Kachel je Modul. Mit gemeinsamem Zugang kommt die Liste vom Server. */
 @Composable
-fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onPc: () -> Unit, onUnraid: () -> Unit) {
+fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onPc: () -> Unit, onUnraid: () -> Unit, onPocketId: () -> Unit) {
     val p = LocalPalette.current
     var network by remember { mutableStateOf("Wird geladen …") }
     var networkAlert by remember { mutableStateOf(false) }
@@ -168,6 +168,8 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     var pcAlert by remember { mutableStateOf(false) }
     var unraid by remember { mutableStateOf("Wird geladen …") }
     var unraidAlert by remember { mutableStateOf(false) }
+    var pocketId by remember { mutableStateOf("Wird geladen …") }
+    var pocketIdAlert by remember { mutableStateOf(false) }
     var installed by remember { mutableStateOf<Set<String>?>(null) }
     var hubError by remember { mutableStateOf<String?>(null) }
     var order by remember { mutableStateOf(settings.homeTiles) }
@@ -237,6 +239,18 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                 }
             }
         }
+        if (installed?.contains("pocket-id") == true) {
+            launch {
+                try {
+                    val o = settings.pocketIdApi().overview()
+                    pocketId = pocketIdTileText(o)
+                    pocketIdAlert = !o.configured || o.error.isNotBlank()
+                } catch (e: ApiException) {
+                    pocketId = e.message ?: "Nicht erreichbar"
+                    pocketIdAlert = true
+                }
+            }
+        }
     }
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
@@ -250,6 +264,7 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                 "pi" -> installed?.contains("pi-wartung") != false
                 "pc" -> installed?.contains("pc-sicherung") == true
                 "unraid" -> installed?.contains("unraid") == true
+                "pocketid" -> installed?.contains("pocket-id") == true
                 else -> false
             }
         }
@@ -275,6 +290,7 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                         "pi" -> ServiceTile("Pi-Wartung", pi, piAlert, R.drawable.ic_tile_pi, onPi)
                         "pc" -> ServiceTile("PC-Sicherung", pc, pcAlert, R.drawable.ic_tile_pc, onPc)
                         "unraid" -> ServiceTile("Unraid", unraid, unraidAlert, R.drawable.ic_tile_unraid, onUnraid)
+                        "pocketid" -> ServiceTile("Pocket ID", pocketId, pocketIdAlert, R.drawable.ic_tile_pocketid, onPocketId)
                     }
                 }
             }
@@ -282,8 +298,10 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     }
 }
 
-val HOME_TILES = listOf("network", "pi", "pc", "unraid")
-private val HOME_TILE_LABELS = mapOf("network" to "Netzwerk", "pi" to "Pi-Wartung", "pc" to "PC-Sicherung", "unraid" to "Unraid")
+val HOME_TILES = listOf("network", "pi", "pc", "unraid", "pocketid")
+private val HOME_TILE_LABELS = mapOf(
+    "network" to "Netzwerk", "pi" to "Pi-Wartung", "pc" to "PC-Sicherung", "unraid" to "Unraid", "pocketid" to "Pocket ID",
+)
 
 /** Eine Adresse und ein Passwort für alle Module. */
 @Composable

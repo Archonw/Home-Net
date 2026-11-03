@@ -33,7 +33,7 @@ from security import Security  # noqa: E402
 class Modules(unittest.TestCase):
     def test_every_module_has_what_the_core_needs(self):
         modules = home_net.available_modules()
-        self.assertEqual(set(modules), {"netzwerkmonitor", "pi-wartung", "pc-sicherung", "ntfy", "unraid"})
+        self.assertEqual(set(modules), {"netzwerkmonitor", "pi-wartung", "pc-sicherung", "ntfy", "unraid", "pocket-id", "pocket-id-server"})
         for module in modules.values():
             for key in ("id", "name", "description", "icon", "services"):
                 self.assertIn(key, module)
@@ -176,6 +176,66 @@ class Installation(unittest.TestCase):
             self.assertEqual(doc["services"]["pc-sicherung"]["network_mode"], "host")
             cfg = json.loads(Path(d, "gateway", "gateway.json").read_text())
             self.assertEqual(cfg["modules"][0]["upstream"], "unix:/run/pc-sicherung/api.sock")
+
+    def test_pocket_id_with_its_own_server(self):
+        with tempfile.TemporaryDirectory() as d:
+            pointer = Path(d) / "pointer"
+            original = home_net.POINTER
+            home_net.POINTER = pointer
+            self.addCleanup(setattr, home_net, "POINTER", original)
+            data = Path(d) / "data"
+            home_net.main(["install", "--data", str(data), "--modules", "pocket-id", "--owner", "chef", "--password",
+                           "geheim123", "--no-start"])
+            self.assertFalse((data / "pocket-id" / "config" / "api-key").exists())
+            with mock.patch.object(home_net.Install, "start"), \
+                    self.assertRaises(SystemExit):
+                home_net.main(["add", "pocket-id-server", "--url", "http://id.example.org"])
+            with mock.patch.object(home_net.Install, "start"):
+                home_net.main(["add", "pocket-id-server", "--url", "https://id.example.org/"])
+            state = json.loads((data / "home-net.json").read_text())
+            self.assertEqual(state["pocket_id_url"], "https://id.example.org")
+            self.assertEqual((data / "pocket-id-server.env").read_text(), "APP_URL=https://id.example.org\n")
+            key = (data / "pocket-id-server" / "secrets" / "api-key").read_text()
+            self.assertGreater(len(key.strip()), 16)
+            self.assertEqual(oct((data / "pocket-id-server" / "secrets" / "encryption-key").stat().st_mode)[-3:], "600")
+            # the module gets the same key, and keys stay on the next apply
+            self.assertEqual((data / "pocket-id" / "config" / "api-key").read_text(), key)
+            home_net.Install(data).apply(state)
+            self.assertEqual((data / "pocket-id-server" / "secrets" / "api-key").read_text(), key)
+            doc = json.loads((data / "docker-compose.yml").read_text())
+            self.assertIn("pocket-id-server", doc["services"])
+            self.assertIn("host.docker.internal:host-gateway", doc["services"]["pocket-id-verwaltung"]["extra_hosts"])
+
+    def test_sqlite_data_goes_to_the_pool_on_unraid(self):
+        with tempfile.TemporaryDirectory() as d:
+            mnt = Path(d)
+            (mnt / "user" / "appdata" / "home-net").mkdir(parents=True)
+            (mnt / "disk1").mkdir()
+            self.assertEqual(home_net.pool_path("/mnt/user/appdata/home-net", mnt), Path("/mnt/user/appdata/home-net"))
+            (mnt / "dockeronly" / "appdata" / "home-net").mkdir(parents=True)
+            (mnt / "cache" / "appdata" / "home-net").mkdir(parents=True)
+            self.assertEqual(home_net.pool_path("/mnt/user/appdata/home-net", mnt), mnt / "cache" / "appdata" / "home-net")
+            self.assertEqual(home_net.pool_path("/srv/home-net", mnt), Path("/srv/home-net"))
+
+    def test_pocket_id_add_asks_for_existing_server(self):
+        with tempfile.TemporaryDirectory() as d:
+            pointer = Path(d) / "pointer"
+            original = home_net.POINTER
+            home_net.POINTER = pointer
+            self.addCleanup(setattr, home_net, "POINTER", original)
+            data = Path(d) / "data"
+            home_net.main(["install", "--data", str(data), "--modules", "pi-wartung", "--owner", "chef", "--password",
+                           "geheim123", "--no-start"])
+            fresh = (data / "home-net.json").read_text()
+            with mock.patch.object(home_net.Install, "start"), mock.patch("builtins.input", return_value="j"):
+                home_net.main(["add", "pocket-id"])
+            self.assertNotIn("pocket-id-server", json.loads((data / "home-net.json").read_text())["modules"])
+            (data / "home-net.json").write_text(fresh)
+            answers = iter(["n", "https://id.example.org"])
+            with mock.patch.object(home_net.Install, "start"), mock.patch("builtins.input", lambda _q: next(answers)):
+                home_net.main(["add", "pocket-id"])
+            state = json.loads((data / "home-net.json").read_text())
+            self.assertEqual(state["modules"], ["pi-wartung", "pocket-id", "pocket-id-server"])
 
     def test_monitor_links_follow_the_outside_address(self):
         with tempfile.TemporaryDirectory() as d:

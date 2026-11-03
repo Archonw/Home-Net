@@ -1,0 +1,25 @@
+{
+  "id": "pocket-id-server",
+  "name": "Pocket ID (Server)",
+  "description": "Installiert Pocket ID selbst: Anmeldung mit Passkey für alle Apps (nur nötig, wenn noch keins läuft)",
+  "icon": "assets/icons/pocket-id.png",
+  "api": {"external_port": 1411},
+  "services": {
+    "pocket-id-server": {
+      "image": "ghcr.io/pocket-id/pocket-id:v2",
+      "ports": ["1411:1411"],
+      "environment": [
+        "TZ=${TZ}",
+        "TRUST_PROXY=true",
+        "ANALYTICS_DISABLED=true",
+        "ENCRYPTION_KEY_FILE=/secrets/encryption-key",
+        "STATIC_API_KEY_FILE=/secrets/api-key"
+      ],
+      "env_file": ["${DATA_DIR}/pocket-id-server.env"],
+      "volumes": [
+        "${POCKET_ID_DATA}:/app/data",
+        "${DATA_DIR}/pocket-id-server/secrets:/secrets:ro"
+      ]
+    }
+  }
+}

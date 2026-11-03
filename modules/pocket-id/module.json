@@ -1,0 +1,39 @@
+{
+  "id": "pocket-id",
+  "name": "Pocket ID",
+  "description": "Verwaltet die Benutzer von Pocket ID: anlegen, einladen, sperren und ihnen Apps zuordnen",
+  "icon": "assets/icons/pocket-id.png",
+  "api": {
+    "socket": "/run/pocket-id/api.sock",
+    "health": "/health",
+    "public": [
+      "/health"
+    ],
+    "web": true
+  },
+  "services": {
+    "pocket-id-verwaltung": {
+      "build": "modules/pocket-id",
+      "extra_hosts": [
+        "host.docker.internal:host-gateway"
+      ],
+      "environment": [
+        "TZ=${TZ}",
+        "DATA=/data",
+        "LISTEN_SOCKET=/run/pocket-id/api.sock"
+      ],
+      "volumes": [
+        "${DATA_DIR}/pocket-id/config:/data",
+        "${DATA_DIR}/pocket-id/run:/run/pocket-id"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python3",
+          "-c",
+          "import socket;s=socket.socket(socket.AF_UNIX);s.connect('/run/pocket-id/api.sock');s.send(b'GET /health HTTP/1.0\\r\\n\\r\\n');assert b' 200 ' in s.recv(64)"
+        ]
+      }
+    }
+  }
+}

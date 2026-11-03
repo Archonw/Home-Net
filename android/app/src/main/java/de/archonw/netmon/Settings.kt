@@ -119,6 +119,11 @@ class Settings(context: Context) {
         PiApi("$hubUrl/m/unraid", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/unraid"),
     )
 
+    /** Pocket-ID-Verwaltung, ebenfalls nur über den gemeinsamen Zugang. */
+    fun pocketIdApi() = PocketIdApi(
+        PiApi("$hubUrl/m/pocket-id", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/pocket-id"),
+    )
+
     fun piApi() = PiApi(piUrl, if (isHubConfigured) hubSecret else piPassword, piExternalUrl)
 
     var sortOrder: SortOrder
