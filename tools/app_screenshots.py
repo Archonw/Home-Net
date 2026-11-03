@@ -147,6 +147,40 @@ def start_pocket_id():
     return f"http://127.0.0.1:{httpd.server_address[1]}"
 
 
+def start_proxy_manager():
+    """The real module against the stand-in Nginx Proxy Manager from its tests, with its example addresses."""
+    import importlib.util
+    folder = REPO / "modules" / "proxy-manager"
+    sys.path.insert(0, str(folder / "service"))
+
+    def load(name, path):
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    npm = load("npm", folder / "service" / "npm.py")
+    sys.modules["npm"] = npm
+    proxy_server = load("proxy_server", folder / "service" / "server.py")
+    # the tests import "server", which is already the Pocket ID module here
+    pocket = sys.modules.get("server")
+    sys.modules["server"] = proxy_server
+    try:
+        tests = load("proxy_tests", folder / "tests" / "test_service.py")
+    finally:
+        sys.modules["server"] = pocket
+    tests.FakeNpm.state = tests.example_state()
+    fake = ThreadingHTTPServer(("127.0.0.1", 0), tests.FakeNpm)
+    threading.Thread(target=fake.serve_forever, daemon=True).start()
+    settings = proxy_server.Settings(tempfile.mkdtemp())
+    settings.update({"url": f"http://127.0.0.1:{fake.server_address[1]}", "email": tests.EMAIL, "password": tests.PASSWORD})
+    proxy_server.ApiHandler.settings = settings
+    proxy_server.ApiHandler.npm = npm.Npm(settings.get, tests.fake_checks())
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), proxy_server.ApiHandler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{httpd.server_address[1]}"
+
+
 def load(name, path):
     """Loads a module file under its own name (several modules call their files server.py and test_service.py)."""
     import importlib.util
@@ -260,6 +294,7 @@ def main():
         "pc-sicherung": pc_url,
         "unraid": canned({"/api/overview": UNRAID}),
         "pocket-id": start_pocket_id(),
+        "proxy-manager": start_proxy_manager(),
         "wireguard": start_wireguard(),
         "pihole": start_pihole(),
     }
@@ -326,6 +361,15 @@ def main():
     find("Einladung für Ben", 30)
     shot("pocket-id-einladung")
     tap("Fertig")
+    tap("Zurück")
+    tap("Zurück")
+
+    tap("Proxy Manager", scroll=True)
+    find("cloud.example.org", 30)
+    shot("proxy-manager")
+    tap("Zertifikate")
+    find("Nicht mehr genutzt", 30)
+    shot("proxy-manager-zertifikate")
     tap("Zurück")
     tap("Zurück")
 

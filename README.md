@@ -37,6 +37,9 @@ Alle Bilder zeigen erfundene Beispieldaten. Sie entstehen im Emulator mit `tools
 | --- | --- | --- | --- |
 | <img src="docs/screenshots/unraid.png" width="200" alt="Übersicht Unraid"> | <img src="docs/screenshots/pocket-id.png" width="200" alt="Benutzer von Pocket ID"> | <img src="docs/screenshots/pocket-id-benutzer.png" width="200" alt="Apps eines Benutzers an- und abschalten"> | <img src="docs/screenshots/pocket-id-einladung.png" width="200" alt="Einladungslink teilen"> |
 
+| Proxy Manager: Adressen | Proxy Manager: Zertifikate |
+| --- | --- |
+| <img src="docs/screenshots/proxy-manager.png" width="200" alt="Adressen nach öffentlich und intern"> | <img src="docs/screenshots/proxy-manager-zertifikate.png" width="200" alt="Zertifikate mit Ablaufdatum"> |
 | WireGuard: Zugänge | WireGuard: QR-Code |
 | --- | --- |
 | <img src="docs/screenshots/wireguard.png" width="200" alt="VPN-Zugänge mit Verbindungszustand"> | <img src="docs/screenshots/wireguard-qr.png" width="200" alt="QR-Code eines Zugangs zum Scannen"> |
@@ -69,6 +72,7 @@ Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sond
 | `modules/pc-sicherung/` | Sichert ganze PCs (Windows, Linux, beides) über den Netzwerkstart und stellt sie wieder her, siehe [README](modules/pc-sicherung/README.md) |
 | `modules/unraid/` | Verwaltet den Unraid-Server: Freigaben, Benutzer, Einstellungen, Docker, VMs und User Scripts, siehe [README](modules/unraid/README.md) |
 | `modules/pocket-id/` | Verwaltet die Benutzer von Pocket ID (Anmeldung mit Passkey): anlegen, einladen, sperren, Apps zuordnen, siehe [README](modules/pocket-id/README.md) |
+| `modules/proxy-manager/` | Zeigt, welche Adressen Nginx Proxy Manager von außen erreichbar macht, welche nur intern sind und wann die Zertifikate ablaufen, siehe [README](modules/proxy-manager/README.md) |
 | `modules/pocket-id-server/` | Installiert Pocket ID selbst, falls noch keins läuft (`home-net add pocket-id --with-server`) |
 | `modules/wireguard/` | Verwaltet die VPN-Zugänge von WireGuard-Easy: anlegen, sperren, QR-Code fürs Handy in der App, siehe [README](modules/wireguard/README.md) |
 | `modules/wireguard-server/` | Installiert WireGuard-Easy selbst, falls noch keins läuft (`home-net add wireguard --with-server`) |
