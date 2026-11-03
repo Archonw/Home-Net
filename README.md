@@ -24,6 +24,19 @@ Das Programm fragt nach Datenordner, Modulen und Passwort. Danach läuft alles u
 | `./home-net password` | Ändert das Passwort |
 | `./home-net backup` / `restore <archiv>` | Sichert Einstellungen und Geheimnisse oder spielt sie zurück |
 
+## So sieht die App aus
+
+Alle Bilder zeigen erfundene Beispieldaten. Sie entstehen im Emulator mit `tools/app_screenshots.py` (Workflow
+*Screenshots*), dann passen sie immer zur aktuellen App.
+
+| Startseite | Netzwerk | Pi-Wartung | PC-Sicherung |
+| --- | --- | --- | --- |
+| <img src="docs/screenshots/startseite.png" width="200" alt="Startseite mit einer Kachel je Modul"> | <img src="docs/screenshots/netzwerk.png" width="200" alt="Geräte im Netzwerk"> | <img src="docs/screenshots/pi-wartung.png" width="200" alt="Übersicht Pi-Wartung"> | <img src="docs/screenshots/pc-sicherung.png" width="200" alt="Übersicht PC-Sicherung"> |
+
+| Unraid | Pocket ID: Benutzer | Pocket ID: Apps zuordnen | Pocket ID: Einladung |
+| --- | --- | --- | --- |
+| <img src="docs/screenshots/unraid.png" width="200" alt="Übersicht Unraid"> | <img src="docs/screenshots/pocket-id.png" width="200" alt="Benutzer von Pocket ID"> | <img src="docs/screenshots/pocket-id-benutzer.png" width="200" alt="Apps eines Benutzers an- und abschalten"> | <img src="docs/screenshots/pocket-id-einladung.png" width="200" alt="Einladungslink teilen"> |
+
 ## Konten und Anmeldung
 
 Jeder meldet sich mit Benutzername und Passwort an. Im Heimnetz reicht das, von außen, über einen Reverse Proxy mit HTTPS, gehört ein Passkey dazu.
