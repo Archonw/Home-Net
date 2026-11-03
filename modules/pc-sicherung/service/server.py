@@ -324,6 +324,21 @@ class Netboot:
         self.files.stop()
 
 
+def posix_tz():
+    """The server's time zone as a POSIX rule ("CET-1CEST,M3.5.0,M10.5.0/3"), which the boot system can use without
+    a zone database: the last line of a TZif file."""
+    name = os.environ.get("TZ", "").lstrip(":")
+    for path in ([os.path.join("/usr/share/zoneinfo", name)] if name else []) + ["/etc/localtime"]:
+        try:
+            with open(path, "rb") as f:
+                rule = f.read().rstrip(b"\n").rsplit(b"\n", 1)[-1].decode("ascii")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if rule and not rule.startswith("TZif") and len(rule) < 80:
+            return rule
+    return "UTC0"
+
+
 def grub_entry(ip):
     """First file every PC loads: it asks this service what to do with exactly this network card."""
     # If the server does not answer, the PC must still start its own system and never stop at a GRUB prompt
@@ -745,6 +760,8 @@ class BootHandler(Base):
             self.send_file(path)
         elif path == "/live/job":
             self.live_job()
+        elif path == "/live/clock":
+            self.send_json(200, {"time": int(time.time()), "tz": posix_tz()})
         elif path == "/health":
             self.send_json(200, {"ok": True})
         else:

@@ -430,8 +430,15 @@ restore_boot_entries() {
 
 say "Netzwerk wird gesucht ..."
 network_up || halt_screen "Kein Netzwerk mit Kabel gefunden. Bitte LAN-Kabel prüfen."
-say "Netzwerk: $IFACE ($MAC), Adresse $(ip -4 -o addr show "$IFACE" | awk '{print $4}')"
 [ -n "$SERVER" ] || halt_screen "Keine Adresse von Home-Net bekannt."
+# The PC's clock is unreliable (Windows keeps it in local time): take time and zone from the server
+clock="$(curl -fsS --max-time 10 "$SERVER/live/clock" 2>/dev/null)"
+if [ -n "$clock" ]; then
+    date -s "@$(echo "$clock" | jq -r .time)" >/dev/null 2>&1
+    TZ="$(echo "$clock" | jq -r '.tz // "UTC0"')"
+    export TZ
+fi
+say "Netzwerk: $IFACE ($MAC), Adresse $(ip -4 -o addr show "$IFACE" | awk '{print $4}')"
 
 if [ -z "$TOKEN" ]; then
     # Started from a stick: announce this PC and wait for a task chosen in Home-Net
