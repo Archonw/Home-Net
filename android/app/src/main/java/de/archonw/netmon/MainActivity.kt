@@ -51,6 +51,8 @@ sealed interface Screen {
     data object UnraidUsers : Screen
     data object UnraidDocker : Screen
     data object UnraidScripts : Screen
+    data object PocketId : Screen
+    data class PocketIdUser(val id: String) : Screen
     data object HubSetup : Screen
     data object Notifications : Screen
 }
@@ -128,6 +130,7 @@ class MainActivity : FragmentActivity() {
                 is Screen.PiDetail, Screen.PiSetup -> if (settings.isPiConfigured) Screen.PiOverview else Screen.Home
                 is Screen.PcDetail -> Screen.PcOverview
                 Screen.UnraidShares, Screen.UnraidUsers, Screen.UnraidDocker, Screen.UnraidScripts -> Screen.UnraidOverview
+                is Screen.PocketIdUser -> Screen.PocketId
                 Screen.HubSetup, Screen.Notifications -> Screen.Setup
                 else -> Screen.Home
             }
@@ -167,6 +170,7 @@ class MainActivity : FragmentActivity() {
                         onPi = { screen = if (settings.isPiConfigured) Screen.PiOverview else Screen.PiSetup },
                         onPc = { screen = Screen.PcOverview },
                         onUnraid = { screen = Screen.UnraidOverview },
+                        onPocketId = { screen = Screen.PocketId },
                     )
                     Screen.UnraidOverview -> UnraidOverviewScreen(
                         api = settings.unraidApi(),
@@ -181,6 +185,12 @@ class MainActivity : FragmentActivity() {
                     Screen.UnraidUsers -> UnraidUsersScreen(settings.unraidApi()) { screen = Screen.UnraidOverview }
                     Screen.UnraidDocker -> UnraidDockerScreen(settings.unraidApi()) { screen = Screen.UnraidOverview }
                     Screen.UnraidScripts -> UnraidScriptsScreen(settings.unraidApi()) { screen = Screen.UnraidOverview }
+                    Screen.PocketId -> PocketIdScreen(
+                        api = settings.pocketIdApi(),
+                        onOpen = { screen = Screen.PocketIdUser(it) },
+                        onBack = { screen = Screen.Home },
+                    )
+                    is Screen.PocketIdUser -> PocketIdUserScreen(settings.pocketIdApi(), s.id) { screen = Screen.PocketId }
                     Screen.PcOverview -> PcOverviewScreen(
                         api = settings.pcApi(),
                         onOpen = { screen = Screen.PcDetail(it) },

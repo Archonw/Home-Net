@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket ID</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#7048e8; --ok:#1a7f37; --bad:#c93a3a; --warn:#b35a0a; --soft:#7048e81f; }
+@media (prefers-color-scheme: dark) { :root { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#9b7bf2; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#9b7bf226; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
+header { padding:18px 16px 0; max-width:900px; margin:auto; }
+h1 { font-size:24px; margin:0 0 10px; }
+nav { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); }
+nav button { border:0; border-bottom:2px solid transparent; border-radius:0; background:none; padding:8px 10px; color:var(--muted); }
+nav button.on { color:var(--text); border-color:var(--accent); font-weight:620; }
+main { max-width:900px; margin:auto; padding:8px 16px 48px; }
+h2 { font-size:13px; color:var(--muted); margin:20px 0 8px; font-weight:650; }
+button { font:inherit; border:1px solid var(--line); background:var(--card); color:inherit; border-radius:9px; padding:7px 13px; cursor:pointer; }
+button.main { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+button.danger { color:var(--bad); }
+button:disabled { opacity:.55; cursor:default; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:8px; }
+.click { cursor:pointer; }
+.name { font-weight:620; }
+.quiet { color:var(--muted); font-size:13px; }
+.bad { color:var(--bad); } .warn { color:var(--warn); } .ok { color:var(--ok); }
+.note { background:var(--soft); border-color:transparent; }
+.pills { display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
+.pill { font-size:12px; border-radius:20px; padding:1px 8px; background:var(--soft); white-space:nowrap; }
+.actions { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; align-items:center; }
+dialog { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:14px; width:min(560px,94vw); padding:18px; }
+dialog::backdrop { background:#0007; }
+label { display:block; margin:9px 0 3px; font-size:13px; color:var(--muted); }
+label.check { color:inherit; font-size:15px; margin:6px 0; display:flex; align-items:center; gap:8px; }
+input { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; }
+input[type=checkbox] { width:auto; margin:0; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+.err { color:var(--bad); margin:8px 0; white-space:pre-wrap; }
+.hint { font-size:12.5px; color:var(--muted); margin:3px 0 0; }
+.foot { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; flex-wrap:wrap; }
+.link { overflow-wrap:anywhere; font-family:ui-monospace,monospace; font-size:13px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; }
+@media (max-width:560px) { .two { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pocket ID</h1>
+  <nav id="nav"></nav>
+</header>
+<main id="app">Wird geladen …</main>
+<dialog id="dlg"><form id="form" method="dialog"></form></dialog>
+
+<script>
+const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
+const app = document.getElementById("app"), dlg = document.getElementById("dlg"), form = document.getElementById("form"), nav = document.getElementById("nav");
+const TABS = [["users", "Benutzer"], ["apps", "Apps"], ["settings", "Einstellungen"]];
+let tab = "users", data = null;
+
+async function api(path, method = "GET", body) {
+  const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.detail || `Fehler ${r.status}`);
+  return out;
+}
+
+function drawNav() {
+  nav.replaceChildren(...TABS.map(([id, label]) => $("button", { textContent: label, className: id === tab ? "on" : "", onclick: () => { tab = id; show(); } })));
+}
+
+async function show() {
+  drawNav();
+  if (tab === "settings") return showSettings();
+  try { data = await api("api/overview"); } catch (e) { app.replaceChildren($("p", { className: "err", textContent: e.message })); return; }
+  if (!data.configured) {
+    app.replaceChildren($("div", { className: "card note" }, "Es fehlt noch der API-Schlüssel von Pocket ID. In Pocket ID unter Einstellungen → Admin → API-Schlüssel einen anlegen und hier unter ",
+      $("a", { href: "#", textContent: "Einstellungen", onclick: e => { e.preventDefault(); tab = "settings"; show(); } }), " eintragen."));
+    return;
+  }
+  if (data.error) { app.replaceChildren($("p", { className: "err", textContent: data.error })); return; }
+  tab === "apps" ? showApps() : showUsers();
+}
+
+const appName = id => (data.apps.switches.find(a => a.group === id) || {}).label;
+
+function showUsers() {
+  const list = data.users.map(u => {
+    const apps = u.groups.map(appName).filter(Boolean);
+    const state = u.disabled ? $("span", { className: "bad", textContent: " · gesperrt" })
+      : u.passkeys === 0 ? $("span", { className: "warn", textContent: " · noch kein Passkey" }) : null;
+    return $("div", { className: "card click", onclick: () => editUser(u) },
+      $("div", { className: "name" }, u.name, u.admin ? $("span", { className: "quiet", textContent: " · Admin" }) : null, state),
+      $("div", { className: "quiet", textContent: [u.username, u.email].filter(Boolean).join(" · ") }),
+      $("div", { className: "pills" }, ...(apps.length ? apps.map(a => $("span", { className: "pill", textContent: a })) : [$("span", { className: "quiet", textContent: "Keine Apps" })])));
+  });
+  app.replaceChildren($("div", { className: "actions" }, $("button", { className: "main", textContent: "Neuer Benutzer", onclick: newUser })), ...list);
+}
+
+function showApps() {
+  const rows = data.apps.switches.map(a => {
+    const users = data.users.filter(u => u.groups.includes(a.group)).map(u => u.name);
+    return $("div", { className: "card" }, $("div", { className: "name", textContent: a.label }),
+      $("div", { className: "quiet", textContent: `Gruppe ${a.group_name} · ${users.length ? users.join(", ") : "niemand"}` }));
+  });
+  const open = data.apps.open.length ? $("div", { className: "card note" }, "Ohne Einschränkung, für alle Benutzer: " + data.apps.open.join(", ")) : null;
+  app.replaceChildren($("p", { className: "hint", textContent: "Welche Gruppe eine App freischaltet, stellst du in Pocket ID bei der App ein. Hier steht, wer sie nutzen darf." }), ...rows, open);
+}
+
+function appSwitches(selected) {
+  return data.apps.switches.map(a => $("label", { className: "check" }, $("input", { type: "checkbox", name: "app", value: a.group, checked: selected.includes(a.group) }), a.label));
+}
+
+function openDialog(title, body, buttons) {
+  form.replaceChildren($("h2", { textContent: title, style: "font-size:18px;color:inherit;margin:0 0 6px" }), ...body,
+    $("p", { className: "err", id: "err" }), $("div", { className: "foot" }, ...buttons));
+  dlg.showModal();
+}
+
+const fail = e => { document.getElementById("err").textContent = e.message; };
+const field = (label, name, value = "", type = "text") => $("div", {}, $("label", { textContent: label }), $("input", { name, value, type }));
+const val = name => (form.elements[name] || {}).value || "";
+const checked = () => [...form.querySelectorAll("input[name=app]:checked")].map(i => i.value);
+
+function newUser() {
+  openDialog("Neuer Benutzer", [
+    $("div", { className: "two" }, field("Vorname", "first"), field("Nachname", "last")),
+    field("Benutzername", "username"), field("E-Mail (freiwillig)", "email", "", "email"),
+    $("label", { textContent: "Apps" }), ...appSwitches([]),
+    $("p", { className: "hint", textContent: "Danach gibt es einen Einladungslink. Damit legt die Person ihren Passkey an." }),
+  ], [$("button", { textContent: "Abbrechen", value: "x" }), $("button", { className: "main", textContent: "Anlegen", onclick: async e => {
+    e.preventDefault();
+    try {
+      const r = await api("api/users", "POST", { first_name: val("first"), last_name: val("last"), username: val("username"), email: val("email"), groups: checked() });
+      dlg.close(); await show(); if (r.invite) showInvite(val("first") || val("username"), r.invite);
+    } catch (err) { fail(err); }
+  } })]);
+  form.elements.first.addEventListener("input", () => { if (!form.elements.username.dataset.touched) form.elements.username.value = form.elements.first.value.toLowerCase().replace(/[^a-z0-9_.@-]/g, ""); });
+  form.elements.username.addEventListener("input", () => { form.elements.username.dataset.touched = "1"; });
+}
+
+function editUser(u) {
+  const act = (label, fn, cls = "") => $("button", { textContent: label, className: cls, onclick: async e => { e.preventDefault(); try { await fn(); } catch (err) { fail(err); } } });
+  const buttons = [act("Einladungslink", async () => showInvite(u.name, await api(`api/users/${u.id}/invite`, "POST", {})))];
+  if (u.email) buttons.push(act("Per E-Mail einladen", async () => { await api(`api/users/${u.id}/invite`, "POST", { email: true }); document.getElementById("err").textContent = ""; alert(`Einladung an ${u.email} geschickt.`); }));
+  if (!u.admin) {
+    buttons.push(act(u.disabled ? "Entsperren" : "Sperren", async () => { await api(`api/users/${u.id}`, "PUT", { disabled: !u.disabled }); dlg.close(); show(); }));
+    buttons.push(act("Löschen", async () => { if (!confirm(`${u.name} wirklich aus Pocket ID löschen? Die Konten in den Apps bleiben bestehen.`)) return; await api(`api/users/${u.id}`, "DELETE"); dlg.close(); show(); }, "danger"));
+  }
+  openDialog(u.name, [
+    $("div", { className: "quiet", textContent: `${u.username}${u.admin ? " · Admin in Pocket ID" : ""}${u.passkeys === 0 ? " · noch kein Passkey" : u.passkeys ? ` · ${u.passkeys} Passkey(s)` : ""}` }),
+    $("div", { className: "two" }, field("Vorname", "first", u.first_name), field("Nachname", "last", u.last_name)),
+    field("E-Mail", "email", u.email, "email"),
+    $("label", { textContent: "Apps" }), ...appSwitches(u.groups),
+    $("div", { className: "actions" }, ...buttons),
+  ], [$("button", { textContent: "Schließen", value: "x" }), $("button", { className: "main", textContent: "Speichern", onclick: async e => {
+    e.preventDefault();
+    try {
+      await api(`api/users/${u.id}`, "PUT", { first_name: val("first"), last_name: val("last"), email: val("email") });
+      const keep = u.groups.filter(g => !appName(g));
+      await api(`api/users/${u.id}/groups`, "PUT", { groups: [...keep, ...checked()] });
+      dlg.close(); show();
+    } catch (err) { fail(err); }
+  } })]);
+}
+
+function showInvite(name, invite) {
+  const until = new Date(invite.expires * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+  const buttons = [$("button", { textContent: "Kopieren", onclick: e => { e.preventDefault(); navigator.clipboard.writeText(invite.link); e.target.textContent = "Kopiert"; } })];
+  if (navigator.share) buttons.push($("button", { textContent: "Teilen", onclick: e => { e.preventDefault(); navigator.share({ title: "Einladung", text: `Hallo ${name}, hier richtest du deinen Zugang ein:`, url: invite.link }).catch(() => {}); } }));
+  openDialog(`Einladung für ${name}`, [
+    $("p", { textContent: `Mit diesem Link legt ${name} einmalig einen Passkey an. Er gilt bis ${until} und nur einmal.` }),
+    $("div", { className: "link", textContent: invite.link }), $("div", { className: "actions" }, ...buttons),
+  ], [$("button", { className: "main", textContent: "Fertig", value: "x" })]);
+}
+
+async function showSettings() {
+  let s;
+  try { s = await api("api/settings"); } catch (e) { app.replaceChildren($("p", { className: "err", textContent: e.message })); return; }
+  const url = $("input", { value: s.url }), key = $("input", { type: "password", placeholder: s.api_key_set ? "gespeichert – leer lassen zum Behalten" : "" });
+  const msg = $("p", { className: "quiet" });
+  app.replaceChildren($("div", { className: "card" },
+    $("label", { textContent: "Adresse von Pocket ID im Heimnetz" }), url,
+    $("p", { className: "hint", textContent: "Wie der Server Pocket ID erreicht, z. B. http://host.docker.internal:1411 auf demselben Rechner." }),
+    $("label", { textContent: "API-Schlüssel" }), key,
+    $("p", { className: "hint", textContent: "In Pocket ID unter Einstellungen → Admin → API-Schlüssel anlegen. Er bleibt nur auf dem Server." }),
+    $("div", { className: "foot" }, $("button", { className: "main", textContent: "Speichern", onclick: async () => {
+      try { await api("api/settings", "PUT", { url: url.value, ...(key.value ? { api_key: key.value } : {}) }); msg.textContent = "Gespeichert."; key.value = ""; }
+      catch (e) { msg.textContent = e.message; }
+    } })), msg));
+}
+
+show();
+</script>
+</body>
+</html>

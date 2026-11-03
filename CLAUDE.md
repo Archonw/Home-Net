@@ -17,6 +17,11 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
   Dienst in User Scripts ablegt; ändert sich dessen Auftragsformat, `STARTER_VERSION` erhöhen.
   Genutzt in `android/.../UnraidApi.kt` und `UnraidScreens.kt` (Übersicht, Freigaben, Benutzer, Docker/VMs, User Scripts; Dateien und
   Einstellungen bleiben in der Weboberfläche).
+- `modules/pocket-id`: Dienst aus `service/server.py`, der Zugriff auf Pocket ID (REST-API mit API-Schlüssel) in
+  `service/pocketid.py`. Eine App ist eine Gruppe in Pocket ID, die mindestens einen OIDC-Client freischaltet; die
+  Schalter nehmen Benutzer in diese Gruppen auf. Genutzt in `android/.../PocketIdApi.kt` und `PocketIdScreens.kt`.
+  `modules/pocket-id-server` installiert Pocket ID selbst; seine Schlüssel erzeugt der Kern (`Install.pocket_id_server`)
+  und gibt den API-Schlüssel an `pocket-id` weiter. Die Anleitung zum Anbinden der Apps steht in `modules/pocket-id/README.md`.
 
 Ändert sich eine Schnittstelle, wird die App im selben Commit mit angepasst.
 

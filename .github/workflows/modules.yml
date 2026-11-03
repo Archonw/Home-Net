@@ -85,3 +85,16 @@ jobs:
           python-version: "3.12"
       - run: python -m unittest discover tests
       - run: docker build -q -t unraid-verwaltung:test .
+
+  pocket-id:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/pocket-id
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover tests
+      - run: docker build -q -t pocket-id-verwaltung:test .

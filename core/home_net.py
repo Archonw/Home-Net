@@ -179,7 +179,8 @@ class Install:
         self.write_private(self.state_file, json.dumps(state, indent=2) + "\n")
         self.write_private(self.env_file, f"DATA_DIR={self.data}\nIMAGES_DIR={state['images']}\n"
                                           f"PC_DIR={pc_dir(state)}\n"
-                                          f"GATEWAY_PORT={state['port']}\nTZ={state.get('tz', 'Europe/Berlin')}\n")
+                                          f"GATEWAY_PORT={state['port']}\nTZ={state.get('tz', 'Europe/Berlin')}\n"
+                                          f"POCKET_ID_DATA={pool_path(self.data) / 'pocket-id-server' / 'data'}\n")
         document = compose_document(modules, state["modules"], repo)
         self.compose_file.write_text(json.dumps(document, indent=2) + "\n")
         if sync_unraid_folder([svc["container_name"] for svc in document["services"].values()]):
@@ -204,8 +205,25 @@ class Install:
         if "pc-sicherung" in state["modules"]:
             Path(pc_dir(state)).mkdir(parents=True, exist_ok=True)
             (self.data / "pc-sicherung" / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
-        if "unraid" in state["modules"]:
-            (self.data / "unraid" / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
+        for module_id in ("unraid", "pocket-id"):
+            if module_id in state["modules"]:
+                (self.data / module_id / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
+        if "pocket-id-server" in state["modules"]:
+            self.pocket_id_server(state)
+
+    def pocket_id_server(self, state):
+        """Pocket ID installed by Home-Net: its keys are made once, and the module pocket-id gets the API key."""
+        secrets_dir = self.data / "pocket-id-server" / "secrets"
+        secrets_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for name, make in (("encryption-key", lambda: secrets.token_urlsafe(32)),
+                           ("api-key", lambda: secrets.token_urlsafe(32))):
+            if not (secrets_dir / name).exists():
+                self.write_private(secrets_dir / name, make() + "\n")
+        self.write_private(self.data / "pocket-id-server.env", f"APP_URL={state.get('pocket_id_url', '')}\n")
+        if "pocket-id" in state["modules"]:
+            key = self.data / "pocket-id" / "config" / "api-key"
+            if not key.exists():
+                self.write_private(key, (secrets_dir / "api-key").read_text())
 
     def set_monitor_links(self):
         """Links in notifications of the monitor lead through the gateway, once its outside address is known."""
@@ -223,6 +241,24 @@ class Install:
 
     def start(self):
         self.compose("up", "-d", "--build", "--remove-orphans")
+
+
+def pool_path(path, mnt=Path("/mnt")):
+    """On Unraid /mnt/user is a FUSE file system, bad for SQLite. The same folder on a pool (e.g. /mnt/cache) is used
+    directly when it exists; elsewhere the path stays as it is."""
+    path = Path(path)
+    if path.parts[:3] != ("/", "mnt", "user"):
+        return path
+    rest = Path(*path.parts[3:]) if len(path.parts) > 3 else Path()
+    try:
+        pools = sorted((p for p in mnt.iterdir() if p.is_dir() and p.name not in ("user", "user0", "disks", "remotes",
+                        "addons", "rootshare") and not p.name.startswith("disk")), key=lambda p: p.name != "cache")
+    except OSError:
+        return path
+    for pool in pools:
+        if (pool / rest).is_dir():
+            return pool / rest
+    return path
 
 
 def pc_dir(state):
@@ -262,6 +298,19 @@ def ask_modules(modules):
         raise HomeNetError("Ungültige Auswahl")
 
 
+def ask_yes(question, default):
+    answer = input(question).strip().lower()
+    return default if not answer else answer in ("j", "ja", "y", "yes")
+
+
+def ask_pocket_id_url(given=None):
+    """Passkeys need the address under which people open Pocket ID, with https (via the reverse proxy)."""
+    url = (given or input("Adresse, unter der Pocket ID erreichbar sein wird (z. B. https://id.example.org): ")).strip()
+    if not url.startswith(("https://", "http://localhost")):
+        raise HomeNetError("Pocket ID braucht eine https-Adresse, sonst funktionieren Passkeys nicht")
+    return url.rstrip("/")
+
+
 def ask_password():
     while True:
         first = getpass.getpass("Passwort für Home-Net: ")
@@ -286,6 +335,8 @@ def cmd_install(args):
     state = new_state(data, args.images, chosen, args.port, password, owner=owner)
     if args.pc_dir:
         state["pc_dir"] = args.pc_dir
+    if "pocket-id-server" in chosen:
+        state["pocket_id_url"] = ask_pocket_id_url(args.pocket_id_url)
     inst.apply(state)
     POINTER.parent.mkdir(parents=True, exist_ok=True)
     POINTER.write_text(str(data) + "\n")
@@ -307,8 +358,17 @@ def cmd_add(args):
         state["upstream"][args.module] = secrets.token_urlsafe(24)
     if args.module == "pc-sicherung":
         state["pc_dir"] = args.dir or input(f"Ordner für die PC-Sicherungen [{pc_dir(state)}]: ").strip() or pc_dir(state)
+    if args.module == "pocket-id" and "pocket-id-server" not in state["modules"]:
+        if args.with_server or (not args.existing and ask_yes(
+                "Läuft schon ein Pocket ID? Mit Nein installiert Home-Net Pocket ID gleich mit. [J/n]: ", True) is False):
+            state["modules"].append("pocket-id-server")
+    if "pocket-id-server" in state["modules"] and not state.get("pocket_id_url"):
+        state["pocket_id_url"] = ask_pocket_id_url(args.url)
     inst.apply(state)
     inst.start()
+    if args.module in ("pocket-id", "pocket-id-server") and "pocket-id-server" in state["modules"]:
+        print(f"Pocket ID läuft auf Port 1411. Über deinen Reverse-Proxy unter {state['pocket_id_url']} erreichbar machen "
+              f"und dort unter {state['pocket_id_url']}/setup den ersten Admin mit Passkey anlegen.")
 
 
 def cmd_remove(args):
@@ -469,12 +529,17 @@ def main(argv=None):
     p.add_argument("--owner")
     p.add_argument("--password", default=os.environ.get("HOME_NET_PASSWORD"))
     p.add_argument("--no-start", action="store_true")
+    p.add_argument("--pocket-id-url", help="Adresse von Pocket ID, wenn pocket-id-server mitinstalliert wird")
     p.set_defaults(func=cmd_install)
     for name, func in (("add", cmd_add), ("remove", cmd_remove)):
         p = sub.add_parser(name)
         p.add_argument("module")
         if name == "add":
             p.add_argument("--dir", help="Ordner für die Daten des Moduls, bei pc-sicherung die Sicherungen")
+            p.add_argument("--url", help="bei pocket-id-server: Adresse, unter der Pocket ID erreichbar ist")
+            server = p.add_mutually_exclusive_group()
+            server.add_argument("--with-server", action="store_true", help="bei pocket-id: Pocket ID mitinstallieren")
+            server.add_argument("--existing", action="store_true", help="bei pocket-id: vorhandenes Pocket ID nutzen")
         p.set_defaults(func=func)
     for name, func in (("status", cmd_status), ("modules", cmd_modules), ("apply", cmd_apply), ("backup", cmd_backup)):
         sub.add_parser(name).set_defaults(func=func)
