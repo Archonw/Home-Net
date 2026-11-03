@@ -102,11 +102,15 @@ fun ProxyScreen(api: ProxyApi, onOpen: (String) -> Unit, onCerts: () -> Unit, on
                         StatTile("Öffentlich", "${data.count("public") + data.count("password") + data.count("restricted")}",
                             if (data.count("password") > 0) "${data.count("password")} mit Passwort" else "von überall", Modifier.weight(1f))
                         StatTile("Nur intern", "${data.count("internal")}", "Heimnetz und VPN", Modifier.weight(1f))
-                        StatTile(
-                            "Bald fällig", "${data.certsSoon + data.certsExpired}",
-                            if (data.certsExpired > 0) "${data.certsExpired} abgelaufen" else "Zertifikate", Modifier.weight(1f),
-                            color = if (data.certsExpired > 0) p.blocked else if (data.certsSoon > 0) p.unknown else null,
-                        )
+                    }
+                    if (data.certsExpired > 0 || data.certsSoon > 0) {
+                        HubCard(onClick = onCerts) {
+                            val parts = listOfNotNull(
+                                if (data.certsExpired > 0) "${data.certsExpired} Zertifikat${if (data.certsExpired > 1) "e" else ""} abgelaufen" else null,
+                                if (data.certsSoon > 0) "${data.certsSoon} ${if (data.certsSoon > 1) "laufen" else "läuft"} bald ab" else null,
+                            )
+                            Text(parts.joinToString(", "), color = if (data.certsExpired > 0) p.blocked else p.unknown, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                     NPM_GROUPS.forEach { (kind, label, hint) ->
                         val rows = data.hosts.filter { it.exposure == kind }

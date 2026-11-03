@@ -33,7 +33,6 @@ data class NpmHost(
             dns.forEach { d -> NPM_DNS_TEXT[d.state]?.let { add("${d.domain}: $it") } }
             if (targetState == "down") add("Das Ziel antwortet nicht.")
             if (nginxError.isNotBlank()) add("Fehler in der Konfiguration: $nginxError")
-            if (ssl?.state == "expired") add("Das Zertifikat ist abgelaufen.")
         }
 }
 
