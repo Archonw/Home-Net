@@ -6,6 +6,7 @@ for Pocket ID, the Pi-holes and the backup archive); the other modules answer wi
 """
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -171,10 +172,11 @@ def start_pihole():
                          ("pixel.example.com", 9), ("metrics.example.io", 6))]
         s["permitted"] = [{"domain": d, "count": total * share // 100} for d, share in
                           (("example.org", 18), ("cdn.example.net", 12), ("mail.example.com", 7))]
-        for i, h in enumerate(s["history"]):  # quieter at night
-            hour = (NOW // 3600 - i // 6) % 24
-            factor = 0.25 if hour < 6 else 1.6 if 18 <= hour <= 22 else 1
-            h["total"], h["blocked"] = int(h["total"] * factor), int(h["blocked"] * factor)
+        for i, h in enumerate(s["history"]):  # quiet at night, busy in the evening, a little uneven
+            hour = (h["timestamp"] % 86400) / 3600 + 1
+            factor = (0.2 + 1.4 * max(0.0, math.sin((hour - 6) / 17 * math.pi)) ** 1.5) * (0.85 + 0.3 * ((i * 37) % 11) / 10)
+            h["total"] = int(h["total"] * factor)
+            h["blocked"] = int(h["total"] * (0.15 + 0.1 * ((i * 13) % 7) / 6))
         return s
 
     pis = [ph_tests.start_fake(state(18342, 3987, [{"ip": "192.168.1.31", "name": "Handy Anna", "count": 6120},
