@@ -189,6 +189,24 @@ class Installation(unittest.TestCase):
             inst.apply(state)
             self.assertEqual(env.read_text(), "NTFY_TOKEN=x\nPUBLIC_URL=https://home.example/m/netzwerkmonitor/\n")
 
+    def test_unraid_folder_holds_exactly_the_home_net_containers(self):
+        with tempfile.TemporaryDirectory() as d:
+            folders = Path(d, "docker.json")
+            other = {"name": "Arr", "containers": ["sonarr"], "settings": {"preview": 2}}
+            folders.write_text(json.dumps({"a": {"name": "Home-Net", "containers": ["home-net-gateway", "ntfy"],
+                                                 "settings": {"preview": 2}}, "b": other}))
+            original = home_net.UNRAID_FOLDERS
+            home_net.UNRAID_FOLDERS = folders
+            self.addCleanup(setattr, home_net, "UNRAID_FOLDERS", original)
+            inst = home_net.Install(Path(d, "data"))
+            inst.apply(home_net.new_state(d, None, ["netzwerkmonitor", "pc-sicherung"], 8093, "geheim123"))
+            saved = json.loads(folders.read_text())
+            self.assertEqual(saved["a"]["containers"], ["home-net-gateway", "networkmonitor", "pc-sicherung"])
+            self.assertEqual(saved["a"]["settings"], {"preview": 2})
+            self.assertEqual(saved["b"], other)
+            self.assertFalse(home_net.sync_unraid_folder(saved["a"]["containers"], folders))
+            self.assertFalse(home_net.sync_unraid_folder(["x"], Path(d, "fehlt.json")))
+
     def test_unknown_module_refused(self):
         with tempfile.TemporaryDirectory() as d:
             inst = home_net.Install(d)

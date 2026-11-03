@@ -21,7 +21,6 @@ PORT = 8093
 OLD = ("networkmonitor", "ntfy", "pi-wartung-service")
 TEMPLATES = Path("/boot/config/plugins/dockerMan/templates-user")
 AUTOSTART = Path("/var/lib/docker/unraid-autostart")
-FOLDERS = Path("/boot/config/plugins/folder.view2/docker.json")
 
 sys.path.insert(0, str(REPO / "core"))
 import home_net  # noqa: E402
@@ -106,13 +105,7 @@ def tidy_unraid():
     if AUTOSTART.exists():
         lines = [line for line in AUTOSTART.read_text().splitlines() if line.split(" ")[0] not in OLD]
         AUTOSTART.write_text("\n".join(lines) + "\n")
-    if FOLDERS.exists():
-        folders = json.loads(FOLDERS.read_text())
-        for folder in folders.values():
-            if folder.get("name") == "Home-Net":
-                folder["containers"] = ["home-net-gateway", "networkmonitor", "ntfy", "pi-wartung-engine", "pi-wartung-service"]
-        FOLDERS.write_text(json.dumps(folders, indent=4))
-    print("Unraid aufgeräumt: alte Vorlagen und Autostart-Einträge entfernt, Gruppe aktualisiert.")
+    print("Unraid aufgeräumt: alte Vorlagen und Autostart-Einträge entfernt.")
 
 
 def main():

@@ -32,6 +32,9 @@ RAW_ICONS = "https://raw.githubusercontent.com/Archonw/Home-Net/main/"
 PBKDF2_ROUNDS = 200_000
 GATEWAY = "home-net-gateway"
 DEFAULT_PORT = 8093
+# The folders of the Unraid Docker tab (plugin folder.view2)
+UNRAID_FOLDERS = Path("/boot/config/plugins/folder.view2/docker.json")
+FOLDER_NAME = "Home-Net"
 
 
 class HomeNetError(Exception):
@@ -94,6 +97,29 @@ def compose_document(modules, chosen, repo=REPO):
     return {"name": "home-net", "services": services}
 
 
+def sync_unraid_folder(containers, path=None):
+    """Keeps the folder Home-Net in the Unraid Docker tab holding exactly the containers of Home-Net.
+
+    Only an existing folder of that name is changed, the others and its settings stay as they are."""
+    path = Path(path or UNRAID_FOLDERS)
+    if not path.exists():
+        return False
+    try:
+        folders = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return False
+    changed = False
+    for folder in folders.values():
+        if isinstance(folder, dict) and folder.get("name") == FOLDER_NAME and folder.get("containers") != containers:
+            folder["containers"] = list(containers)
+            changed = True
+    if changed:
+        fresh = path.with_name(path.name + ".neu")
+        fresh.write_text(json.dumps(folders, indent=4))
+        fresh.replace(path)
+    return changed
+
+
 def gateway_config(modules, chosen, upstream_passwords, owner="admin"):
     entries = []
     for module_id in chosen:
@@ -154,7 +180,10 @@ class Install:
         self.write_private(self.env_file, f"DATA_DIR={self.data}\nIMAGES_DIR={state['images']}\n"
                                           f"PC_DIR={pc_dir(state)}\n"
                                           f"GATEWAY_PORT={state['port']}\nTZ={state.get('tz', 'Europe/Berlin')}\n")
-        self.compose_file.write_text(json.dumps(compose_document(modules, state["modules"], repo), indent=2) + "\n")
+        document = compose_document(modules, state["modules"], repo)
+        self.compose_file.write_text(json.dumps(document, indent=2) + "\n")
+        if sync_unraid_folder([svc["container_name"] for svc in document["services"].values()]):
+            print(f"Unraid: Gruppe {FOLDER_NAME} im Docker-Tab angepasst.")
         for module_id in state["modules"]:
             for svc in modules[module_id]["services"].values():
                 for env in svc.get("env_file", []):
