@@ -56,6 +56,8 @@ sealed interface Screen {
     data object Proxy : Screen
     data object ProxyCerts : Screen
     data class ProxyHost(val key: String) : Screen
+    data object WireGuard : Screen
+    data class WireGuardClient(val id: Int) : Screen
     data object HubSetup : Screen
     data object Notifications : Screen
 }
@@ -135,6 +137,7 @@ class MainActivity : FragmentActivity() {
                 Screen.UnraidShares, Screen.UnraidUsers, Screen.UnraidDocker, Screen.UnraidScripts -> Screen.UnraidOverview
                 is Screen.PocketIdUser -> Screen.PocketId
                 is Screen.ProxyHost, Screen.ProxyCerts -> Screen.Proxy
+                is Screen.WireGuardClient -> Screen.WireGuard
                 Screen.HubSetup, Screen.Notifications -> Screen.Setup
                 else -> Screen.Home
             }
@@ -176,6 +179,7 @@ class MainActivity : FragmentActivity() {
                         onUnraid = { screen = Screen.UnraidOverview },
                         onPocketId = { screen = Screen.PocketId },
                         onProxy = { screen = Screen.Proxy },
+                        onWireGuard = { screen = Screen.WireGuard },
                     )
                     Screen.UnraidOverview -> UnraidOverviewScreen(
                         api = settings.unraidApi(),
@@ -204,6 +208,12 @@ class MainActivity : FragmentActivity() {
                     )
                     is Screen.ProxyHost -> ProxyHostScreen(settings.proxyApi(), s.key) { screen = Screen.Proxy }
                     Screen.ProxyCerts -> ProxyCertsScreen(settings.proxyApi()) { screen = Screen.Proxy }
+                    Screen.WireGuard -> WireGuardScreen(
+                        api = settings.wireGuardApi(),
+                        onOpen = { screen = Screen.WireGuardClient(it) },
+                        onBack = { screen = Screen.Home },
+                    )
+                    is Screen.WireGuardClient -> WireGuardClientScreen(settings.wireGuardApi(), s.id) { screen = Screen.WireGuard }
                     Screen.PcOverview -> PcOverviewScreen(
                         api = settings.pcApi(),
                         onOpen = { screen = Screen.PcDetail(it) },

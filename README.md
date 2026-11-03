@@ -40,6 +40,9 @@ Alle Bilder zeigen erfundene Beispieldaten. Sie entstehen im Emulator mit `tools
 | Proxy Manager: Adressen | Proxy Manager: Zertifikate |
 | --- | --- |
 | <img src="docs/screenshots/proxy-manager.png" width="200" alt="Adressen nach öffentlich und intern"> | <img src="docs/screenshots/proxy-manager-zertifikate.png" width="200" alt="Zertifikate mit Ablaufdatum"> |
+| WireGuard: Zugänge | WireGuard: QR-Code |
+| --- | --- |
+| <img src="docs/screenshots/wireguard.png" width="200" alt="VPN-Zugänge mit Verbindungszustand"> | <img src="docs/screenshots/wireguard-qr.png" width="200" alt="QR-Code eines Zugangs zum Scannen"> |
 
 ## Konten und Anmeldung
 
@@ -67,6 +70,8 @@ Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sond
 | `modules/pocket-id/` | Verwaltet die Benutzer von Pocket ID (Anmeldung mit Passkey): anlegen, einladen, sperren, Apps zuordnen, siehe [README](modules/pocket-id/README.md) |
 | `modules/proxy-manager/` | Zeigt, welche Adressen Nginx Proxy Manager von außen erreichbar macht, welche nur intern sind und wann die Zertifikate ablaufen, siehe [README](modules/proxy-manager/README.md) |
 | `modules/pocket-id-server/` | Installiert Pocket ID selbst, falls noch keins läuft (`home-net add pocket-id --with-server`) |
+| `modules/wireguard/` | Verwaltet die VPN-Zugänge von WireGuard-Easy: anlegen, sperren, QR-Code fürs Handy in der App, siehe [README](modules/wireguard/README.md) |
+| `modules/wireguard-server/` | Installiert WireGuard-Easy selbst, falls noch keins läuft (`home-net add wireguard --with-server`) |
 | `modules/ntfy/` | Eigener Server für Benachrichtigungen |
 | `tools/` | Hilfsprogramme, zum Beispiel die Sicherung der Einstellungen |
 | `assets/icons/` | Logos |

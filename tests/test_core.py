@@ -33,7 +33,8 @@ from security import Security  # noqa: E402
 class Modules(unittest.TestCase):
     def test_every_module_has_what_the_core_needs(self):
         modules = home_net.available_modules()
-        self.assertEqual(set(modules), {"netzwerkmonitor", "pi-wartung", "pc-sicherung", "ntfy", "unraid", "pocket-id", "pocket-id-server", "proxy-manager"})
+        self.assertEqual(set(modules), {"netzwerkmonitor", "pi-wartung", "pc-sicherung", "ntfy", "unraid", "pocket-id", "pocket-id-server",
+                                        "wireguard", "wireguard-server", "proxy-manager"})
         for module in modules.values():
             for key in ("id", "name", "description", "icon", "services"):
                 self.assertIn(key, module)
@@ -236,6 +237,53 @@ class Installation(unittest.TestCase):
                 home_net.main(["add", "pocket-id"])
             state = json.loads((data / "home-net.json").read_text())
             self.assertEqual(state["modules"], ["pi-wartung", "pocket-id", "pocket-id-server"])
+
+    def test_wireguard_with_its_own_server(self):
+        with tempfile.TemporaryDirectory() as d:
+            pointer = Path(d) / "pointer"
+            original = home_net.POINTER
+            home_net.POINTER = pointer
+            self.addCleanup(setattr, home_net, "POINTER", original)
+            data = Path(d) / "data"
+            home_net.main(["install", "--data", str(data), "--modules", "pi-wartung", "--owner", "chef", "--password",
+                           "geheim123", "--no-start"])
+            fresh = (data / "home-net.json").read_text()
+            with mock.patch.object(home_net.Install, "start"):
+                home_net.main(["add", "wireguard", "--existing"])
+            state = json.loads((data / "home-net.json").read_text())
+            self.assertNotIn("wireguard-server", state["modules"])
+            self.assertFalse((data / "wireguard" / "config" / "login.json").exists())
+            (data / "home-net.json").write_text(fresh)
+            answers = iter(["n", "https://vpn.example.org/"])
+            with mock.patch.object(home_net.Install, "start"), mock.patch("builtins.input", lambda _q: next(answers)):
+                home_net.main(["add", "wireguard"])
+            state = json.loads((data / "home-net.json").read_text())
+            self.assertEqual(state["modules"], ["pi-wartung", "wireguard", "wireguard-server"])
+            self.assertEqual(state["wireguard_host"], "vpn.example.org")
+            env = (data / "wireguard-server.env").read_text()
+            password = (data / "wireguard-server" / "secrets" / "password").read_text().strip()
+            self.assertGreater(len(password), 16)
+            self.assertIn(f"INIT_PASSWORD={password}\n", env)
+            self.assertIn("INIT_HOST=vpn.example.org\n", env)
+            self.assertEqual(oct((data / "wireguard-server.env").stat().st_mode)[-3:], "600")
+            login = json.loads((data / "wireguard" / "config" / "login.json").read_text())
+            self.assertEqual(login, {"url": "http://wireguard-server:51821", "username": "home-net", "password": password})
+            # the password stays on the next apply
+            home_net.Install(data).apply(state)
+            self.assertEqual((data / "wireguard-server" / "secrets" / "password").read_text().strip(), password)
+            doc = json.loads((data / "docker-compose.yml").read_text())
+            self.assertEqual(doc["services"]["wireguard-server"]["cap_add"], ["NET_ADMIN", "SYS_MODULE"])
+            self.assertIn("${DATA_DIR}/wireguard/run:/run/wireguard", doc["services"]["home-net-gateway"]["volumes"])
+            self.assertIn("WG_EASY_DATA=", (data / ".env").read_text())
+            cfg = json.loads((data / "gateway" / "gateway.json").read_text())
+            entries = {m["id"]: m for m in cfg["modules"]}
+            self.assertEqual(entries["wireguard"]["upstream"], "unix:/run/wireguard/api.sock")
+            self.assertEqual(entries["wireguard-server"]["external_port"], 51821)
+
+    def test_wireguard_host_is_checked(self):
+        self.assertEqual(home_net.ask_wireguard_host("203.0.113.5"), "203.0.113.5")
+        with self.assertRaises(home_net.HomeNetError):
+            home_net.ask_wireguard_host("vpn.example.org:51820")
 
     def test_monitor_links_follow_the_outside_address(self):
         with tempfile.TemporaryDirectory() as d:

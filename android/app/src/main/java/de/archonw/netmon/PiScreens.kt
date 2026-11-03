@@ -156,7 +156,10 @@ internal fun TextAction(label: String, onClick: () -> Unit) {
 
 /** Startseite: eine Kachel je Modul. Mit gemeinsamem Zugang kommt die Liste vom Server. */
 @Composable
-fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onPc: () -> Unit, onUnraid: () -> Unit, onPocketId: () -> Unit, onProxy: () -> Unit) {
+fun HomeScreen(
+    settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onPc: () -> Unit, onUnraid: () -> Unit,
+    onPocketId: () -> Unit, onWireGuard: () -> Unit, onProxy: () -> Unit,
+) {
     val p = LocalPalette.current
     var network by remember { mutableStateOf("Wird geladen …") }
     var networkAlert by remember { mutableStateOf(false) }
@@ -172,6 +175,8 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     var pocketIdAlert by remember { mutableStateOf(false) }
     var proxy by remember { mutableStateOf("Wird geladen …") }
     var proxyAlert by remember { mutableStateOf(false) }
+    var wireGuard by remember { mutableStateOf("Wird geladen …") }
+    var wireGuardAlert by remember { mutableStateOf(false) }
     var installed by remember { mutableStateOf<Set<String>?>(null) }
     var hubError by remember { mutableStateOf<String?>(null) }
     var order by remember { mutableStateOf(settings.homeTiles) }
@@ -262,6 +267,15 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                 } catch (e: ApiException) {
                     proxy = e.message ?: "Nicht erreichbar"
                     proxyAlert = true
+        if (installed?.contains("wireguard") == true) {
+            launch {
+                try {
+                    val o = settings.wireGuardApi().overview()
+                    wireGuard = wireGuardTileText(o)
+                    wireGuardAlert = !o.configured || o.error.isNotBlank()
+                } catch (e: ApiException) {
+                    wireGuard = e.message ?: "Nicht erreichbar"
+                    wireGuardAlert = true
                 }
             }
         }
@@ -280,6 +294,7 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                 "unraid" -> installed?.contains("unraid") == true
                 "pocketid" -> installed?.contains("pocket-id") == true
                 "proxy" -> installed?.contains("proxy-manager") == true
+                "wireguard" -> installed?.contains("wireguard") == true
                 else -> false
             }
         }
@@ -307,6 +322,7 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                         "unraid" -> ServiceTile("Unraid", unraid, unraidAlert, R.drawable.ic_tile_unraid, onUnraid)
                         "pocketid" -> ServiceTile("Pocket ID", pocketId, pocketIdAlert, R.drawable.ic_tile_pocketid, onPocketId)
                         "proxy" -> ServiceTile("Proxy Manager", proxy, proxyAlert, R.drawable.ic_tile_proxy, onProxy)
+                        "wireguard" -> ServiceTile("WireGuard", wireGuard, wireGuardAlert, R.drawable.ic_tile_wireguard, onWireGuard)
                     }
                 }
             }
@@ -314,9 +330,10 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     }
 }
 
-val HOME_TILES = listOf("network", "pi", "pc", "unraid", "pocketid", "proxy")
+val HOME_TILES = listOf("network", "pi", "pc", "unraid", "pocketid", "wireguard", "proxy")
 private val HOME_TILE_LABELS = mapOf(
-    "network" to "Netzwerk", "pi" to "Pi-Wartung", "pc" to "PC-Sicherung", "unraid" to "Unraid", "pocketid" to "Pocket ID", "proxy" to "Proxy Manager",
+    "network" to "Netzwerk", "pi" to "Pi-Wartung", "pc" to "PC-Sicherung", "unraid" to "Unraid", "pocketid" to "Pocket ID",
+    "wireguard" to "WireGuard", "proxy" to "Proxy Manager",
 )
 
 /** Eine Adresse und ein Passwort für alle Module. */

@@ -27,6 +27,11 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
   „Nur intern“ heißt: die Zugriffsliste lässt ohne Passwort nur Netze aus `INTERNAL` zu. Öffentliches DNS fragt das
   Modul selbst bei 1.1.1.1/9.9.9.9 ab, damit lokale Einträge nicht täuschen. Nur Eigentümer und Admins. Genutzt in
   `android/.../ProxyApi.kt` und `ProxyScreens.kt`.
+- `modules/wireguard`: Dienst aus `service/server.py`, der Zugriff auf WireGuard-Easy ab Version 15 (REST-API mit
+  Basic-Anmeldung, Quelle `src/server/api` im Repo `wg-easy/wg-easy`) in `service/wgeasy.py`. Die App zeichnet den
+  QR-Code selbst aus `/api/clients/<id>/config` (zxing). Genutzt in `android/.../WireGuardApi.kt` und
+  `WireGuardScreens.kt`. `modules/wireguard-server` installiert WireGuard-Easy selbst; das Passwort des ersten Kontos
+  erzeugt der Kern (`Install.wireguard_server`) und legt die Anmeldung als `login.json` für `wireguard` ab.
 
 Ändert sich eine Schnittstelle, wird die App im selben Commit mit angepasst.
 

@@ -127,6 +127,9 @@ class Settings(context: Context) {
     /** Übersicht über Nginx Proxy Manager, ebenfalls nur über den gemeinsamen Zugang. */
     fun proxyApi() = ProxyApi(
         PiApi("$hubUrl/m/proxy-manager", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/proxy-manager"),
+    /** WireGuard-Verwaltung, ebenfalls nur über den gemeinsamen Zugang. */
+    fun wireGuardApi() = WireGuardApi(
+        PiApi("$hubUrl/m/wireguard", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/wireguard"),
     )
 
     fun piApi() = PiApi(piUrl, if (isHubConfigured) hubSecret else piPassword, piExternalUrl)
