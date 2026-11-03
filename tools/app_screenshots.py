@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Takes the screenshots for the README: the app in an emulator against the real gateway with made-up data.
 
-Started by the CI workflow Screenshots. Pocket ID and PC-Sicherung run as their real services (with stand-ins for
-Pocket ID and the backup archive); the other modules answer with fixed example data. Nothing personal appears.
+Started by the CI workflow Screenshots. Pocket ID, WireGuard and PC-Sicherung run as their real services (with
+stand-ins for Pocket ID, WireGuard-Easy and the backup archive); the other modules answer with fixed example data. Nothing personal appears.
 """
 
 import json
@@ -146,6 +146,47 @@ def start_pocket_id():
     return f"http://127.0.0.1:{httpd.server_address[1]}"
 
 
+def start_wireguard():
+    """The real module against the stand-in WireGuard-Easy from its tests, with made-up devices and keys."""
+    folder = REPO / "modules" / "wireguard"
+    # "server" and "test_service" are already the ones of Pocket ID, so these are loaded with them set aside
+    saved = {name: sys.modules.pop(name, None) for name in ("server", "test_service")}
+    sys.path[:0] = [str(folder / "tests"), str(folder / "service")]
+    try:
+        import test_service as wg_tests
+        import server as wg_server
+        import wgeasy
+    finally:
+        del sys.path[:2]
+        for name, module in saved.items():
+            sys.modules.pop(name, None)
+            if module is not None:
+                sys.modules[name] = module
+
+    def client(cid, name, minutes, down=0, up=0, enabled=True):
+        return {"id": cid, "name": name, "enabled": enabled, "ipv4Address": f"10.8.0.{cid + 1}",
+                "createdAt": wg_tests.iso(86400 * 20 * cid), "expiresAt": None,
+                "latestHandshakeAt": wg_tests.iso(minutes * 60) if minutes is not None else None,
+                "transferRx": up, "transferTx": down}
+
+    fake = ThreadingHTTPServer(("127.0.0.1", 0), wg_tests.FakeWgEasy)
+    url = f"http://127.0.0.1:{fake.server_address[1]}"
+    wg_tests.FakeWgEasy.state = {"calls": [], "origin": url, "clients": {
+        1: client(1, "Handy Anna", 1, down=1_240_000_000, up=86_000_000),
+        2: client(2, "Handy Ben", 300, down=420_000_000, up=12_000_000),
+        3: client(3, "Laptop Anna", 4000, down=3_100_000_000, up=640_000_000),
+        4: client(4, "Tablet Clara", None),
+    }}
+    threading.Thread(target=fake.serve_forever, daemon=True).start()
+    folder = tempfile.mkdtemp()
+    wg_server.ApiHandler.settings = wg_server.Settings(folder)
+    wg_server.ApiHandler.settings.update({"url": url, "username": wg_tests.USER, "password": wg_tests.PASSWORD})
+    wg_server.ApiHandler.wg = wgeasy.WgEasy(wg_server.ApiHandler.settings.get)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), wg_server.ApiHandler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{httpd.server_address[1]}"
+
+
 def shot(name):
     time.sleep(2)
     png = subprocess.run(["adb", "exec-out", "screencap", "-p"], capture_output=True, check=True, timeout=60).stdout
@@ -171,6 +212,7 @@ def main():
         "pc-sicherung": pc_url,
         "unraid": canned({"/api/overview": UNRAID}),
         "pocket-id": start_pocket_id(),
+        "wireguard": start_wireguard(),
     }
     catalog = [{"id": m, "name": modules[m]["name"], "description": "d", "icon": "", "upstream": url,
                 "events": modules[m].get("events", [])} for m, url in upstreams.items()]
@@ -234,6 +276,19 @@ def main():
     tap("Einladungslink")
     find("Einladung für Ben", 30)
     shot("pocket-id-einladung")
+    tap("Fertig")
+    tap("Zurück")
+    tap("Zurück")
+
+    tap("WireGuard", scroll=True)
+    find("Tablet Clara", 30)
+    shot("wireguard")
+    tap("Handy Anna")
+    find("QR-Code zeigen", 30)
+    tap("QR-Code zeigen")
+    find("QR-Code für Handy Anna", 30)
+    find("Als Text teilen", 30)
+    shot("wireguard-qr")
     probe.report("notice", "Alle Bilder aufgenommen")
 
 
