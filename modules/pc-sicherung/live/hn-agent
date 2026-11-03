@@ -114,10 +114,10 @@ fs_method() {  # what to use for a filesystem type found by blkid
 
 # --- Fortschritt ---------------------------------------------------------------------------------
 
-STEP_TOTAL=1 STEP_NOW=0 STEP_TEXT="" DONE_WEIGHT=0 ALL_WEIGHT=1 CUR_WEIGHT=0 CUR_FILE=""
+STEP_TOTAL=1 STEP_NOW=0 STEP_TEXT="" DONE_WEIGHT=0 ALL_WEIGHT=1 CUR_WEIGHT=0 CUR_SIZE=0 CUR_FILE=""
 
 publish() {  # the progress reporter runs in its own process and reads the state from a file
-    declare -p STEP_TOTAL STEP_NOW STEP_TEXT DONE_WEIGHT ALL_WEIGHT CUR_WEIGHT CUR_FILE >"$WORK/state.tmp" 2>/dev/null
+    declare -p STEP_TOTAL STEP_NOW STEP_TEXT DONE_WEIGHT ALL_WEIGHT CUR_WEIGHT CUR_SIZE CUR_FILE >"$WORK/state.tmp" 2>/dev/null
     mv "$WORK/state.tmp" "$WORK/state"
 }
 
@@ -127,15 +127,28 @@ progress_loop() {
         # shellcheck disable=SC1091
         . "$WORK/state" 2>/dev/null
         if [ -n "$CUR_FILE" ] && [ -f "$CUR_FILE" ]; then
-            cur="$(tr '\r' '\n' <"$CUR_FILE" | grep -o 'Completed: *[0-9.]*' | tail -1 | grep -o '[0-9.]*$' | cut -d. -f1)"
             done_bytes="$(grep -o '"bytes_done":[0-9]*' "$CUR_FILE.json" 2>/dev/null | tail -1 | cut -d: -f2)"
+            # partclone writing to a pipe shows no progress of its own (its only "Completed" line belongs to the
+            # bitmap), so compare what restic has read with the space in use from partclone's header
+            local blocks block_size
+            blocks="$(tr '\r' '\n' <"$CUR_FILE" | grep -m1 'Space in use' | grep -o '[0-9]* Blocks' | grep -o '[0-9]*')"
+            block_size="$(tr '\r' '\n' <"$CUR_FILE" | grep -m1 'Block size' | grep -o '[0-9][0-9]*' | head -1)"
+            if [ -n "$done_bytes" ] && [ -n "$blocks" ] && [ -n "$block_size" ] && [ "$blocks" -gt 0 ]; then
+                cur=$(( done_bytes * 100 / (blocks * block_size) ))
+            elif [ -n "$done_bytes" ] && [ "${CUR_SIZE:-0}" -gt 0 ]; then
+                cur=$(( done_bytes * 100 / CUR_SIZE ))
+            else
+                # Restoring: partclone reports its own progress there
+                cur="$(tr '\r' '\n' <"$CUR_FILE" | grep -o 'Completed: *[0-9.]*' | tail -1 | grep -o '[0-9.]*$' | cut -d. -f1)"
+            fi
+            cur="${cur:-0}"
+            [ "$cur" -gt 99 ] && cur=99
         fi
-        cur="${cur:-0}"
         pct=$(( (DONE_WEIGHT * 100 + CUR_WEIGHT * cur) / ALL_WEIGHT ))
         # What the programs say right now, and read errors of the disk: shown in Home-Net if a step stalls
         local detail=""
         if [ -n "$CUR_FILE" ] && [ -f "$CUR_FILE" ]; then
-            detail="$(tr '\r' '\n' <"$CUR_FILE" | grep -v '^\s*$' | tail -1 | cut -c1-200)"
+            detail="$(tr '\r' '\n' <"$CUR_FILE" | grep -v '^\s*$' | grep -vE 'Block size|Free Space|Device size|File system|^done' | tail -1 | cut -c1-200)"
         fi
         local disk_errors
         disk_errors="$(dmesg 2>/dev/null | grep -iE 'i/o error|medium error|uncorrect|nvme.*(timeout|reset)|ata[0-9.]*: (exception|failed)' | tail -2)"
@@ -254,6 +267,7 @@ do_backup() {
         check_cancel
         CUR_FILE="$WORK/$key.err"
         CUR_WEIGHT=$((psize / 1048576))
+        CUR_SIZE=$psize
         : >"$CUR_FILE"
         step "Partition $key ($fstype, $((psize / 1073741824)) GB)"
         local ok=1
