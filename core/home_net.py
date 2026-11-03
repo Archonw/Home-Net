@@ -205,7 +205,7 @@ class Install:
         if "pc-sicherung" in state["modules"]:
             Path(pc_dir(state)).mkdir(parents=True, exist_ok=True)
             (self.data / "pc-sicherung" / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
-        for module_id in ("unraid", "pocket-id"):
+        for module_id in ("unraid", "pocket-id", "proxy-manager"):
             if module_id in state["modules"]:
                 (self.data / module_id / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
         if "pocket-id-server" in state["modules"]:
@@ -369,6 +369,9 @@ def cmd_add(args):
     if args.module in ("pocket-id", "pocket-id-server") and "pocket-id-server" in state["modules"]:
         print(f"Pocket ID läuft auf Port 1411. Über deinen Reverse-Proxy unter {state['pocket_id_url']} erreichbar machen "
               f"und dort unter {state['pocket_id_url']}/setup den ersten Admin mit Passkey anlegen.")
+    if args.module == "proxy-manager":
+        print("Im Proxy Manager unter Benutzer einen eigenen Benutzer für Home-Net anlegen (Rechte: alle Einträge, nur "
+              "ansehen) und E-Mail und Passwort in Home-Net beim Modul Proxy Manager unter Einstellungen eintragen.")
 
 
 def cmd_remove(args):

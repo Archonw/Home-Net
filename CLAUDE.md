@@ -22,6 +22,11 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
   Schalter nehmen Benutzer in diese Gruppen auf. Genutzt in `android/.../PocketIdApi.kt` und `PocketIdScreens.kt`.
   `modules/pocket-id-server` installiert Pocket ID selbst; seine Schlüssel erzeugt der Kern (`Install.pocket_id_server`)
   und gibt den API-Schlüssel an `pocket-id` weiter. Die Anleitung zum Anbinden der Apps steht in `modules/pocket-id/README.md`.
+- `modules/proxy-manager`: Dienst aus `service/server.py`, der Zugriff auf Nginx Proxy Manager (REST-API, Anmeldung mit
+  E-Mail und Passwort eines NPM-Benutzers, weil NPM keine API-Schlüssel kennt) und die Bewertung in `service/npm.py`.
+  „Nur intern“ heißt: die Zugriffsliste lässt ohne Passwort nur Netze aus `INTERNAL` zu. Öffentliches DNS fragt das
+  Modul selbst bei 1.1.1.1/9.9.9.9 ab, damit lokale Einträge nicht täuschen. Nur Eigentümer und Admins. Genutzt in
+  `android/.../ProxyApi.kt` und `ProxyScreens.kt`.
 
 Ändert sich eine Schnittstelle, wird die App im selben Commit mit angepasst.
 

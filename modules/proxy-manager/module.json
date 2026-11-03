@@ -1,0 +1,59 @@
+{
+  "id": "proxy-manager",
+  "name": "Proxy Manager",
+  "description": "Zeigt, welche Adressen Nginx Proxy Manager von außen erreichbar macht, welche nur intern sind und wann die Zertifikate ablaufen",
+  "icon": "assets/icons/proxy-manager.png",
+  "api": {
+    "socket": "/run/proxy-manager/api.sock",
+    "health": "/health",
+    "public": [
+      "/health"
+    ],
+    "web": true
+  },
+  "services": {
+    "proxy-manager-uebersicht": {
+      "build": "modules/proxy-manager",
+      "extra_hosts": [
+        "host.docker.internal:host-gateway"
+      ],
+      "environment": [
+        "TZ=${TZ}",
+        "DATA=/data",
+        "LISTEN_SOCKET=/run/proxy-manager/api.sock",
+        "EVENTS_DIR=/run/home-net-events"
+      ],
+      "volumes": [
+        "${DATA_DIR}/proxy-manager/config:/data",
+        "${DATA_DIR}/proxy-manager/run:/run/proxy-manager",
+        "${DATA_DIR}/events/proxy-manager:/run/home-net-events"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python3",
+          "-c",
+          "import socket;s=socket.socket(socket.AF_UNIX);s.connect('/run/proxy-manager/api.sock');s.send(b'GET /health HTTP/1.0\\r\\n\\r\\n');assert b' 200 ' in s.recv(64)"
+        ]
+      }
+    }
+  },
+  "events": [
+    {
+      "id": "cert_expiring",
+      "label": "Zertifikat läuft bald ab",
+      "manager_only": true
+    },
+    {
+      "id": "cert_expired",
+      "label": "Zertifikat abgelaufen",
+      "manager_only": true
+    },
+    {
+      "id": "target_down",
+      "label": "Ziel einer Adresse antwortet nicht",
+      "manager_only": true,
+      "default": false
+    }
+  ]
+}

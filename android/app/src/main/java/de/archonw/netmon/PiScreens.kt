@@ -156,7 +156,7 @@ internal fun TextAction(label: String, onClick: () -> Unit) {
 
 /** Startseite: eine Kachel je Modul. Mit gemeinsamem Zugang kommt die Liste vom Server. */
 @Composable
-fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onPc: () -> Unit, onUnraid: () -> Unit, onPocketId: () -> Unit) {
+fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onPc: () -> Unit, onUnraid: () -> Unit, onPocketId: () -> Unit, onProxy: () -> Unit) {
     val p = LocalPalette.current
     var network by remember { mutableStateOf("Wird geladen …") }
     var networkAlert by remember { mutableStateOf(false) }
@@ -170,6 +170,8 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     var unraidAlert by remember { mutableStateOf(false) }
     var pocketId by remember { mutableStateOf("Wird geladen …") }
     var pocketIdAlert by remember { mutableStateOf(false) }
+    var proxy by remember { mutableStateOf("Wird geladen …") }
+    var proxyAlert by remember { mutableStateOf(false) }
     var installed by remember { mutableStateOf<Set<String>?>(null) }
     var hubError by remember { mutableStateOf<String?>(null) }
     var order by remember { mutableStateOf(settings.homeTiles) }
@@ -251,6 +253,18 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                 }
             }
         }
+        if (installed?.contains("proxy-manager") == true) {
+            launch {
+                try {
+                    val o = settings.proxyApi().overview()
+                    proxy = proxyTileText(o)
+                    proxyAlert = !o.configured || o.error.isNotBlank() || o.certsExpired > 0 || o.certsSoon > 0
+                } catch (e: ApiException) {
+                    proxy = e.message ?: "Nicht erreichbar"
+                    proxyAlert = true
+                }
+            }
+        }
     }
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
@@ -265,6 +279,7 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                 "pc" -> installed?.contains("pc-sicherung") == true
                 "unraid" -> installed?.contains("unraid") == true
                 "pocketid" -> installed?.contains("pocket-id") == true
+                "proxy" -> installed?.contains("proxy-manager") == true
                 else -> false
             }
         }
@@ -291,6 +306,7 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
                         "pc" -> ServiceTile("PC-Sicherung", pc, pcAlert, R.drawable.ic_tile_pc, onPc)
                         "unraid" -> ServiceTile("Unraid", unraid, unraidAlert, R.drawable.ic_tile_unraid, onUnraid)
                         "pocketid" -> ServiceTile("Pocket ID", pocketId, pocketIdAlert, R.drawable.ic_tile_pocketid, onPocketId)
+                        "proxy" -> ServiceTile("Proxy Manager", proxy, proxyAlert, R.drawable.ic_tile_proxy, onProxy)
                     }
                 }
             }
@@ -298,9 +314,9 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     }
 }
 
-val HOME_TILES = listOf("network", "pi", "pc", "unraid", "pocketid")
+val HOME_TILES = listOf("network", "pi", "pc", "unraid", "pocketid", "proxy")
 private val HOME_TILE_LABELS = mapOf(
-    "network" to "Netzwerk", "pi" to "Pi-Wartung", "pc" to "PC-Sicherung", "unraid" to "Unraid", "pocketid" to "Pocket ID",
+    "network" to "Netzwerk", "pi" to "Pi-Wartung", "pc" to "PC-Sicherung", "unraid" to "Unraid", "pocketid" to "Pocket ID", "proxy" to "Proxy Manager",
 )
 
 /** Eine Adresse und ein Passwort für alle Module. */

@@ -33,7 +33,7 @@ from security import Security  # noqa: E402
 class Modules(unittest.TestCase):
     def test_every_module_has_what_the_core_needs(self):
         modules = home_net.available_modules()
-        self.assertEqual(set(modules), {"netzwerkmonitor", "pi-wartung", "pc-sicherung", "ntfy", "unraid", "pocket-id", "pocket-id-server"})
+        self.assertEqual(set(modules), {"netzwerkmonitor", "pi-wartung", "pc-sicherung", "ntfy", "unraid", "pocket-id", "pocket-id-server", "proxy-manager"})
         for module in modules.values():
             for key in ("id", "name", "description", "icon", "services"):
                 self.assertIn(key, module)

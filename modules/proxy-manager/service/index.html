@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proxy Manager</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#0b8a7e; --ok:#1a7f37; --bad:#c93a3a; --warn:#b35a0a; --soft:#0b8a7e1f; }
+@media (prefers-color-scheme: dark) { :root { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#3fbfb1; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#3fbfb126; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
+header { padding:18px 16px 0; max-width:900px; margin:auto; }
+h1 { font-size:24px; margin:0 0 10px; }
+nav { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); }
+nav button { border:0; border-bottom:2px solid transparent; border-radius:0; background:none; padding:8px 10px; color:var(--muted); }
+nav button.on { color:var(--text); border-color:var(--accent); font-weight:620; }
+main { max-width:900px; margin:auto; padding:8px 16px 48px; }
+h2 { font-size:13px; color:var(--muted); margin:20px 0 8px; font-weight:650; }
+button { font:inherit; border:1px solid var(--line); background:var(--card); color:inherit; border-radius:9px; padding:7px 13px; cursor:pointer; }
+button.main { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+button.danger { color:var(--bad); }
+button:disabled { opacity:.55; cursor:default; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:8px; }
+.click { cursor:pointer; }
+.name { font-weight:620; }
+.quiet { color:var(--muted); font-size:13px; }
+.bad { color:var(--bad); } .warn { color:var(--warn); } .ok { color:var(--ok); }
+.note { background:var(--soft); border-color:transparent; }
+.pills { display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
+.pill { font-size:12px; border-radius:20px; padding:1px 8px; background:var(--soft); white-space:nowrap; }
+.actions { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; align-items:center; }
+dialog { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:14px; width:min(560px,94vw); padding:18px; }
+dialog::backdrop { background:#0007; }
+label { display:block; margin:9px 0 3px; font-size:13px; color:var(--muted); }
+label.check { color:inherit; font-size:15px; margin:6px 0; display:flex; align-items:center; gap:8px; }
+input { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; }
+input[type=checkbox] { width:auto; margin:0; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+.err { color:var(--bad); margin:8px 0; white-space:pre-wrap; }
+.hint { font-size:12.5px; color:var(--muted); margin:3px 0 0; }
+.foot { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; flex-wrap:wrap; }
+.link { overflow-wrap:anywhere; font-family:ui-monospace,monospace; font-size:13px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; }
+@media (max-width:560px) { .two { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Proxy Manager</h1>
+  <nav id="nav"></nav>
+</header>
+<main id="app">Wird geladen …</main>
+<dialog id="dlg"><form id="form" method="dialog"></form></dialog>
+
+<script>
+const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
+const app = document.getElementById("app"), dlg = document.getElementById("dlg"), form = document.getElementById("form"), nav = document.getElementById("nav");
+const TABS = [["hosts", "Adressen"], ["certs", "Zertifikate"], ["settings", "Einstellungen"]];
+const GROUPS = [["public", "Öffentlich", "Von überall erreichbar."], ["password", "Mit Passwort", "Von außen nur mit Benutzername und Passwort der Zugriffsliste."],
+  ["restricted", "Nur bestimmte Adressen", "Von außen nur für die Adressen in der Zugriffsliste."], ["internal", "Nur intern", "Nur aus dem Heimnetz (und VPN)."], ["off", "Abgeschaltet", ""]];
+const DNS = { ok: "", missing: "im Internet nicht eingetragen", private: "zeigt im Internet auf eine interne Adresse", error: "DNS nicht prüfbar", wildcard: "", ipv6: "im Internet nur per IPv6 eingetragen" };
+let tab = "hosts", data = null;
+
+async function api(path, method = "GET", body) {
+  const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.detail || `Fehler ${r.status}`);
+  return out;
+}
+
+function drawNav() {
+  nav.replaceChildren(...TABS.map(([id, label]) => $("button", { textContent: label, className: id === tab ? "on" : "", onclick: () => { tab = id; show(); } })));
+}
+
+async function show() {
+  drawNav();
+  if (tab === "settings") return showSettings();
+  try { data = await api("api/overview"); } catch (e) { app.replaceChildren($("p", { className: "err", textContent: e.message })); return; }
+  if (!data.configured) {
+    app.replaceChildren($("div", { className: "card note" }, "Es fehlt noch die Anmeldung für den Proxy Manager. Bitte unter ",
+      $("a", { href: "#", textContent: "Einstellungen", onclick: e => { e.preventDefault(); tab = "settings"; show(); } }), " eintragen."));
+    return;
+  }
+  if (data.error) { app.replaceChildren($("p", { className: "err", textContent: data.error })); return; }
+  tab === "certs" ? showCerts() : showHosts();
+}
+
+const date = t => t ? new Date(t * 1000).toLocaleDateString("de-DE") : "–";
+const days = c => c.state === "expired" ? "abgelaufen" : c.days === 0 ? "läuft heute ab" : `noch ${c.days} Tage`;
+const certClass = c => c.state === "expired" ? "bad" : c.state === "soon" ? "warn" : "quiet";
+const kindLabel = { proxy: "", redirect: "Weiterleitung · ", "404": "404-Seite · " };
+
+function hostCard(h) {
+  const problems = [];
+  h.dns.filter(d => DNS[d.state]).forEach(d => problems.push($("div", { className: d.state === "error" ? "quiet" : "warn", textContent: `${d.domain}: ${DNS[d.state]}` })));
+  if (h.target_state === "down") problems.push($("div", { className: "bad", textContent: "Das Ziel antwortet nicht." }));
+  if (h.nginx_error) problems.push($("div", { className: "bad", textContent: `Fehler in der Konfiguration: ${h.nginx_error}` }));
+  const ssl = h.ssl ? $("span", { className: certClass(h.ssl), textContent: ` · Zertifikat ${days(h.ssl)}` }) : $("span", { className: "quiet", textContent: " · ohne https" });
+  const toggle = $("button", { textContent: h.enabled ? "Abschalten" : "Einschalten", onclick: async () => {
+    if (h.enabled && !confirm(`${h.domains[0]} abschalten? Die Adresse ist dann nicht mehr erreichbar.`)) return;
+    try { await api(`api/hosts/${h.kind}/${h.id}`, "PUT", { enabled: !h.enabled }); show(); } catch (e) { alert(e.message); }
+  } });
+  return $("div", { className: "card" },
+    $("div", { className: "name" }, h.domains.join(", ")),
+    $("div", { className: "quiet" }, kindLabel[h.kind] + (h.target || "") + (h.target_state === "unknown" ? " (nicht prüfbar)" : ""), h.enabled ? ssl : null),
+    h.note ? $("div", { className: "quiet", textContent: h.note }) : null, ...problems,
+    $("div", { className: "actions" }, toggle));
+}
+
+function showHosts() {
+  const s = data.summary;
+  const parts = [$("div", { className: "pills" }, ...GROUPS.filter(([k]) => s[k]).map(([k, l]) => $("span", { className: "pill", textContent: `${l}: ${s[k]}` })))];
+  for (const [kind, label, hint] of GROUPS) {
+    const rows = data.hosts.filter(h => h.exposure === kind);
+    if (!rows.length) continue;
+    parts.push($("h2", { textContent: label }), hint ? $("p", { className: "hint", textContent: hint }) : null, ...rows.map(hostCard));
+  }
+  if (data.streams.length) {
+    parts.push($("h2", { textContent: "Weitergeleitete Ports (Streams)" }), $("p", { className: "hint", textContent: "Ports ohne Zugriffsliste: von überall erreichbar, wenn der Router sie freigibt." }),
+      ...data.streams.map(st => $("div", { className: "card" }, $("div", { className: "name", textContent: `Port ${st.port} → ${st.target}` }),
+        $("div", { className: "quiet", textContent: [st.tcp ? "TCP" : "", st.udp ? "UDP" : "", st.enabled ? "" : "abgeschaltet"].filter(Boolean).join(" · ") }))));
+  }
+  if (!data.hosts.length) parts.push($("p", { className: "quiet", textContent: "Im Proxy Manager sind noch keine Adressen eingetragen." }));
+  parts.push($("p", { className: "hint", textContent: "„Nur intern“ heißt: die Zugriffsliste lässt nur Adressen aus dem Heimnetz zu. Ob der Router Port 443 weiterleitet, sieht Home-Net nicht." + (data.version ? ` Proxy Manager ${data.version}.` : "") }));
+  app.replaceChildren(...parts);
+}
+
+function showCerts() {
+  const rows = data.certs.map(c => {
+    const renew = c.provider === "letsencrypt" ? $("button", { textContent: "Jetzt erneuern", onclick: async e => {
+      e.target.disabled = true; e.target.textContent = "Wird erneuert …";
+      try { await api(`api/certs/${c.id}/renew`, "POST", {}); show(); } catch (err) { alert(err.message); e.target.disabled = false; e.target.textContent = "Jetzt erneuern"; }
+    } }) : null;
+    return $("div", { className: "card" },
+      $("div", { className: "name" }, c.name, $("span", { className: certClass(c), textContent: ` · ${days(c)}` })),
+      $("div", { className: "quiet", textContent: `gültig bis ${date(c.expires)} · ${c.provider === "letsencrypt" ? "Let's Encrypt, erneuert sich selbst" : "eigenes Zertifikat"}` }),
+      $("div", { className: "quiet", textContent: c.unused ? "Wird von keiner Adresse genutzt." : `Für ${c.hosts.join(", ")}` }),
+      renew ? $("div", { className: "actions" }, renew) : null);
+  });
+  app.replaceChildren(...(rows.length ? rows : [$("p", { className: "quiet", textContent: "Keine Zertifikate." })]));
+}
+
+async function showSettings() {
+  let s;
+  try { s = await api("api/settings"); } catch (e) { app.replaceChildren($("p", { className: "err", textContent: e.message })); return; }
+  const url = $("input", { value: s.url }), email = $("input", { value: s.email, type: "email" });
+  const pw = $("input", { type: "password", placeholder: s.password_set ? "gespeichert – leer lassen zum Behalten" : "" });
+  const msg = $("p", { className: "quiet" });
+  app.replaceChildren($("div", { className: "card" },
+    $("label", { textContent: "Adresse der Verwaltung (Port 81)" }), url,
+    $("p", { className: "hint", textContent: "Wie der Server den Proxy Manager erreicht, z. B. http://host.docker.internal:81 auf demselben Rechner oder http://192.168.1.10:81." }),
+    $("label", { textContent: "E-Mail des Benutzers im Proxy Manager" }), email,
+    $("label", { textContent: "Passwort" }), pw,
+    $("p", { className: "hint", textContent: "Am besten im Proxy Manager unter Benutzer einen eigenen Benutzer „Home-Net“ anlegen: Rechte „Alle Einträge“ und überall „Nur ansehen“. Zum Erneuern und An-/Abschalten braucht er bei Zertifikaten bzw. Hosts „Verwalten“. Das Passwort bleibt nur auf dem Server." }),
+    $("div", { className: "foot" }, $("button", { className: "main", textContent: "Speichern", onclick: async () => {
+      try {
+        await api("api/settings", "PUT", { url: url.value, email: email.value, ...(pw.value ? { password: pw.value } : {}) });
+        pw.value = ""; msg.textContent = "Gespeichert. Prüfe Anmeldung …";
+        const o = await api("api/overview");
+        msg.textContent = o.error ? o.error : `Anmeldung klappt: ${o.hosts.length} Adressen gefunden.`;
+      } catch (e) { msg.textContent = e.message; }
+    } })), msg));
+}
+
+show();
+</script>
+</body>
+</html>

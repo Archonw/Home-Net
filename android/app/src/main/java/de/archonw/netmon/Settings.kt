@@ -124,6 +124,11 @@ class Settings(context: Context) {
         PiApi("$hubUrl/m/pocket-id", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/pocket-id"),
     )
 
+    /** Übersicht über Nginx Proxy Manager, ebenfalls nur über den gemeinsamen Zugang. */
+    fun proxyApi() = ProxyApi(
+        PiApi("$hubUrl/m/proxy-manager", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/proxy-manager"),
+    )
+
     fun piApi() = PiApi(piUrl, if (isHubConfigured) hubSecret else piPassword, piExternalUrl)
 
     var sortOrder: SortOrder

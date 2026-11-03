@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="512" android:viewportHeight="512">
+    <!-- assets/icons/proxy-manager.svg -->
+    <path android:fillColor="#0B8A7E" android:pathData="M0,0 H512 V512 H0 Z" />
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="26" android:strokeLineCap="round"
+        android:pathData="M106,256 A150,150 0 1 1 406,256 A150,150 0 1 1 106,256 Z M256,106 A62,150 0 1 1 256,406 A62,150 0 1 1 256,106 Z M106,256 H406 M126,181 H386 M126,331 H386" />
+</vector>

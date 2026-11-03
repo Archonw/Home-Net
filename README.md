@@ -37,6 +37,10 @@ Alle Bilder zeigen erfundene Beispieldaten. Sie entstehen im Emulator mit `tools
 | --- | --- | --- | --- |
 | <img src="docs/screenshots/unraid.png" width="200" alt="Übersicht Unraid"> | <img src="docs/screenshots/pocket-id.png" width="200" alt="Benutzer von Pocket ID"> | <img src="docs/screenshots/pocket-id-benutzer.png" width="200" alt="Apps eines Benutzers an- und abschalten"> | <img src="docs/screenshots/pocket-id-einladung.png" width="200" alt="Einladungslink teilen"> |
 
+| Proxy Manager: Adressen | Proxy Manager: Zertifikate |
+| --- | --- |
+| <img src="docs/screenshots/proxy-manager.png" width="200" alt="Adressen nach öffentlich und intern"> | <img src="docs/screenshots/proxy-manager-zertifikate.png" width="200" alt="Zertifikate mit Ablaufdatum"> |
+
 ## Konten und Anmeldung
 
 Jeder meldet sich mit Benutzername und Passwort an. Im Heimnetz reicht das, von außen, über einen Reverse Proxy mit HTTPS, gehört ein Passkey dazu.
@@ -61,6 +65,7 @@ Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sond
 | `modules/pc-sicherung/` | Sichert ganze PCs (Windows, Linux, beides) über den Netzwerkstart und stellt sie wieder her, siehe [README](modules/pc-sicherung/README.md) |
 | `modules/unraid/` | Verwaltet den Unraid-Server: Freigaben, Benutzer, Einstellungen, Docker, VMs und User Scripts, siehe [README](modules/unraid/README.md) |
 | `modules/pocket-id/` | Verwaltet die Benutzer von Pocket ID (Anmeldung mit Passkey): anlegen, einladen, sperren, Apps zuordnen, siehe [README](modules/pocket-id/README.md) |
+| `modules/proxy-manager/` | Zeigt, welche Adressen Nginx Proxy Manager von außen erreichbar macht, welche nur intern sind und wann die Zertifikate ablaufen, siehe [README](modules/proxy-manager/README.md) |
 | `modules/pocket-id-server/` | Installiert Pocket ID selbst, falls noch keins läuft (`home-net add pocket-id --with-server`) |
 | `modules/ntfy/` | Eigener Server für Benachrichtigungen |
 | `tools/` | Hilfsprogramme, zum Beispiel die Sicherung der Einstellungen |

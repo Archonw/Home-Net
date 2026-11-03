@@ -53,6 +53,9 @@ sealed interface Screen {
     data object UnraidScripts : Screen
     data object PocketId : Screen
     data class PocketIdUser(val id: String) : Screen
+    data object Proxy : Screen
+    data object ProxyCerts : Screen
+    data class ProxyHost(val key: String) : Screen
     data object HubSetup : Screen
     data object Notifications : Screen
 }
@@ -131,6 +134,7 @@ class MainActivity : FragmentActivity() {
                 is Screen.PcDetail -> Screen.PcOverview
                 Screen.UnraidShares, Screen.UnraidUsers, Screen.UnraidDocker, Screen.UnraidScripts -> Screen.UnraidOverview
                 is Screen.PocketIdUser -> Screen.PocketId
+                is Screen.ProxyHost, Screen.ProxyCerts -> Screen.Proxy
                 Screen.HubSetup, Screen.Notifications -> Screen.Setup
                 else -> Screen.Home
             }
@@ -171,6 +175,7 @@ class MainActivity : FragmentActivity() {
                         onPc = { screen = Screen.PcOverview },
                         onUnraid = { screen = Screen.UnraidOverview },
                         onPocketId = { screen = Screen.PocketId },
+                        onProxy = { screen = Screen.Proxy },
                     )
                     Screen.UnraidOverview -> UnraidOverviewScreen(
                         api = settings.unraidApi(),
@@ -191,6 +196,14 @@ class MainActivity : FragmentActivity() {
                         onBack = { screen = Screen.Home },
                     )
                     is Screen.PocketIdUser -> PocketIdUserScreen(settings.pocketIdApi(), s.id) { screen = Screen.PocketId }
+                    Screen.Proxy -> ProxyScreen(
+                        api = settings.proxyApi(),
+                        onOpen = { screen = Screen.ProxyHost(it) },
+                        onCerts = { screen = Screen.ProxyCerts },
+                        onBack = { screen = Screen.Home },
+                    )
+                    is Screen.ProxyHost -> ProxyHostScreen(settings.proxyApi(), s.key) { screen = Screen.Proxy }
+                    Screen.ProxyCerts -> ProxyCertsScreen(settings.proxyApi()) { screen = Screen.Proxy }
                     Screen.PcOverview -> PcOverviewScreen(
                         api = settings.pcApi(),
                         onOpen = { screen = Screen.PcDetail(it) },
