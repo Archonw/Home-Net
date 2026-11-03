@@ -3,7 +3,7 @@
 
 Drei Seiten:
   - Weboberfläche und App sprechen über die Socket-Datei, die nur der Zugang erreicht.
-  - Die PCs starten über das Netz (Proxy-DHCP aus proxydhcp.py, TFTP über dnsmasq) und holen sich auf BOOT_PORT ihr Startsystem und
+  - Die PCs starten über das Netz (Proxy-DHCP aus proxydhcp.py, TFTP aus tftp.py) und holen sich auf BOOT_PORT ihr Startsystem und
     ihren Auftrag; dort zählt nur das Einmal-Kennwort des Auftrags.
   - Die Daten gehen über rest-server auf REST_PORT in ein restic-Archiv je PC, mit eigenem Zugang je PC und ohne Recht
     zum Löschen. Aufräumen macht dieser Dienst selbst direkt im Archiv.
@@ -28,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from proxydhcp import ProxyDHCP  # noqa: E402
+from tftp import TFTPServer  # noqa: E402
 from store import AFTER, OVERDUE_DAYS, Store, category_allowed, next_due, normal_mac, run_label  # noqa: E402
 
 DATA = os.environ.get("DATA", "/data")
@@ -171,7 +172,7 @@ class Archive:
             return len(drop)
 
 
-# --- Zugang für die PCs (rest-server) und Netzwerkstart (dnsmasq) --------------------------------
+# --- Zugang für die PCs (rest-server) und Netzwerkstart --------------------------------
 
 class Services:
     """Starts and watches the helper programs; a crashed helper comes back within a minute."""
@@ -179,7 +180,6 @@ class Services:
     def __init__(self, store):
         self.store = store
         self.procs = {}
-        self.proxy = None
         self.netboot_error = ""
         self.lock = threading.Lock()
 
@@ -222,32 +222,27 @@ class Services:
         ip = self.store.settings.get("server_ip")
         return ip or detect_ip()
 
-    def start_dnsmasq(self):
+    def start_netboot(self):
         ip = self.server_ip()
         iface, _network = interface_of(ip)
         if not iface:
             self.netboot_error = f"Keine Netzwerkkarte mit der Adresse {ip} gefunden"
             return None
-        conf = os.path.join(RUN_DIR, "dnsmasq.conf")
-        with open(conf, "w") as f:
-            f.write(dnsmasq_config(iface, os.path.join(RUN_DIR, "tftp")))
-        proc = subprocess.Popen(["dnsmasq", "--keep-in-foreground", f"--conf-file={conf}"], stdout=subprocess.DEVNULL,
-                                stderr=subprocess.PIPE, text=True)
-        time.sleep(1)
-        if proc.poll() is not None:
-            self.netboot_error = (proc.stderr.read().strip() or "dnsmasq startet nicht")[-300:]
-            return None
-        threading.Thread(target=lambda: [log(f"dnsmasq: {line.rstrip()}") for line in proc.stderr], daemon=True).start()
-        proxy = ProxyDHCP(iface, ip, log=log)
+        files = TFTPServer(os.path.join(RUN_DIR, "tftp"), ip, log=log)
+        proxy = ProxyDHCP(iface, ip, log=log, known=self.known_mac)
         try:
+            files.start()
             proxy.start()
         except OSError as exc:
-            proc.terminate()
-            self.netboot_error = f"Port 67 oder 4011 belegt ({exc})"
+            files.stop()
+            proxy.stop()
+            self.netboot_error = f"Port 67, 69 oder 4011 belegt ({exc})"
             return None
-        self.proxy = proxy
         self.netboot_error = ""
-        return proc
+        return Netboot(proxy, files)
+
+    def known_mac(self, mac):
+        return any(mac in pc["macs"] for pc in self.store.all_pcs())
 
     def prepare_tftp(self):
         """The TFTP tree with a start file that knows this server's address."""
@@ -265,30 +260,23 @@ class Services:
             rest = self.procs.get("rest")
             if not rest or rest.poll() is not None:
                 self.procs["rest"] = self.start_rest()
-            dns = self.procs.get("dns")
+            net = self.procs.get("dns")
             wanted = self.store.settings.get("netboot")
-            if wanted and (not dns or dns.poll() is not None):
-                self.stop_proxy()
+            if wanted and (not net or net.poll() is not None):
+                if net:
+                    net.terminate()
                 self.prepare_tftp()
-                self.procs["dns"] = self.start_dnsmasq()
-            elif not wanted and dns:
-                dns.terminate()
-                self.stop_proxy()
+                self.procs["dns"] = self.start_netboot()
+            elif not wanted and net:
+                net.terminate()
                 self.procs["dns"] = None
                 self.netboot_error = ""
 
-    def stop_proxy(self):
-        if self.proxy:
-            self.proxy.stop()
-            self.proxy = None
-
     def restart_netboot(self):
         with self.lock:
-            dns = self.procs.get("dns")
-            if dns:
-                dns.terminate()
-                dns.wait(10)
-            self.stop_proxy()
+            net = self.procs.get("dns")
+            if net:
+                net.terminate()
             self.procs["dns"] = None
         self.check()
 
@@ -321,19 +309,19 @@ def interface_of(ip):
     return None, None
 
 
-def dnsmasq_config(iface, tftp_root):
-    """dnsmasq only serves the start files over TFTP; which file a PC loads, proxydhcp.py tells it.
+class Netboot:
+    """Proxy DHCP and TFTP together, in the place of a process: poll() is None while both run."""
 
-    UEFI PCs get the signed shim and GRUB, so Secure Boot may stay on. Old BIOS PCs get iPXE; once iPXE runs it
-    identifies itself and gets a small script instead, which asks this service over HTTP.
-    """
-    return f"""port=0
-interface={iface}
-bind-interfaces
-enable-tftp
-tftp-root={tftp_root}
-log-facility=-
-"""
+    def __init__(self, proxy, files):
+        self.proxy = proxy
+        self.files = files
+
+    def poll(self):
+        return None if self.proxy.alive() and self.files.alive() else 1
+
+    def terminate(self):
+        self.proxy.stop()
+        self.files.stop()
 
 
 def grub_entry(ip):
