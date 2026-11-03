@@ -174,6 +174,7 @@ class MainActivity : FragmentActivity() {
                         onUsers = { screen = Screen.UnraidUsers },
                         onDocker = { screen = Screen.UnraidDocker },
                         onScripts = { screen = Screen.UnraidScripts },
+                        settings = settings,
                         onBack = { screen = Screen.Home },
                     )
                     Screen.UnraidShares -> UnraidSharesScreen(settings.unraidApi()) { screen = Screen.UnraidOverview }

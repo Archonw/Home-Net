@@ -94,17 +94,23 @@ fun UnraidOverviewScreen(
     onUsers: () -> Unit,
     onDocker: () -> Unit,
     onScripts: () -> Unit,
+    settings: Settings,
     onBack: () -> Unit,
 ) {
     val p = LocalPalette.current
     var reload by remember { mutableStateOf(0) }
+    var arranging by remember { mutableStateOf(false) }
+    var sections by remember { mutableStateOf(settings.unraidSections) }
+    var menuOrder by remember { mutableStateOf(settings.unraidMenu) }
     var actionError by remember { mutableStateOf<String?>(null) }
     var confirm by remember { mutableStateOf<Pair<String, String>?>(null) }
     val scope = rememberCoroutineScope()
     val (data, error) = rememberLoaded(reload, UNRAID_REFRESH_MS) { api.overview() }
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
-        PageTitle(data?.name?.takeIf { it.isNotBlank() }?.let { "Unraid: $it" } ?: "Unraid", onBack = onBack)
+        PageTitle(data?.name?.takeIf { it.isNotBlank() }?.let { "Unraid: $it" } ?: "Unraid", onBack = onBack, trailing = {
+            if (data?.available == true && !arranging) TextAction("Anordnen") { arranging = true }
+        })
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -116,96 +122,120 @@ fun UnraidOverviewScreen(
             } else if (!o.available) {
                 Text("Die Daten von Unraid sind nicht sichtbar. Läuft Home-Net direkt auf dem Unraid-Server?", color = p.blocked)
             } else {
-                val used = if (o.memTotal > 0) ((o.memTotal - o.memAvailable) * 100 / o.memTotal).toInt() else 0
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatTile(
-                        "Array", if (!o.started) o.arrayState.ifBlank { "Gestoppt" } else if (o.check.running) "Prüfung" else "Gestartet",
-                        if (o.missing > 0) "${o.missing} Platte fehlt" else "Unraid ${o.version}", Modifier.weight(1f),
-                        color = if (!o.started || o.missing > 0) p.blocked else p.allowed,
-                    )
-                    StatTile("Läuft seit", uptimeText(o.uptime), "Last ${"%.1f".format(o.load)} bei ${o.cpus} Kernen", Modifier.weight(1f))
+                if (arranging) {
+                    ArrangeEditor(
+                        sections, { sections = it; settings.unraidSections = it },
+                        menuOrder, { menuOrder = it; settings.unraidMenu = it },
+                    ) { arranging = false }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatTile("Arbeitsspeicher", "$used %", "von ${formatBytes(o.memTotal)}", Modifier.weight(1f))
-                    StatTile(
-                        "Probleme", "${o.problems}", if (o.warnings > 0) "${o.warnings} Platte warm" else "Platten und Array",
-                        Modifier.weight(1f), color = if (o.problems > 0) p.blocked else if (o.warnings > 0) p.unknown else p.allowed,
-                    )
-                }
-                if (o.manager) {
-                    HubCard {
-                        NavRow("Freigaben", onShares)
-                        NavRow("Benutzer", onUsers)
-                        NavRow("Docker und VMs", onDocker)
-                        if (o.userScripts) NavRow("User Scripts", onScripts)
-                    }
-                }
-                SectionTitle("Platten")
-                HubCard {
-                    o.disks.forEach { d ->
-                        val kind = when (d.kind) { "parity" -> "Parität"; "data" -> "Daten"; "pool" -> "Pool"; else -> "USB-Stick" }
-                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("${d.name} · $kind", color = p.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                if (d.mounted && d.size > 0) {
-                                    Text("${formatBytes(d.free)} frei von ${formatBytes(d.size)}", color = p.muted, fontSize = 12.sp)
+                if (!arranging) sections.forEach { section ->
+                    when (section) {
+                        "tiles" -> {
+                            val used = if (o.memTotal > 0) ((o.memTotal - o.memAvailable) * 100 / o.memTotal).toInt() else 0
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                StatTile(
+                                    "Array", if (!o.started) o.arrayState.ifBlank { "Gestoppt" } else if (o.check.running) "Prüfung" else "Gestartet",
+                                    if (o.missing > 0) "${o.missing} Platte fehlt" else "Unraid ${o.version}", Modifier.weight(1f),
+                                    color = if (!o.started || o.missing > 0) p.blocked else p.allowed,
+                                )
+                                StatTile("Läuft seit", uptimeText(o.uptime), "Last ${"%.1f".format(o.load)} bei ${o.cpus} Kernen", Modifier.weight(1f))
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                StatTile("Arbeitsspeicher", "$used %", "von ${formatBytes(o.memTotal)}", Modifier.weight(1f))
+                                StatTile(
+                                    "Probleme", "${o.problems}", if (o.warnings > 0) "${o.warnings} Platte warm" else "Platten und Array",
+                                    Modifier.weight(1f), color = if (o.problems > 0) p.blocked else if (o.warnings > 0) p.unknown else p.allowed,
+                                )
+                            }
+                        }
+                        "menu" -> {
+                            if (o.manager) {
+                                HubCard {
+                                    menuOrder.forEach { item ->
+                                        when (item) {
+                                            "shares" -> NavRow("Freigaben", onShares)
+                                            "users" -> NavRow("Benutzer", onUsers)
+                                            "docker" -> NavRow("Docker und VMs", onDocker)
+                                            "scripts" -> { if (o.userScripts) NavRow("User Scripts", onScripts) }
+                                        }
+                                    }
                                 }
                             }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    if (d.spundown) "schläft" else d.temp?.let { "$it °C" } ?: "",
-                                    color = when { o.critical(d) -> p.blocked; o.hot(d) -> p.unknown; else -> p.muted }, fontSize = 13.sp,
-                                )
-                                Text(
-                                    if (d.errors > 0) "${d.statusText}, ${d.errors} Fehler" else d.statusText,
-                                    color = if (d.ok && d.errors == 0) p.allowed else p.blocked, fontSize = 13.sp,
-                                )
+                        }
+                        "disks" -> {
+                            SectionTitle("Platten")
+                            HubCard {
+                                o.disks.forEach { d ->
+                                    val kind = when (d.kind) { "parity" -> "Parität"; "data" -> "Daten"; "pool" -> "Pool"; else -> "USB-Stick" }
+                                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text("${d.name} · $kind", color = p.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                            if (d.mounted && d.size > 0) {
+                                                Text("${formatBytes(d.free)} frei von ${formatBytes(d.size)}", color = p.muted, fontSize = 12.sp)
+                                            }
+                                        }
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text(
+                                                if (d.spundown) "schläft" else d.temp?.let { "$it °C" } ?: "",
+                                                color = when { o.critical(d) -> p.blocked; o.hot(d) -> p.unknown; else -> p.muted }, fontSize = 13.sp,
+                                            )
+                                            Text(
+                                                if (d.errors > 0) "${d.statusText}, ${d.errors} Fehler" else d.statusText,
+                                                color = if (d.ok && d.errors == 0) p.allowed else p.blocked, fontSize = 13.sp,
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }
-                }
-                SectionTitle("Paritätsprüfung")
-                HubCard {
-                    val c = o.check
-                    if (c.running) {
-                        Text(if (c.paused) "Angehalten" else "Läuft: ${"%.1f".format(c.percent ?: 0.0)} %", color = p.accentText, fontWeight = FontWeight.SemiBold)
-                        LinearProgressIndicator(
-                            progress = { ((c.percent ?: 0.0) / 100).toFloat() },
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), color = p.accent, trackColor = p.line,
-                        )
-                    } else {
-                        Text(
-                            if (c.last > 0) "Zuletzt ${formatEpoch(c.last)}: " + when {
-                                c.lastExit != 0 -> "abgebrochen"
-                                c.lastErrors > 0 -> "${c.lastErrors} Fehler"
-                                else -> "keine Fehler"
-                            } else "Noch keine Prüfung",
-                            color = if (c.lastErrors > 0) p.blocked else p.text, fontSize = 14.sp,
-                        )
-                    }
-                    if (o.manager && o.writable && o.started) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            if (c.running) {
-                                if (c.paused) TextAction("Fortsetzen") { confirm = "resume" to "Prüfung fortsetzen?" }
-                                else TextAction("Anhalten") { confirm = "pause" to "Prüfung anhalten?" }
-                                TextAction("Abbrechen") { confirm = "cancel" to "Laufende Prüfung abbrechen?" }
-                            } else {
-                                TextAction("Prüfung starten") { confirm = "check" to "Paritätsprüfung mit Korrektur starten? Die Platten sind dabei viele Stunden stark beschäftigt." }
-                                if (!o.mover) TextAction("Mover starten") { confirm = "mover" to "Mover jetzt starten?" }
+                        "parity" -> {
+                            SectionTitle("Paritätsprüfung")
+                            HubCard {
+                                val c = o.check
+                                if (c.running) {
+                                    Text(if (c.paused) "Angehalten" else "Läuft: ${"%.1f".format(c.percent ?: 0.0)} %", color = p.accentText, fontWeight = FontWeight.SemiBold)
+                                    LinearProgressIndicator(
+                                        progress = { ((c.percent ?: 0.0) / 100).toFloat() },
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), color = p.accent, trackColor = p.line,
+                                    )
+                                } else {
+                                    Text(
+                                        if (c.last > 0) "Zuletzt ${formatEpoch(c.last)}: " + when {
+                                            c.lastExit != 0 -> "abgebrochen"
+                                            c.lastErrors > 0 -> "${c.lastErrors} Fehler"
+                                            else -> "keine Fehler"
+                                        } else "Noch keine Prüfung",
+                                        color = if (c.lastErrors > 0) p.blocked else p.text, fontSize = 14.sp,
+                                    )
+                                }
+                                if (o.manager && o.writable && o.started) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        if (c.running) {
+                                            if (c.paused) TextAction("Fortsetzen") { confirm = "resume" to "Prüfung fortsetzen?" }
+                                            else TextAction("Anhalten") { confirm = "pause" to "Prüfung anhalten?" }
+                                            TextAction("Abbrechen") { confirm = "cancel" to "Laufende Prüfung abbrechen?" }
+                                        } else {
+                                            TextAction("Prüfung starten") { confirm = "check" to "Paritätsprüfung mit Korrektur starten? Die Platten sind dabei viele Stunden stark beschäftigt." }
+                                            if (!o.mover) TextAction("Mover starten") { confirm = "mover" to "Mover jetzt starten?" }
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }
-                }
-                if (o.notes.isNotEmpty()) {
-                    SectionTitle("Ungelesene Meldungen von Unraid")
-                    HubCard {
-                        o.notes.forEach { n ->
-                            Text(
-                                n.subject, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                                color = when (n.importance) { "alert" -> p.blocked; "warning" -> p.unknown; else -> p.text },
-                            )
-                            Text("${n.description} · ${formatEpoch(n.time)}", color = p.muted, fontSize = 12.sp)
-                            Spacer(Modifier.height(4.dp))
+                        "notes" -> {
+                            if (o.notes.isNotEmpty()) {
+                                SectionTitle("Ungelesene Meldungen von Unraid")
+                                HubCard {
+                                    o.notes.forEach { n ->
+                                        Text(
+                                            n.subject, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                            color = when (n.importance) { "alert" -> p.blocked; "warning" -> p.unknown; else -> p.text },
+                                        )
+                                        Text("${n.description} · ${formatEpoch(n.time)}", color = p.muted, fontSize = 12.sp)
+                                        Spacer(Modifier.height(4.dp))
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -235,6 +265,36 @@ fun UnraidOverviewScreen(
             },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Nein") } },
         )
+    }
+}
+
+val UNRAID_SECTIONS = listOf("tiles", "menu", "disks", "parity", "notes")
+val UNRAID_MENU = listOf("shares", "users", "docker", "scripts")
+private val SECTION_LABELS = mapOf(
+    "tiles" to "Kacheln (Array, Speicher, Probleme)",
+    "menu" to "Menü",
+    "disks" to "Platten",
+    "parity" to "Paritätsprüfung",
+    "notes" to "Meldungen von Unraid",
+)
+private val MENU_LABELS = mapOf("shares" to "Freigaben", "users" to "Benutzer", "docker" to "Docker und VMs", "scripts" to "User Scripts")
+
+@Composable
+private fun ArrangeEditor(
+    sections: List<String>,
+    onSections: (List<String>) -> Unit,
+    menu: List<String>,
+    onMenu: (List<String>) -> Unit,
+    onDone: () -> Unit,
+) {
+    ArrangeHint()
+    SectionTitle("Bereiche der Übersicht")
+    OrderList(sections, SECTION_LABELS, onSections)
+    SectionTitle("Menüpunkte")
+    OrderList(menu, MENU_LABELS, onMenu)
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        TextAction("Zurücksetzen") { onSections(UNRAID_SECTIONS); onMenu(UNRAID_MENU) }
+        TextAction("Fertig", onDone)
     }
 }
 
