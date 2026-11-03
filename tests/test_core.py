@@ -34,7 +34,7 @@ class Modules(unittest.TestCase):
     def test_every_module_has_what_the_core_needs(self):
         modules = home_net.available_modules()
         self.assertEqual(set(modules), {"netzwerkmonitor", "pi-wartung", "pc-sicherung", "ntfy", "unraid", "pocket-id", "pocket-id-server",
-                                        "wireguard", "wireguard-server", "proxy-manager"})
+                                        "wireguard", "wireguard-server", "pihole", "proxy-manager"})
         for module in modules.values():
             for key in ("id", "name", "description", "icon", "services"):
                 self.assertIn(key, module)
