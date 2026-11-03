@@ -50,6 +50,7 @@ legend { font-weight:650; padding-right:8px; }
 .pill { font-size:12px; border-radius:20px; padding:1px 8px; background:var(--soft); white-space:nowrap; }
 .crumbs { display:flex; gap:4px; flex-wrap:wrap; align-items:center; margin:6px 0 10px; }
 .crumbs a { color:var(--accent); cursor:pointer; }
+pre.log { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; max-height:55vh; overflow:auto; font-size:12.5px; white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0 0; }
 .right { display:grid; grid-template-columns:1fr 200px; gap:6px 10px; align-items:center; }
 @media (max-width:560px) { .two { grid-template-columns:1fr; } .right { grid-template-columns:1fr 175px; } }
 </style>
@@ -65,7 +66,7 @@ legend { font-weight:650; padding-right:8px; }
 <script>
 const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
 const app = document.getElementById("app"), dlg = document.getElementById("dlg"), form = document.getElementById("form"), nav = document.getElementById("nav");
-const TABS = [["overview", "Übersicht"], ["shares", "Freigaben"], ["users", "Benutzer"], ["docker", "Docker"], ["vms", "VMs"], ["files", "Dateien"], ["settings", "Einstellungen"]];
+const TABS = [["overview", "Übersicht"], ["shares", "Freigaben"], ["users", "Benutzer"], ["docker", "Docker"], ["vms", "VMs"], ["scripts", "Skripte"], ["files", "Dateien"], ["settings", "Einstellungen"]];
 const RIGHTS = [["read-write", "Lesen und schreiben"], ["read-only", "Nur lesen"], ["no-access", "Kein Zugriff"]];
 const EXPORT = [["-", "Nein"], ["e", "Ja"], ["eh", "Ja (versteckt)"], ["et", "Ja, Time Machine"], ["eth", "Ja, Time Machine (versteckt)"]];
 const SECURITY = [["public", "Öffentlich: alle lesen und schreiben"], ["secure", "Geschützt: alle lesen, Ausgewählte schreiben"], ["private", "Privat: nur Ausgewählte"]];
@@ -95,7 +96,7 @@ function showNav() {
   const tabs = info && info.manager ? TABS : TABS.slice(0, 1);
   nav.replaceChildren(...tabs.map(([id, text]) => $("button", { textContent: text, className: id === tab ? "on" : "", onclick: () => go(id) })));
 }
-function go(id) { tab = id; clearTimeout(timer); showNav(); app.textContent = "Wird geladen …"; ({ overview, shares, users, docker, vms, files, settings })[id]().catch(fail); }
+function go(id) { tab = id; clearTimeout(timer); showNav(); app.textContent = "Wird geladen …"; ({ overview, shares, users, docker, vms, scripts, files, settings })[id]().catch(fail); }
 
 function ask(title, build, submit, { label = "Speichern", danger = false } = {}) {
   const error = $("div", { className: "err" });
@@ -285,6 +286,56 @@ async function vms() {
   }
   app.replaceChildren(list);
   schedule(() => tab === "vms" && vms().catch(fail), 20000);
+}
+
+// --- User Scripts ---
+const FREQ = [["disabled", "Kein Zeitplan"], ["hourly", "Stündlich"], ["daily", "Täglich"], ["weekly", "Wöchentlich"], ["monthly", "Monatlich"], ["start", "Beim Start des Arrays"], ["stop", "Beim Stoppen des Arrays"], ["boot", "Nur beim ersten Array-Start"], ["custom", "Eigener Zeitplan (Cron)"]];
+const freqText = s => s.frequency === "custom" ? `Eigener Zeitplan: ${s.custom}` : (FREQ.find(f => f[0] === s.frequency) || FREQ[0])[1];
+const scriptPath = (s, part) => `api/scripts/${encodeURIComponent(s.id)}/${part}`;
+async function scripts() {
+  const d = await api("api/scripts");
+  if (!d.installed) return app.replaceChildren($("div", { className: "card note" }, $("div", { className: "name", textContent: "User Scripts ist nicht installiert" }), $("div", { className: "quiet", textContent: "Das Plugin „User Scripts“ lässt sich in Unraid unter Apps installieren. Danach erscheinen die Skripte hier." })));
+  const parts = [];
+  if (!d.starter.running) parts.push($("div", { className: "card note" }, $("div", { className: "name", textContent: "Einmal einrichten: Home-Net Starter" }),
+    $("div", { className: "quiet", textContent: "Ansehen geht schon. Zum Starten, Abbrechen und für Zeitpläne braucht Home-Net seinen Helfer in User Scripts. In Unraid unter Settings › User Scripts beim „Home-Net Starter“ den Zeitplan auf „At Startup of Array“ stellen, „Apply“ drücken und ihn einmal mit „Run in background“ starten." })));
+  const list = $("div", { className: "card" });
+  for (const s of d.scripts.filter(s => !s.starter)) {
+    const buttons = [$("button", { className: "small", textContent: "Protokoll", onclick: () => showLog(s) }),
+      $("button", { className: "small", textContent: "Zeitplan", disabled: !d.starter.running, onclick: () => editSchedule(s) })];
+    if (s.running) buttons.push($("button", { className: "small danger", textContent: "Abbrechen", disabled: !d.starter.running, onclick: () => confirmStep(`${s.name} abbrechen?`, `Das Skript ${s.name} wird sofort beendet.`, () => api(scriptPath(s, "abort"), "POST"), "Abbrechen") }));
+    else if (!s.foreground_only) buttons.push($("button", { className: "small", textContent: "Starten", disabled: !d.starter.running, onclick: () => confirmStep(`${s.name} starten?`, `Das Skript ${s.name} läuft dann im Hintergrund auf dem Server.`, () => api(scriptPath(s, "run"), "POST"), "Starten") }));
+    const notes = [freqText(s), s.last ? `zuletzt ${when(s.last)}` : null, s.foreground_only ? "nur im Vordergrund (in Unraid starten)" : null, s.array_started ? "nur mit gestartetem Array" : null].filter(Boolean).join(" · ");
+    list.append($("div", { className: "line", style: "flex-wrap:wrap" },
+      $("div", { className: "grow", style: "min-width:220px" }, $("div", { className: "name", textContent: s.name }), s.description ? $("div", { className: "quiet", textContent: s.description }) : null, $("div", { className: "quiet", textContent: notes })),
+      s.running ? $("span", { className: "run", textContent: "Läuft" }) : null,
+      $("span", { className: "actions", style: "margin:0" }, ...buttons)));
+  }
+  if (!list.children.length) list.append($("div", { className: "quiet", textContent: "Noch keine Skripte angelegt. Neue Skripte legst du in Unraid unter Settings › User Scripts an." }));
+  const st = d.scripts.find(s => s.starter);
+  parts.push(list, $("p", { className: "hint", textContent: `Skripte anlegen und bearbeiten geht in Unraid. Home-Net Starter: ${d.starter.running ? "läuft" : st ? "angelegt, läuft nicht" : "fehlt"}.` }));
+  app.replaceChildren(...parts);
+  schedule(() => tab === "scripts" && !dlg.open && scripts().catch(fail), 10000);
+}
+async function showLog(s) {
+  const pre = $("pre", { className: "log", textContent: "Wird geladen …" });
+  const load = async () => { const l = await api(scriptPath(s, "log")); pre.textContent = (l.cut ? "… (nur der letzte Teil)\n" : "") + (l.log || "Noch kein Protokoll vorhanden."); pre.scrollTop = pre.scrollHeight; };
+  form.replaceChildren($("h3", { textContent: `Protokoll: ${s.name}`, style: "margin-top:0" }), pre,
+    $("div", { className: "foot" },
+      $("button", { type: "button", className: "danger", textContent: "Protokoll löschen", disabled: s.running, onclick: async () => { await api(scriptPath(s, "log"), "DELETE").catch(e => alert(e.message)); load().catch(e => pre.textContent = e.message); } }),
+      $("button", { type: "button", textContent: "Neu laden", onclick: () => load().catch(e => pre.textContent = e.message) }),
+      $("button", { type: "button", className: "main", textContent: "Schließen", onclick: () => { dlg.close(); go(tab); } })));
+  form.onsubmit = ev => ev.preventDefault();
+  dlg.showModal();
+  load().catch(e => pre.textContent = e.message);
+}
+function editSchedule(s) {
+  const custom = input("custom", s.custom, { placeholder: "30 3 * * *", maxLength: 80 });
+  const box = field("Cron-Angabe", custom, "Minute Stunde Tag Monat Wochentag, zum Beispiel „30 3 * * *“ für täglich um 3:30 Uhr.");
+  const sel = select("frequency", FREQ, s.frequency);
+  const toggle = () => { box.style.display = sel.value === "custom" ? "" : "none"; };
+  sel.onchange = toggle; toggle();
+  ask(`Zeitplan: ${s.name}`, () => [field("Wann läuft das Skript?", sel), box],
+    f => api(scriptPath(s, "schedule"), "PUT", { frequency: f.get("frequency"), custom: f.get("custom") || "" }));
 }
 
 // --- Dateien ---

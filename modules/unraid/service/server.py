@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import host  # noqa: E402
 from host import HostError, Server  # noqa: E402
+from scripts import UserScripts  # noqa: E402
 
 DATA = os.environ.get("DATA", "/data")
 LISTEN_SOCKET = os.environ.get("LISTEN_SOCKET", "")
@@ -154,6 +155,7 @@ class ApiHandler(BaseHTTPRequestHandler):
     server_api = None
     settings = None
     forwarder = None
+    scripts = None
 
     def log_message(self, fmt, *args):
         sys.stderr.write(f"{self.headers.get('X-Forwarded-For', 'socket') if self.headers else 'socket'} {fmt % args}\n")
@@ -228,6 +230,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             data["owner"] = self.role() == "owner"
             data["notifications"] = self.forwarder.unread()[:10] if self.forwarder else []
             data["temps"] = srv.temps()
+            data["userscripts"] = bool(self.scripts and self.scripts.installed())
             return self.send_json(200, data)
 
         self.need_manager()
@@ -349,6 +352,32 @@ class ApiHandler(BaseHTTPRequestHandler):
             name = urllib.parse.quote(os.path.basename(full))
             return self.send_body(200, data, kind, {"Content-Disposition": f"attachment; filename*=UTF-8''{name}"})
 
+        # User Scripts
+        us = self.scripts
+        if method == "GET" and path == "/api/scripts":
+            if not us.installed():
+                return self.send_json(200, {"installed": False, "scripts": [], "starter": us.starter()})
+            try:
+                us.ensure_starter()
+            except OSError as exc:
+                log(f"Starter nicht angelegt: {exc}")
+            return self.send_json(200, {"installed": True, "scripts": us.list(), "starter": us.starter()})
+        match = re.fullmatch(r"/api/scripts/([^/]+)/(run|abort|schedule|log)", path)
+        if match:
+            name, part = urllib.parse.unquote(match.group(1)), match.group(2)
+            if method == "GET" and part == "log":
+                return self.send_json(200, us.log(name))
+            if method == "DELETE" and part == "log":
+                us.delete_log(name)
+                return self.send_json(200, {"ok": True})
+            if method == "POST" and part == "run":
+                return self.send_json(200, us.start(name))
+            if method == "POST" and part == "abort":
+                return self.send_json(200, us.abort(name))
+            if method == "PUT" and part == "schedule":
+                return self.send_json(200, us.set_schedule(name, str(body.get("frequency", "")),
+                                                           str(body.get("custom", ""))))
+
         if method == "GET" and path == "/api/notifications":
             return self.send_json(200, {"notifications": self.forwarder.unread() if self.forwarder else []})
         self.send_json(404, {"detail": "Nicht gefunden"})
@@ -398,6 +427,12 @@ def main():
     ApiHandler.settings = settings
     ApiHandler.server_api = Server(settings.get)
     ApiHandler.forwarder = Forwarder(settings)
+    ApiHandler.scripts = UserScripts(ApiHandler.server_api.var)
+    try:
+        if ApiHandler.scripts.ensure_starter():
+            log("Home-Net Starter in User Scripts angelegt oder erneuert")
+    except OSError as exc:
+        log(f"Starter nicht angelegt: {exc}")
     threading.Thread(target=ticker, args=(ApiHandler.forwarder,), daemon=True).start()
     if API_PORT:
         threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", API_PORT), ApiHandler).serve_forever,

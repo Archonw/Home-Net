@@ -30,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -87,7 +88,14 @@ private fun <T> rememberLoaded(reload: Int, every: Long, load: suspend () -> T):
 }
 
 @Composable
-fun UnraidOverviewScreen(api: UnraidApi, onShares: () -> Unit, onUsers: () -> Unit, onDocker: () -> Unit, onBack: () -> Unit) {
+fun UnraidOverviewScreen(
+    api: UnraidApi,
+    onShares: () -> Unit,
+    onUsers: () -> Unit,
+    onDocker: () -> Unit,
+    onScripts: () -> Unit,
+    onBack: () -> Unit,
+) {
     val p = LocalPalette.current
     var reload by remember { mutableStateOf(0) }
     var actionError by remember { mutableStateOf<String?>(null) }
@@ -129,6 +137,7 @@ fun UnraidOverviewScreen(api: UnraidApi, onShares: () -> Unit, onUsers: () -> Un
                         NavRow("Freigaben", onShares)
                         NavRow("Benutzer", onUsers)
                         NavRow("Docker und VMs", onDocker)
+                        if (o.userScripts) NavRow("User Scripts", onScripts)
                     }
                 }
                 SectionTitle("Platten")
@@ -577,4 +586,154 @@ fun UnraidDockerScreen(api: UnraidApi, onBack: () -> Unit) {
             onConfirm = run, onDone = { action = null; reload++ },
         ) { Text("Das kann einen Moment dauern.") }
     }
+}
+
+private val FREQUENCY_LABELS = listOf(
+    "disabled" to "Kein Zeitplan",
+    "hourly" to "Stündlich",
+    "daily" to "Täglich",
+    "weekly" to "Wöchentlich",
+    "monthly" to "Monatlich",
+    "start" to "Beim Start des Arrays",
+    "stop" to "Beim Stoppen des Arrays",
+    "boot" to "Nur beim ersten Array-Start",
+    "custom" to "Eigener Zeitplan (Cron)",
+)
+
+private fun frequencyText(s: UnraidScript): String =
+    if (s.frequency == "custom") "Eigener Zeitplan: ${s.custom}"
+    else FREQUENCY_LABELS.firstOrNull { it.first == s.frequency }?.second ?: s.frequency
+
+@Composable
+fun UnraidScriptsScreen(api: UnraidApi, onBack: () -> Unit) {
+    val p = LocalPalette.current
+    var reload by remember { mutableStateOf(0) }
+    var action by remember { mutableStateOf<Triple<String, String, suspend () -> Unit>?>(null) }
+    var scheduling by remember { mutableStateOf<UnraidScript?>(null) }
+    var showing by remember { mutableStateOf<UnraidScript?>(null) }
+    val (data, error) = rememberLoaded(reload, 10_000L) { api.scripts() }
+
+    Column(Modifier.fillMaxSize().background(p.bg)) {
+        PageTitle("User Scripts", onBack = onBack)
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            error?.let { Text(it, color = p.blocked, fontSize = 14.sp) }
+            val d = data
+            if (d == null) {
+                if (error == null) Text("Wird geladen …", color = p.muted)
+            } else if (!d.installed) {
+                Text("Das Plugin „User Scripts“ ist in Unraid nicht installiert.", color = p.muted)
+            } else {
+                if (!d.starterRunning) {
+                    HubCard {
+                        Text("Einmal einrichten: Home-Net Starter", color = p.text, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Ansehen geht schon. Zum Starten, Abbrechen und für Zeitpläne in Unraid unter Settings › User Scripts " +
+                                "beim „Home-Net Starter“ den Zeitplan auf „At Startup of Array“ stellen und ihn einmal mit " +
+                                "„Run in background“ starten.",
+                            color = p.muted, fontSize = 13.sp,
+                        )
+                    }
+                }
+                if (d.scripts.isEmpty()) Text("Noch keine Skripte angelegt.", color = p.muted)
+                d.scripts.forEach { s ->
+                    HubCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(s.name, color = p.text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                            Text(if (s.running) "Läuft" else "", color = p.accentText, fontSize = 13.sp)
+                        }
+                        if (s.description.isNotBlank()) Text(s.description, color = p.muted, fontSize = 13.sp)
+                        val notes = listOfNotNull(
+                            frequencyText(s),
+                            if (s.last > 0) "zuletzt ${formatEpoch(s.last)}" else null,
+                            if (s.foregroundOnly) "nur in Unraid startbar" else null,
+                            if (s.arrayStarted) "nur mit gestartetem Array" else null,
+                        )
+                        Text(notes.joinToString(" · "), color = p.muted, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextAction("Protokoll") { showing = s }
+                            if (d.starterRunning) {
+                                TextAction("Zeitplan") { scheduling = s }
+                                if (s.running) {
+                                    TextAction("Abbrechen") { action = Triple("${s.name} abbrechen?", "Abbrechen") { api.abortScript(s.id) } }
+                                } else if (!s.foregroundOnly) {
+                                    TextAction("Starten") { action = Triple("${s.name} starten?", "Starten") { api.runScript(s.id) } }
+                                }
+                            }
+                        }
+                    }
+                }
+                Text("Skripte anlegen und bearbeiten geht in Unraid.", color = p.muted, fontSize = 12.sp)
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+
+    action?.let { (question, label, run) ->
+        FormDialog(
+            title = question, confirm = label, onDismiss = { action = null },
+            onConfirm = run, onDone = { action = null; reload++ },
+        ) { Text(if (label == "Starten") "Das Skript läuft dann im Hintergrund auf dem Server." else "Das Skript wird sofort beendet.") }
+    }
+    scheduling?.let { s ->
+        var frequency by remember(s) { mutableStateOf(s.frequency) }
+        var custom by remember(s) { mutableStateOf(s.custom) }
+        FormDialog(
+            title = "Zeitplan: ${s.name}", confirm = "Speichern", onDismiss = { scheduling = null },
+            onConfirm = { api.scheduleScript(s.id, frequency, custom) }, onDone = { scheduling = null; reload++ },
+        ) {
+            Choice(FREQUENCY_LABELS, frequency) { frequency = it }
+            if (frequency == "custom") {
+                OutlinedTextField(custom, { custom = it }, label = { Text("Cron-Angabe, z. B. 30 3 * * *") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Text("Minute Stunde Tag Monat Wochentag", color = LocalPalette.current.muted, fontSize = 12.sp)
+            }
+        }
+    }
+    showing?.let { s -> ScriptLogDialog(api, s) { showing = null; reload++ } }
+}
+
+@Composable
+private fun ScriptLogDialog(api: UnraidApi, script: UnraidScript, onClose: () -> Unit) {
+    val p = LocalPalette.current
+    val scope = rememberCoroutineScope()
+    var reload by remember { mutableStateOf(0) }
+    var deleteError by remember { mutableStateOf<String?>(null) }
+    val (log, error) = rememberLoaded(reload, 5_000L) { api.scriptLog(script.id) }
+    val scroll = rememberScrollState()
+    LaunchedEffect(log?.first) { scroll.scrollTo(scroll.maxValue) }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Protokoll: ${script.name}") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(scroll)) {
+                (deleteError ?: error)?.let { Text(it, color = p.blocked, fontSize = 13.sp) }
+                when {
+                    log == null -> Text("Wird geladen …", color = p.muted)
+                    log.first.isBlank() -> Text("Noch kein Protokoll vorhanden.", color = p.muted)
+                    else -> {
+                        if (log.second) Text("… nur der letzte Teil", color = p.muted, fontSize = 12.sp)
+                        Text(log.first.trimEnd(), fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = p.text)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("Schließen") } },
+        dismissButton = {
+            if (!script.running && !log?.first.isNullOrBlank()) {
+                TextButton(onClick = {
+                    scope.launch {
+                        try {
+                            api.deleteScriptLog(script.id)
+                            deleteError = null
+                            reload++
+                        } catch (e: ApiException) {
+                            deleteError = e.message
+                        }
+                    }
+                }) { Text("Löschen") }
+            }
+        },
+    )
 }

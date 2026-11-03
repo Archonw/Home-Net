@@ -52,6 +52,7 @@ data class UnraidOverview(
     val notes: List<UnraidNote>,
     val temps: UnraidTemps,
     val apiKey: Boolean,
+    val userScripts: Boolean,
 ) {
     fun hot(d: UnraidDisk) = d.temp != null && !d.spundown && d.temp >= (if (d.ssd) temps.hotSsd else temps.hot)
     fun critical(d: UnraidDisk) = d.temp != null && !d.spundown && d.temp >= (if (d.ssd) temps.maxSsd else temps.max)
@@ -82,6 +83,21 @@ data class UnraidUser(val name: String, val desc: String, val rights: Map<String
 data class UnraidContainer(val id: String, val name: String, val image: String, val state: String, val status: String, val protected: Boolean)
 
 data class UnraidVm(val id: String, val name: String, val state: String)
+
+data class UnraidScript(
+    val id: String,
+    val name: String,
+    val description: String,
+    val frequency: String,
+    val custom: String,
+    val running: Boolean,
+    val last: Long,
+    val foregroundOnly: Boolean,
+    val arrayStarted: Boolean,
+)
+
+/** [starterRunning]: ohne den Home-Net Starter in User Scripts lassen sich die Skripte nur ansehen. */
+data class UnraidScriptList(val installed: Boolean, val starterRunning: Boolean, val scripts: List<UnraidScript>)
 
 /** Unraid-Verwaltung, nur über den gemeinsamen Zugang erreichbar. */
 class UnraidApi(private val http: PiApi) {
@@ -137,6 +153,7 @@ class UnraidApi(private val http: PiApi) {
             },
             temps = UnraidTemps(temps.optInt("hot", 45), temps.optInt("max", 55), temps.optInt("hotssd", 60), temps.optInt("maxssd", 70)),
             apiKey = o.optBoolean("api"),
+            userScripts = o.optBoolean("userscripts"),
         )
     }
 
@@ -219,6 +236,43 @@ class UnraidApi(private val http: PiApi) {
 
     suspend fun vm(id: String, command: String) {
         http.postJson("api/vms", JSONObject().put("id", id).put("command", command).toString())
+    }
+
+    suspend fun scripts(): UnraidScriptList {
+        val o = JSONObject(http.raw("api/scripts"))
+        return UnraidScriptList(
+            installed = o.optBoolean("installed"),
+            starterRunning = o.optJSONObject("starter")?.optBoolean("running") ?: false,
+            scripts = o.optJSONArray("scripts").objects().filter { !it.optBoolean("starter") }.map {
+                UnraidScript(
+                    id = it.optString("id"),
+                    name = it.optString("name"),
+                    description = it.optString("description"),
+                    frequency = it.optString("frequency", "disabled"),
+                    custom = it.optString("custom"),
+                    running = it.optBoolean("running"),
+                    last = it.optLong("last"),
+                    foregroundOnly = it.optBoolean("foreground_only"),
+                    arrayStarted = it.optBoolean("array_started"),
+                )
+            },
+        )
+    }
+
+    /** Das Protokoll und ob es gekürzt ist. */
+    suspend fun scriptLog(id: String): Pair<String, Boolean> {
+        val o = JSONObject(http.raw("api/scripts/${enc(id)}/log"))
+        return o.optString("log") to o.optBoolean("cut")
+    }
+
+    suspend fun deleteScriptLog(id: String) { http.delete("api/scripts/${enc(id)}/log") }
+
+    suspend fun runScript(id: String) { http.postJson("api/scripts/${enc(id)}/run", "{}") }
+
+    suspend fun abortScript(id: String) { http.postJson("api/scripts/${enc(id)}/abort", "{}") }
+
+    suspend fun scheduleScript(id: String, frequency: String, custom: String) {
+        http.putJson("api/scripts/${enc(id)}/schedule", JSONObject().put("frequency", frequency).put("custom", custom.trim()).toString())
     }
 
     private fun enc(name: String): String = Uri.encode(name)

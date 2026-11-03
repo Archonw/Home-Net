@@ -50,6 +50,7 @@ sealed interface Screen {
     data object UnraidShares : Screen
     data object UnraidUsers : Screen
     data object UnraidDocker : Screen
+    data object UnraidScripts : Screen
     data object HubSetup : Screen
     data object Notifications : Screen
 }
@@ -126,7 +127,7 @@ class MainActivity : FragmentActivity() {
                 is Screen.Detail -> Screen.List
                 is Screen.PiDetail, Screen.PiSetup -> if (settings.isPiConfigured) Screen.PiOverview else Screen.Home
                 is Screen.PcDetail -> Screen.PcOverview
-                Screen.UnraidShares, Screen.UnraidUsers, Screen.UnraidDocker -> Screen.UnraidOverview
+                Screen.UnraidShares, Screen.UnraidUsers, Screen.UnraidDocker, Screen.UnraidScripts -> Screen.UnraidOverview
                 Screen.HubSetup, Screen.Notifications -> Screen.Setup
                 else -> Screen.Home
             }
@@ -172,11 +173,13 @@ class MainActivity : FragmentActivity() {
                         onShares = { screen = Screen.UnraidShares },
                         onUsers = { screen = Screen.UnraidUsers },
                         onDocker = { screen = Screen.UnraidDocker },
+                        onScripts = { screen = Screen.UnraidScripts },
                         onBack = { screen = Screen.Home },
                     )
                     Screen.UnraidShares -> UnraidSharesScreen(settings.unraidApi()) { screen = Screen.UnraidOverview }
                     Screen.UnraidUsers -> UnraidUsersScreen(settings.unraidApi()) { screen = Screen.UnraidOverview }
                     Screen.UnraidDocker -> UnraidDockerScreen(settings.unraidApi()) { screen = Screen.UnraidOverview }
+                    Screen.UnraidScripts -> UnraidScriptsScreen(settings.unraidApi()) { screen = Screen.UnraidOverview }
                     Screen.PcOverview -> PcOverviewScreen(
                         api = settings.pcApi(),
                         onOpen = { screen = Screen.PcDetail(it) },
