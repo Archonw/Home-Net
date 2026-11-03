@@ -1,7 +1,7 @@
 {
   "id": "unraid",
   "name": "Unraid",
-  "description": "Verwaltet den Unraid-Server: Freigaben, Benutzer, Einstellungen, Docker und VMs",
+  "description": "Verwaltet den Unraid-Server: Freigaben, Benutzer, Einstellungen, Docker, VMs und User Scripts",
   "icon": "assets/icons/unraid.png",
   "requires": {
     "path": "/var/local/emhttp/var.ini",
@@ -34,7 +34,10 @@
         "/var/run/unraid-api.sock:/host/unraid-api.sock",
         "/tmp/notifications:/host/notifications:ro",
         "/boot/config/plugins/dynamix:/host/dynamix",
-        "/mnt/user:/mnt/user:ro,rslave"
+        "/mnt/user:/mnt/user:ro,rslave",
+        "/boot/config/plugins/user.scripts:/host/userscripts",
+        "/tmp/user.scripts:/host/userscripts-run",
+        "/tmp/home-net-unraid:/host/requests"
       ],
       "healthcheck": {
         "test": [

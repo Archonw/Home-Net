@@ -1,10 +1,13 @@
 import base64
+import shutil
+import subprocess
 import json
 import os
 import socketserver
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.parse
@@ -15,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "service"))
 
 import host  # noqa: E402
+import scripts  # noqa: E402
 import server  # noqa: E402
 
 VAR = '''version="7.3.4"
@@ -300,6 +304,17 @@ class Base(unittest.TestCase):
                                api=host.UnraidApi(lambda: self.settings.get()["api_key"], str(root / "api.sock")))
         self.notes = root / "notifications"
         (self.notes / "unread").mkdir(parents=True)
+        self.us_base, self.us_run, self.queue = root / "us", root / "us-run", root / "queue"
+        for name, text in (("backup", "#!/bin/bash\n#description=Sichert die Fotos\n#arrayStarted=true\necho hallo\nsleep 20\n"),
+                           ("nur.vorne", "#!/bin/bash\n#foregroundOnly=true\necho vorne\n")):
+            (self.us_base / "scripts" / name).mkdir(parents=True)
+            (self.us_base / "scripts" / name / "script").write_text(text)
+        (self.us_base / "scripts" / "backup" / "name").write_text("Fotos sichern\n")
+        (self.us_base / "scripts" / "leer").mkdir()
+        self.us_run.mkdir()
+        self.queue.mkdir()
+        self.us = scripts.UserScripts(self.srv.var, base=str(self.us_base), run=str(self.us_run),
+                                      queue=str(self.queue))
 
     def tearDown(self):
         self.emhttpd.shutdown()
@@ -525,12 +540,183 @@ class ForwarderTests(Base):
         server.EVENTS_DIR = ""
 
 
+class FakeStarter(threading.Thread):
+    """Does what the Home-Net Starter does on the server, without running anything."""
+
+    def __init__(self, test):
+        super().__init__(daemon=True)
+        self.t, self.jobs, self.stop = test, [], threading.Event()
+
+    def run(self):
+        try:
+            self.loop()
+        except OSError:  # the test folder is gone
+            pass
+
+    def loop(self):
+        while not self.stop.is_set():
+            (self.t.queue / "alive").write_text(f"{scripts.STARTER_VERSION}\n")
+            for job in sorted(self.t.queue.glob("*.job")):
+                action, name = (job.read_text().split("\n") + [""])[:2]
+                job.unlink()
+                self.jobs.append((action, name))
+                running = self.t.us_run / "running"
+                running.mkdir(exist_ok=True)
+                if action == "run":
+                    (running / name).write_text("123")
+                elif action == "abort":
+                    (running / name).unlink()
+            time.sleep(0.05)
+
+
+class ScriptsTests(Base):
+    def test_lists_scripts_and_installs_the_starter(self):
+        self.assertTrue(self.us.ensure_starter())
+        self.assertFalse(self.us.ensure_starter())
+        items = {s["id"]: s for s in self.us.list()}
+        self.assertEqual(sorted(items), ["backup", "home-net-starter", "nur.vorne"])
+        self.assertEqual(items["backup"]["name"], "Fotos sichern")
+        self.assertEqual(items["backup"]["description"], "Sichert die Fotos")
+        self.assertTrue(items["backup"]["array_started"])
+        self.assertTrue(items["nur.vorne"]["foreground_only"])
+        self.assertTrue(items["home-net-starter"]["starter"])
+        self.assertEqual(items["home-net-starter"]["name"], "Home-Net Starter")
+        self.assertEqual(self.us.starter(), {"installed": True, "running": False, "current": False})
+        self.assertIn(f"VERSION={scripts.STARTER_VERSION}\n", (self.us_base / "scripts" / scripts.STARTER / "script").read_text())
+
+    def test_no_plugin_no_starter(self):
+        us = scripts.UserScripts(self.srv.var, base=str(Path(self.tmp.name) / "fehlt"), run=str(self.us_run),
+                                 queue=str(self.queue))
+        self.assertFalse(us.installed())
+        self.assertFalse(us.ensure_starter())
+        self.assertFalse((Path(self.tmp.name) / "fehlt").exists())
+
+    def test_variables_like_the_plugin(self):
+        path = self.us_base / "scripts" / "backup" / "script"
+        path.write_text("#!/bin/bash\n#name=Name (neu)\n#clearLog=true\n\n#argumentDefault=a b\necho x\n#later=1\n")
+        v = scripts.variables(str(path))
+        self.assertEqual(v["name"], "Name neu")
+        self.assertIs(v["clearLog"], True)
+        self.assertEqual(v["argumentDefault"], "a b")
+        self.assertNotIn("later", v)
+
+    def test_actions_need_the_starter(self):
+        with self.assertRaises(ValueError) as ctx:
+            self.us.start("backup")
+        self.assertIn("Home-Net Starter", str(ctx.exception))
+        self.assertEqual(list(self.queue.glob("*.job")), [])
+
+    def test_start_abort_schedule(self):
+        starter = FakeStarter(self)
+        starter.start()
+        self.addCleanup(starter.stop.set)
+        time.sleep(0.2)
+        with self.assertRaises(ValueError):
+            self.us.start("nur.vorne")
+        with self.assertRaises(LookupError):
+            self.us.start("leer")
+        with self.assertRaises(LookupError):
+            self.us.start("../backup")
+        self.assertTrue(self.us.start("backup")["running"])
+        with self.assertRaises(ValueError):
+            self.us.start("backup")
+        self.assertFalse(self.us.abort("backup")["running"])
+        item = self.us.set_schedule("backup", "custom", " 30  3 * * * ")
+        self.assertEqual((item["frequency"], item["custom"]), ("custom", "30 3 * * *"))
+        data = json.loads((self.us_base / "schedule.json").read_text())
+        key = "/boot/config/plugins/user.scripts/scripts/backup/script"
+        self.assertEqual(data[key], {"script": key, "frequency": "custom", "id": "schedulebackup", "custom": "30 3 * * *"})
+        self.assertEqual(json.loads((self.us_run / "schedule.json").read_text()), data)
+        self.assertIn(f"30 3 * * * /usr/local/emhttp/plugins/user.scripts/startCustom.php {key} > /dev/null 2>&1",
+                      (self.us_base / "customSchedule.cron").read_text())
+        self.us.set_schedule("nur.vorne", "daily")
+        self.assertEqual(self.us.get("nur.vorne")["frequency"], "daily")
+        self.assertEqual(self.us.set_schedule("backup", "weekly")["frequency"], "weekly")
+        self.assertFalse((self.us_base / "customSchedule.cron").exists())
+        for bad in ("* * *", "30 3 * * * ; rm -rf /", "$(id) * * * *"):
+            with self.assertRaises(ValueError):
+                self.us.set_schedule("backup", "custom", bad)
+        with self.assertRaises(ValueError):
+            self.us.set_schedule("backup", "sometimes")
+        self.assertEqual([a for a, _ in starter.jobs], ["run", "abort", "cron", "cron", "cron"])
+
+    def test_array_must_run(self):
+        starter = FakeStarter(self)
+        starter.start()
+        self.addCleanup(starter.stop.set)
+        time.sleep(0.2)
+        (self.ini / "var.ini").write_text(VAR.replace('mdState="STARTED"', 'mdState="STOPPED"'))
+        with self.assertRaises(ValueError):
+            self.us.start("backup")
+        self.assertEqual(starter.jobs, [])
+
+    def test_log_tail(self):
+        log = self.us_run / "tmpScripts" / "backup" / "log.txt"
+        log.parent.mkdir(parents=True)
+        log.write_text("x" * 100 + "\n" + "y" * scripts.LOG_LIMIT + "\nEnde\n")
+        data = self.us.log("backup")
+        self.assertTrue(data["cut"])
+        self.assertTrue(data["log"].endswith("Ende\n"))
+        self.assertNotIn("x", data["log"])
+        self.us.delete_log("backup")
+        self.assertEqual(self.us.log("backup"), {"log": "", "cut": False})
+
+
+@unittest.skipUnless(shutil.which("bash") and shutil.which("flock") and shutil.which("setsid"), "needs bash and util-linux")
+class RealStarterTests(Base):
+    """Runs the real starter script with the paths moved into a temporary folder."""
+
+    def test_starter_script(self):
+        root = Path(self.tmp.name)
+        plugin, sbin = root / "plugin", root / "sbin"
+        plugin.mkdir()
+        sbin.mkdir()
+        (plugin / "startCustom.php").write_text(
+            "#!/bin/bash\nd=$(basename \"$(dirname \"$1\")\"); r=%s\n"
+            "mkdir -p $r/running $r/tmpScripts/$d; echo $$ > $r/running/$d\n"
+            "echo gestartet >> $r/tmpScripts/$d/log.txt; sleep 20\n" % self.us_run)
+        (sbin / "update_cron").write_text(f"#!/bin/bash\necho cron >> {root}/cron.log\n")
+        for f in (plugin / "startCustom.php", sbin / "update_cron"):
+            f.chmod(0o755)
+        self.us.ensure_starter()
+        text = (self.us_base / "scripts" / scripts.STARTER / "script").read_text()
+        for old, new in (("/tmp/home-net-unraid", str(self.queue)), ("/boot/config/plugins/user.scripts", str(self.us_base)),
+                         ("/usr/local/emhttp/plugins/user.scripts", str(plugin)), ("RUN=/tmp/user.scripts", f"RUN={self.us_run}"),
+                         ("/tmp/user.scripts/tmpScripts", f"{self.us_run}/tmpScripts"),
+                         ("/usr/local/sbin/update_cron", str(sbin / "update_cron")),
+                         ("/var/run/home-net-starter.lock", str(root / "lock"))):
+            text = text.replace(old, new)
+        if os.geteuid() != 0:
+            text = text.replace('!= 0 ]', f'!= {os.geteuid()} ]')
+        (root / "starter.sh").write_text(text)
+        proc = subprocess.Popen(["bash", str(root / "starter.sh")], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.addCleanup(proc.kill)
+        end = time.time() + 5
+        while not self.us.starter()["running"] and time.time() < end:
+            time.sleep(0.1)
+        self.assertTrue(self.us.starter()["current"])
+        self.assertTrue(self.us.start("backup")["running"])
+        self.assertFalse(self.us.abort("backup")["running"])
+        self.assertIn("Execution was aborted by user", self.us.log("backup")["log"])
+        self.us.set_schedule("backup", "hourly")
+        self.assertEqual((root / "cron.log").read_text(), "cron\n")
+        # a job for a script that does not exist is dropped
+        (self.queue / "x.job").write_text("run\n../../etc\n")
+        time.sleep(2.5)
+        self.assertFalse((self.queue / "x.job").exists())
+        proc.kill()
+        out = proc.communicate()[0].decode()
+        self.assertIn("Gestartet: backup", out)
+        self.assertIn("Unbekanntes Skript: ../../etc", out)
+
+
 class HttpTests(Base):
     def setUp(self):
         super().setUp()
         server.ApiHandler.server_api = self.srv
         server.ApiHandler.settings = self.settings
         server.ApiHandler.forwarder = server.Forwarder(self.settings, folder=str(self.notes), state_dir=self.tmp.name)
+        server.ApiHandler.scripts = self.us
         self.http = ThreadingHTTPServer(("127.0.0.1", 0), server.ApiHandler)
         threading.Thread(target=self.http.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.http.server_address[1]}"
@@ -557,7 +743,9 @@ class HttpTests(Base):
         self.assertFalse(data["manager"])
         self.assertEqual(data["name"], "tower")
         self.assertEqual(data["temps"]["hot"], 45)
-        for path in ("/api/shares", "/api/users", "/api/files", "/api/settings", "/api/general"):
+        self.assertTrue(data["userscripts"])
+        for path in ("/api/shares", "/api/users", "/api/files", "/api/settings", "/api/general", "/api/scripts",
+                     "/api/scripts/backup/log"):
             self.assertEqual(self.call(path, role="user")[0], 403, path)
         self.assertEqual(self.call("/api/users", "POST", {"name": "x", "password": "y"}, role="user")[0], 403)
         self.assertEqual(self.posts, [])
@@ -605,6 +793,24 @@ class HttpTests(Base):
         self.assertEqual(code, 201)
         kinds = [next(k for k in f if k.startswith(("cmd", "change"))) for _, f in self.posts]
         self.assertEqual(kinds, ["cmdEditShare", "changeShareSecurity", "changeShareAccess"])
+
+    def test_scripts_api(self):
+        code, data = self.call("/api/scripts", role="admin")
+        self.assertEqual(code, 200)
+        self.assertTrue(data["installed"])
+        self.assertFalse(data["starter"]["running"])
+        self.assertIn("home-net-starter", [s["id"] for s in data["scripts"]])
+        self.assertEqual(self.call("/api/scripts/backup/run", "POST", {}, role="admin")[0], 400)
+        self.assertEqual(self.call("/api/scripts/backup/run", "POST", {}, role="user")[0], 403)
+        self.assertEqual(self.call("/api/scripts/fehlt/log", role="admin")[0], 404)
+        starter = FakeStarter(self)
+        starter.start()
+        self.addCleanup(starter.stop.set)
+        time.sleep(0.2)
+        code, data = self.call("/api/scripts/backup/run", "POST", {}, role="admin")
+        self.assertEqual((code, data["running"]), (200, True))
+        code, data = self.call("/api/scripts/backup/schedule", "PUT", {"frequency": "daily"}, role="admin")
+        self.assertEqual((code, data["frequency"]), (200, "daily"))
 
     def test_page(self):
         code, raw = self.call("/")

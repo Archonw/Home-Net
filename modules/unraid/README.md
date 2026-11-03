@@ -1,8 +1,8 @@
 # Unraid
 
 Verwaltet den Unraid-Server, auf dem Home-Net läuft: Freigaben, Benutzer, wichtige Einstellungen, Paritätsprüfung,
-Docker-Container und VMs. Dazu ein Dateibrowser zum Ansehen und Herunterladen und die Weitergabe der Meldungen von Unraid
-an die App.
+Docker-Container, VMs und die Skripte aus dem Plugin User Scripts. Dazu ein Dateibrowser zum Ansehen und Herunterladen
+und die Weitergabe der Meldungen von Unraid an die App.
 
 ```bash
 ./home-net add unraid
@@ -20,14 +20,25 @@ Das Modul läuft nur direkt auf einem Unraid-Server, das Installationsprogramm p
 | `/boot/config/plugins/dynamix/dynamix.cfg` | Temperatur-Warnungen | Wie die Unraid-Oberfläche: nur die Schlüssel `hot`, `max`, `hotssd`, `maxssd` im Abschnitt `[display]` |
 | `/tmp/notifications` (nur lesen) | Meldungen von Unraid | Neue ungelesene Meldungen gehen als Alarm, Warnung oder sonstige Meldung an die App |
 | `/mnt/user` (nur lesen) | Dateibrowser | Herunterladen bis 200 MB |
+| `/boot/config/plugins/user.scripts` und `/tmp/user.scripts` | User Scripts: Liste, Zeitplan, laufende Skripte, Protokolle | Skripte anlegen und bearbeiten bleibt in Unraid |
+| `/tmp/home-net-unraid` | Aufträge an den Home-Net Starter | Siehe unten |
 
 Der Container hat kein Netzwerk; er spricht nur über Sockets. Bindet Unraid einen Socket nach einem Neustart des Dienstes
 neu, beendet sich das Modul beim nächsten Fehlversuch und Docker startet es mit dem neuen Socket.
 
+## User Scripts
+
+Ansehen geht sofort. Starten, Abbrechen und Zeitpläne müssen auf dem Server selbst laufen, darum legt das Modul in User
+Scripts das Skript **Home-Net Starter** an (`service/scripts.py`). Einmal einrichten: in Unraid unter *Settings → User
+Scripts* beim Home-Net Starter den Zeitplan auf *At Startup of Array* stellen, *Apply* drücken und ihn einmal mit
+*Run in background* starten. Danach nimmt er Aufträge aus `/tmp/home-net-unraid` an (nur Dateien von root, nur
+vorhandene Skripte) und gibt sie wie die Knöpfe des Plugins weiter. Bringt ein Update eine neue Fassung mit
+(`STARTER_VERSION`), startet er sich selbst neu. Skripte mit `foregroundOnly` lassen sich nur in Unraid starten.
+
 ## Rechte
 
-Benutzer mit Zugriff auf das Modul sehen nur die Übersicht. Freigaben, Benutzer, Dateien, Einstellungen, Docker und VMs
-sind Eigentümern und Admins vorbehalten. Ungeprüfte Unraid-Versionen freigeben darf nur der Eigentümer. Jede Änderung steht
+Benutzer mit Zugriff auf das Modul sehen nur die Übersicht. Freigaben, Benutzer, Dateien, Einstellungen, Docker, VMs
+und User Scripts sind Eigentümern und Admins vorbehalten. Ungeprüfte Unraid-Versionen freigeben darf nur der Eigentümer. Jede Änderung steht
 im Protokoll des Zugangs.
 
 Bewusst nicht enthalten: Array stoppen oder starten (das würde Home-Net selbst stoppen), Home-Net-Container stoppen,

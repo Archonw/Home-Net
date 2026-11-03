@@ -2,6 +2,6 @@
 FROM python:3.12-alpine
 RUN apk add --no-cache tzdata
 WORKDIR /app
-COPY service/server.py service/host.py service/index.html service/
+COPY service/server.py service/host.py service/scripts.py service/index.html service/
 ENV PYTHONUNBUFFERED=1
 CMD ["python", "/app/service/server.py"]
