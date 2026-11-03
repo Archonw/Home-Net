@@ -433,7 +433,7 @@ fun TilesSettings(ui: SettingsUi) {
         ui.message?.let { Text(it, color = p.muted, fontSize = 14.sp, modifier = Modifier.padding(4.dp)) }
         SectionLabel("Über die App")
         Column(Modifier.fillMaxWidth().clip(TileShape).background(p.card).padding(12.dp)) {
-            AboutContent()
+            AboutContent(ui.updateApi)
         }
         Spacer(Modifier.height(8.dp))
     }

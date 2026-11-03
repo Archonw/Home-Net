@@ -59,6 +59,9 @@ fun authHeader(secret: String): String =
 /** Auf dem Monitor bereitgestellte App-Version; [url] ist die volle Download-Adresse. */
 data class AppRelease(val version: String, val versionCode: Long, val url: String)
 
+/** Antwort des Monitors auf „Jetzt nach Update suchen“; [ok] ist null, wenn die Suche aus ist. */
+data class AppCheck(val ok: Boolean?, val message: String)
+
 /**
  * Spricht mit der REST-API des Netzwerkmonitors (Basic Auth, Benutzername beliebig).
  *
@@ -111,15 +114,24 @@ class Api(
         return AppRelease(o.getString("version"), o.getLong("version_code"), base + o.getString("url"))
     }
 
+    /**
+     * Lässt den Monitor sofort bei GitHub nach einer neuen App-Version suchen (nur Eigentümer und Admins).
+     * Der Monitor lädt eine neue Version dabei gleich herunter, darum darf es länger dauern.
+     */
+    suspend fun checkAppUpdate(): AppCheck {
+        val o = JSONObject(request("POST", "api/app/check", readTimeout = 120000))
+        return AppCheck(if (o.isNull("ok")) null else o.optBoolean("ok"), o.optString("message"))
+    }
+
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
-    private suspend fun request(method: String, path: String): String = withContext(Dispatchers.IO) {
+    private suspend fun request(method: String, path: String, readTimeout: Int = 15000): String = withContext(Dispatchers.IO) {
         // Zuletzt erfolgreiche Adresse zuerst, damit unterwegs nicht jedes Mal das Heimnetz abwartet
         val ordered = urls.sortedBy { if (it == lastWorking) 0 else 1 }
         var lastError: Exception? = null
         for (base in ordered) {
             try {
-                val body = request(base, method, path, connectTimeout = if (ordered.size > 1) 3000 else 8000)
+                val body = request(base, method, path, connectTimeout = if (ordered.size > 1) 3000 else 8000, readTimeout = readTimeout)
                 lastWorking = base
                 return@withContext body
             } catch (e: ApiException) {
@@ -132,13 +144,13 @@ class Api(
         throw ApiException("Monitor nicht erreichbar (${lastError?.javaClass?.simpleName}).$hint")
     }
 
-    private fun request(base: String, method: String, path: String, connectTimeout: Int): String {
+    private fun request(base: String, method: String, path: String, connectTimeout: Int, readTimeout: Int): String {
         val url = URL(base.trimEnd('/') + "/" + path)
         val conn = url.openConnection() as HttpURLConnection
         try {
             conn.requestMethod = method
             conn.connectTimeout = connectTimeout
-            conn.readTimeout = 15000
+            conn.readTimeout = readTimeout
             conn.setRequestProperty("Authorization", authHeader(password))
             conn.setRequestProperty("Accept", "application/json")
             if (method == "POST") {
