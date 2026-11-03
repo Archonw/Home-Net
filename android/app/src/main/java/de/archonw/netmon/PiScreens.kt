@@ -267,6 +267,9 @@ fun HomeScreen(
                 } catch (e: ApiException) {
                     proxy = e.message ?: "Nicht erreichbar"
                     proxyAlert = true
+                }
+            }
+        }
         if (installed?.contains("wireguard") == true) {
             launch {
                 try {

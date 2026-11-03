@@ -176,6 +176,10 @@ def start_proxy_manager():
     proxy_server.ApiHandler.settings = settings
     proxy_server.ApiHandler.npm = npm.Npm(settings.get, tests.fake_checks())
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), proxy_server.ApiHandler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{httpd.server_address[1]}"
+
+
 def start_wireguard():
     """The real module against the stand-in WireGuard-Easy from its tests, with made-up devices and keys."""
     folder = REPO / "modules" / "wireguard"
