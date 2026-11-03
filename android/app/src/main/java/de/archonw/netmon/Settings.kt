@@ -124,6 +124,11 @@ class Settings(context: Context) {
         PiApi("$hubUrl/m/pocket-id", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/pocket-id"),
     )
 
+    /** WireGuard-Verwaltung, ebenfalls nur über den gemeinsamen Zugang. */
+    fun wireGuardApi() = WireGuardApi(
+        PiApi("$hubUrl/m/wireguard", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/wireguard"),
+    )
+
     fun piApi() = PiApi(piUrl, if (isHubConfigured) hubSecret else piPassword, piExternalUrl)
 
     var sortOrder: SortOrder

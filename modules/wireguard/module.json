@@ -1,0 +1,39 @@
+{
+  "id": "wireguard",
+  "name": "WireGuard",
+  "description": "VPN-Zugänge in WireGuard-Easy anlegen, sperren und als QR-Code fürs Handy zeigen",
+  "icon": "assets/icons/wireguard.png",
+  "api": {
+    "socket": "/run/wireguard/api.sock",
+    "health": "/health",
+    "public": [
+      "/health"
+    ],
+    "web": true
+  },
+  "services": {
+    "wireguard-verwaltung": {
+      "build": "modules/wireguard",
+      "extra_hosts": [
+        "host.docker.internal:host-gateway"
+      ],
+      "environment": [
+        "TZ=${TZ}",
+        "DATA=/data",
+        "LISTEN_SOCKET=/run/wireguard/api.sock"
+      ],
+      "volumes": [
+        "${DATA_DIR}/wireguard/config:/data",
+        "${DATA_DIR}/wireguard/run:/run/wireguard"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python3",
+          "-c",
+          "import socket;s=socket.socket(socket.AF_UNIX);s.connect('/run/wireguard/api.sock');s.send(b'GET /health HTTP/1.0\\r\\n\\r\\n');assert b' 200 ' in s.recv(64)"
+        ]
+      }
+    }
+  }
+}

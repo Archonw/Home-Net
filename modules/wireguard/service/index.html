@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WireGuard</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#c8372d; --ok:#1a7f37; --bad:#c93a3a; --warn:#b35a0a; --soft:#c8372d1f; }
+@media (prefers-color-scheme: dark) { :root { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#e8665c; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#e8665c26; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
+header { padding:18px 16px 0; max-width:900px; margin:auto; }
+h1 { font-size:24px; margin:0 0 10px; }
+nav { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); }
+nav button { border:0; border-bottom:2px solid transparent; border-radius:0; background:none; padding:8px 10px; color:var(--muted); }
+nav button.on { color:var(--text); border-color:var(--accent); font-weight:620; }
+main { max-width:900px; margin:auto; padding:8px 16px 48px; }
+h2 { font-size:13px; color:var(--muted); margin:20px 0 8px; font-weight:650; }
+button { font:inherit; border:1px solid var(--line); background:var(--card); color:inherit; border-radius:9px; padding:7px 13px; cursor:pointer; }
+button.main { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+button.danger { color:var(--bad); }
+button:disabled { opacity:.55; cursor:default; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:8px; }
+.click { cursor:pointer; }
+.name { font-weight:620; }
+.quiet { color:var(--muted); font-size:13px; }
+.bad { color:var(--bad); } .warn { color:var(--warn); } .ok { color:var(--ok); }
+.note { background:var(--soft); border-color:transparent; }
+.pills { display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
+.pill { font-size:12px; border-radius:20px; padding:1px 8px; background:var(--soft); white-space:nowrap; }
+.actions { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; align-items:center; }
+dialog { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:14px; width:min(560px,94vw); padding:18px; }
+dialog::backdrop { background:#0007; }
+label { display:block; margin:9px 0 3px; font-size:13px; color:var(--muted); }
+label.check { color:inherit; font-size:15px; margin:6px 0; display:flex; align-items:center; gap:8px; }
+input { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; }
+input[type=checkbox] { width:auto; margin:0; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+.err { color:var(--bad); margin:8px 0; white-space:pre-wrap; }
+.hint { font-size:12.5px; color:var(--muted); margin:3px 0 0; }
+.foot { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; flex-wrap:wrap; }
+.link { overflow-wrap:anywhere; font-family:ui-monospace,monospace; font-size:13px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; }
+@media (max-width:560px) { .two { grid-template-columns:1fr; } }
+.qr { display:block; margin:8px auto; width:min(320px,80vw); background:#fff; border-radius:10px; padding:10px; }
+.row { display:flex; align-items:center; gap:10px; }
+.grow { flex:1; min-width:0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>WireGuard</h1>
+  <nav id="nav"></nav>
+</header>
+<main id="app">Wird geladen …</main>
+<dialog id="dlg"><form id="form" method="dialog"></form></dialog>
+
+<script>
+const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
+const app = document.getElementById("app"), dlg = document.getElementById("dlg"), form = document.getElementById("form"), nav = document.getElementById("nav");
+const TABS = [["clients", "Zugänge"], ["settings", "Einstellungen"]];
+let tab = "clients", data = null;
+
+async function api(path, method = "GET", body) {
+  const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.detail || `Fehler ${r.status}`);
+  return out;
+}
+
+function drawNav() {
+  nav.replaceChildren(...TABS.map(([id, label]) => $("button", { textContent: label, className: id === tab ? "on" : "", onclick: () => { tab = id; show(); } })));
+}
+
+async function show() {
+  drawNav();
+  if (tab === "settings") return showSettings();
+  try { data = await api("api/overview"); } catch (e) { app.replaceChildren($("p", { className: "err", textContent: e.message })); return; }
+  if (!data.configured) {
+    app.replaceChildren($("div", { className: "card note" }, "Es fehlt noch die Anmeldung für WireGuard-Easy. Bitte unter ",
+      $("a", { href: "#", textContent: "Einstellungen", onclick: e => { e.preventDefault(); tab = "settings"; show(); } }), " eintragen."));
+    return;
+  }
+  if (data.error) { app.replaceChildren($("p", { className: "err", textContent: data.error })); return; }
+  showClients();
+}
+
+const when = s => s ? new Date(s * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "";
+const size = n => n >= 1e9 ? (n / 1e9).toFixed(1).replace(".", ",") + " GB" : n >= 1e6 ? (n / 1e6).toFixed(1).replace(".", ",") + " MB" : Math.round(n / 1e3) + " kB";
+
+function state(c) {
+  if (!c.enabled) return $("span", { className: "bad", textContent: "gesperrt" });
+  if (c.expired) return $("span", { className: "bad", textContent: "abgelaufen" });
+  if (c.online) return $("span", { className: "ok", textContent: "verbunden" });
+  return $("span", { className: "quiet", textContent: c.handshake ? `zuletzt ${when(c.handshake)}` : "noch nie verbunden" });
+}
+
+function showClients() {
+  const list = data.clients.map(c => $("div", { className: "card click", onclick: () => openClient(c) },
+    $("div", { className: "row" }, $("div", { className: "grow name", textContent: c.name }), state(c)),
+    $("div", { className: "quiet", textContent: [c.address, c.rx || c.tx ? `↓ ${size(c.tx)} ↑ ${size(c.rx)}` : ""].filter(Boolean).join(" · ") })));
+  const version = data.version ? $("p", { className: "hint", textContent: `WireGuard-Easy ${data.version}` + (data.update ? ` · Update auf ${data.latest} verfügbar` : "") }) : null;
+  app.replaceChildren($("div", { className: "actions" }, $("button", { className: "main", textContent: "Neuer Zugang", onclick: newClient })),
+    ...(list.length ? list : [$("p", { className: "quiet", textContent: "Noch keine Zugänge." })]), version);
+}
+
+function openDialog(title, body, buttons) {
+  form.replaceChildren($("h2", { textContent: title, style: "font-size:18px;color:inherit;margin:0 0 6px" }), ...body,
+    $("p", { className: "err", id: "err" }), $("div", { className: "foot" }, ...buttons));
+  dlg.showModal();
+}
+
+const fail = e => { document.getElementById("err").textContent = e.message; };
+
+function newClient() {
+  openDialog("Neuer Zugang", [
+    $("label", { textContent: "Name" }), $("input", { name: "name", placeholder: "z. B. Handy Anna" }),
+    $("p", { className: "hint", textContent: "Danach erscheint der QR-Code. Ihn mit der App WireGuard auf dem Handy scannen." }),
+  ], [$("button", { textContent: "Abbrechen", value: "x" }), $("button", { className: "main", textContent: "Anlegen", onclick: async e => {
+    e.preventDefault();
+    try {
+      const r = await api("api/clients", "POST", { name: form.elements.name.value });
+      dlg.close(); await show(); showQr({ id: r.id, name: r.name });
+    } catch (err) { fail(err); }
+  } })]);
+}
+
+function openClient(c) {
+  const act = (label, fn, cls = "") => $("button", { textContent: label, className: cls, onclick: async e => { e.preventDefault(); try { await fn(); } catch (err) { fail(err); } } });
+  openDialog(c.name, [
+    $("div", { className: "quiet" }, state(c), c.address ? ` · ${c.address}` : "", c.created ? ` · angelegt ${when(c.created)}` : ""),
+    $("div", { className: "actions" },
+      act("QR-Code zeigen", async () => { dlg.close(); showQr(c); }),
+      act("Datei laden", async () => download(c)),
+      act(c.enabled ? "Sperren" : "Entsperren", async () => { await api(`api/clients/${c.id}`, "PUT", { enabled: !c.enabled }); dlg.close(); show(); }),
+      act("Löschen", async () => { if (!confirm(`Zugang „${c.name}“ löschen? Das Gerät kommt danach nicht mehr ins Heimnetz.`)) return; await api(`api/clients/${c.id}`, "DELETE"); dlg.close(); show(); }, "danger")),
+  ], [$("button", { className: "main", textContent: "Schließen", value: "x" })]);
+}
+
+async function download(c) {
+  const r = await api(`api/clients/${c.id}/config`);
+  const a = $("a", { href: URL.createObjectURL(new Blob([r.config], { type: "text/plain" })), download: c.name.replace(/[^A-Za-z0-9_-]+/g, "-") + ".conf" });
+  document.body.append(a); a.click(); a.remove();
+}
+
+function showQr(c) {
+  openDialog(`QR-Code für ${c.name}`, [
+    $("p", { textContent: "In der App WireGuard auf „+“ und „QR-Code scannen“ tippen. Der Code enthält den geheimen Schlüssel, also niemandem sonst zeigen." }),
+    $("img", { className: "qr", src: `api/clients/${c.id}/qrcode.svg`, alt: "QR-Code" }),
+  ], [$("button", { className: "main", textContent: "Fertig", value: "x" })]);
+}
+
+async function showSettings() {
+  let s;
+  try { s = await api("api/settings"); } catch (e) { app.replaceChildren($("p", { className: "err", textContent: e.message })); return; }
+  const url = $("input", { value: s.url }), user = $("input", { value: s.username, autocomplete: "off" });
+  const pass = $("input", { type: "password", autocomplete: "new-password", placeholder: s.password_set ? "gespeichert – leer lassen zum Behalten" : "" });
+  const msg = $("p", { className: "quiet" });
+  app.replaceChildren($("div", { className: "card" },
+    $("label", { textContent: "Adresse von WireGuard-Easy im Heimnetz" }), url,
+    $("p", { className: "hint", textContent: "Wie der Server die Weboberfläche erreicht, z. B. http://host.docker.internal:51821 auf demselben Rechner." }),
+    $("label", { textContent: "Benutzername" }), user,
+    $("label", { textContent: "Passwort" }), pass,
+    $("p", { className: "hint", textContent: "Die Anmeldung der Weboberfläche von WireGuard-Easy (ab Version 15). Für das Konto darf keine Zwei-Faktor-Anmeldung an sein. Sie bleibt nur auf dem Server." }),
+    $("div", { className: "foot" }, $("button", { className: "main", textContent: "Speichern", onclick: async () => {
+      try { await api("api/settings", "PUT", { url: url.value, username: user.value, ...(pass.value ? { password: pass.value } : {}) }); msg.textContent = "Gespeichert."; pass.value = ""; }
+      catch (e) { msg.textContent = e.message; }
+    } })), msg));
+}
+
+show();
+</script>
+</body>
+</html>
