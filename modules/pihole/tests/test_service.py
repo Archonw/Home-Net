@@ -21,7 +21,7 @@ PASSWORD = "geheim"
 def fake_state(total=1000, blocked=200, prefix="", clients=None):
     now = int(time.time()) // 600 * 600
     return {
-        "password": PASSWORD, "blocking": "enabled", "timer": None, "logins": 0, "sids": set(), "calls": [],
+        "password": PASSWORD, "blocking": "enabled", "remote": "v6.1.4", "timer": None, "logins": 0, "sids": set(), "calls": [],
         "summary": {"queries": {"total": total, "blocked": blocked, "percent_blocked": 100 * blocked / total,
                                 "cached": total // 4, "forwarded": total // 2, "unique_domains": 50},
                     "clients": {"active": 3, "total": 5},
@@ -73,8 +73,9 @@ class FakePihole(BaseHTTPRequestHandler):
                 s["timer"] = body.get("timer")
             return self.reply(200, {"blocking": s["blocking"], "timer": s["timer"]})
         if path == "/api/info/version":
-            return self.reply(200, {"version": {"core": {"local": {"version": "v6.1.4"}},
-                                                "ftl": {"local": {"version": "v6.2.3"}}}})
+            return self.reply(200, {"version": {"core": {"local": {"version": "v6.1.4"}, "remote": {"version": s["remote"]}},
+                                                "web": {"local": {"version": None}, "remote": {"version": None}},
+                                                "ftl": {"local": {"version": "v6.2.3"}, "remote": {"version": "v6.2.3"}}}})
         if path == "/api/stats/summary":
             return self.reply(200, s["summary"])
         if path == "/api/stats/top_domains":
@@ -252,6 +253,88 @@ class ServiceTest(unittest.TestCase):
         req = urllib.request.urlopen(f"http://127.0.0.1:{self.api.server_address[1]}/", timeout=5)
         self.assertIn(b"Pi-hole", req.read())
         self.assertEqual(self.call("GET", "/health", role="user"), (200, {"ok": True}))
+
+
+class WatcherTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.events = Path(self.tmp.name) / "events"
+        self.events.mkdir()
+        server.EVENTS_DIR = str(self.events)
+        self.addCleanup(setattr, server, "EVENTS_DIR", "")
+        self.a = fake_state()
+        self.fa = start_fake(self.a)
+        self.addCleanup(self.fa.shutdown)
+        self.settings = server.Settings(self.tmp.name)
+        self.settings.update({"instances": [
+            {"name": "Erster", "url": f"http://127.0.0.1:{self.fa.server_address[1]}", "password": PASSWORD},
+            {"name": "Weg", "url": "http://127.0.0.1:9", "password": ""}]})
+        self.watcher = server.Watcher(pihole.Piholes(self.settings.get), self.tmp.name)
+
+    def sent(self):
+        out = [json.loads(p.read_text()) for p in sorted(self.events.glob("*.json"))]
+        for p in self.events.glob("*.json"):
+            p.unlink()
+        return [(e["type"], e["title"]) for e in out]
+
+    def test_offline_only_after_some_checks_and_back_once(self):
+        self.watcher.tick(now=1)
+        self.watcher.tick(now=2)
+        self.assertEqual(self.sent(), [])
+        self.watcher.tick(now=3)
+        self.assertEqual(self.sent(), [("pihole_offline", "Weg ist nicht erreichbar")])
+        self.watcher.tick(now=4)
+        self.assertEqual(self.sent(), [])
+        # after a restart it is not reported again
+        again = server.Watcher(self.watcher.piholes, self.tmp.name)
+        for t in range(5):
+            again.tick(now=10 + t)
+        self.assertEqual(self.sent(), [])
+        # it comes back
+        items = self.settings.get()["instances"]
+        self.settings.update({"instances": [items[0], {"name": "Weg", "url": items[0]["url"].replace("127.0.0.1", "localhost"),
+                                                        "password": PASSWORD}]})
+        again.tick(now=20)
+        self.assertEqual(self.sent(), [])  # different address, old one forgotten
+        self.assertEqual(again.down, set())
+
+    def test_back_online(self):
+        self.a_url = self.settings.get()["instances"][0]["url"]
+        self.fa.shutdown()
+        self.fa.server_close()
+        for t in range(3):
+            self.watcher.tick(now=t + 1)
+        self.assertIn(("pihole_offline", "Erster ist nicht erreichbar"), self.sent())
+        fb = ThreadingHTTPServer(("127.0.0.1", self.fa.server_address[1]), type("F", (FakePihole,), {"state": self.a}))
+        threading.Thread(target=fb.serve_forever, daemon=True).start()
+        self.addCleanup(fb.shutdown)
+        self.watcher.tick(now=10)
+        self.assertIn(("pihole_online", "Erster ist wieder erreichbar"), self.sent())
+
+    def test_update_reported_once(self):
+        self.watcher.tick(now=100000)
+        self.assertNotIn("pihole_update", [k for k, _ in self.sent()])
+        self.a["remote"] = "v6.2"
+        self.watcher.tick(now=100001)  # not yet time for the next look
+        self.assertEqual([k for k, _ in self.sent() if k == "pihole_update"], [])
+        self.watcher.tick(now=100000 + server.UPDATE_EVERY)
+        self.assertEqual([t for k, t in self.sent() if k == "pihole_update"], ["Update für Erster"])
+        self.watcher.tick(now=100000 + 2 * server.UPDATE_EVERY)
+        self.assertEqual([t for k, t in self.sent() if k == "pihole_update"], [])
+        _, out = None, self.watcher.piholes.overview()
+        self.assertEqual(out["instances"][0]["updates"], [{"part": "Core", "installed": "v6.1.4", "available": "v6.2"}])
+
+
+class VersionTest(unittest.TestCase):
+    def test_updates(self):
+        self.assertEqual(pihole.updates({}), [])
+        self.assertEqual(pihole.updates({"ftl": {"local": {"version": "v6.8"}, "remote": {"version": "v6.10"}},
+                                         "core": {"local": {"version": None}, "remote": {"version": "v6.3"}},
+                                         "web": {"local": {"version": "v6.6.1"}, "remote": {"version": "v6.6"}},
+                                         "docker": {"local": "2025.11.0", "remote": "2025.12.1"}}),
+                         [{"part": "FTL", "installed": "v6.8", "available": "v6.10"},
+                          {"part": "Docker", "installed": "2025.11.0", "available": "2025.12.1"}])
 
 
 if __name__ == "__main__":

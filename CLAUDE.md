@@ -36,7 +36,8 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
   App-Passwort, Sitzung wird wiederverwendet) in `service/pihole.py`. Mehrere Pi-holes gelten als ein Netz: Pausieren geht
   an alle, die Statistik wird zusammengezählt. Ansehen und Pausieren mit Ablaufzeit darf jeder mit Zugriff auf das Modul;
   Pausieren ohne Ende und die Einstellungen nur Eigentümer und Admins. Genutzt in `android/.../PiholeApi.kt` und
-  `PiholeScreens.kt`.
+  `PiholeScreens.kt`. Meldungen (nicht erreichbar, wieder da, Update) kommen aus `Watcher` in `service/server.py`, der Stand
+  liegt in `watch.json`, damit nichts doppelt gemeldet wird.
 
 Ändert sich eine Schnittstelle, wird die App im selben Commit mit angepasst.
 

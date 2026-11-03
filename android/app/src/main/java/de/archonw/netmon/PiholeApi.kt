@@ -13,6 +13,8 @@ data class PhInstance(
     /** Sekunden bis zum Wiedereinschalten, null: ohne Ende oder nicht pausiert */
     val timer: Int?,
     val version: String,
+    /** z. B. "FTL v6.9" für jeden Teil mit neuerer Version */
+    val updates: List<String> = emptyList(),
 )
 
 data class PhOverview(
@@ -63,6 +65,7 @@ class PiholeApi(private val http: PiApi) {
                     blocking = it.optString("blocking", "unknown"),
                     timer = if (it.isNull("timer")) null else it.optDouble("timer").toInt(),
                     version = it.optString("version").ifBlank { it.optString("ftl").let { f -> if (f.isBlank()) "" else "FTL $f" } },
+                    updates = it.optJSONArray("updates").objects().map { u -> "${u.optString("part")} ${u.optString("available")}" },
                 )
             },
         )

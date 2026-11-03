@@ -122,7 +122,8 @@ function showOverview(o) {
     $("div", { className: "name" }, i.name, $("span", { className: "quiet", textContent: ` · ${i.url.replace(/^https?:\/\//, "")}` })),
     i.online ? $("div", { className: i.blocking === "enabled" ? "ok" : "warn",
       textContent: (i.blocking === "enabled" ? "Filter an" : i.timer ? `Pausiert, noch ${Math.ceil(i.timer / 60)} min` : "Pausiert") + ((i.version || i.ftl) ? ` · Pi-hole ${i.version || "FTL " + i.ftl}` : "") })
-      : $("div", { className: "bad", textContent: i.error })));
+      : $("div", { className: "bad", textContent: i.error }),
+    (i.updates || []).length ? $("div", { className: "quiet", textContent: "Update verfügbar: " + i.updates.map(u => `${u.part} ${u.available}`).join(", ") + " (auf dem Gerät mit „pihole -up“)" }) : null));
   app.replaceChildren(
     $("div", { className: "card" }, $("div", { className: `big ${cls}`, textContent: text }),
       $("p", { className: "hint", textContent: "Pausieren gilt für alle Pi-holes gleichzeitig. Danach schalten sie sich von selbst wieder ein." }),

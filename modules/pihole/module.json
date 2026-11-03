@@ -20,11 +20,13 @@
       "environment": [
         "TZ=${TZ}",
         "DATA=/data",
-        "LISTEN_SOCKET=/run/pihole/api.sock"
+        "LISTEN_SOCKET=/run/pihole/api.sock",
+        "EVENTS_DIR=/run/home-net-events"
       ],
       "volumes": [
         "${DATA_DIR}/pihole/config:/data",
-        "${DATA_DIR}/pihole/run:/run/pihole"
+        "${DATA_DIR}/pihole/run:/run/pihole",
+        "${DATA_DIR}/events/pihole:/run/home-net-events"
       ],
       "healthcheck": {
         "test": [
@@ -35,5 +37,20 @@
         ]
       }
     }
-  }
+  },
+  "events": [
+    {
+      "id": "pihole_offline",
+      "label": "Ein Pi-hole ist nicht erreichbar"
+    },
+    {
+      "id": "pihole_online",
+      "label": "Ein Pi-hole ist wieder erreichbar"
+    },
+    {
+      "id": "pihole_update",
+      "label": "Update für Pi-hole verfügbar",
+      "manager_only": true
+    }
+  ]
 }
