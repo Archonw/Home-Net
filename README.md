@@ -41,6 +41,10 @@ Alle Bilder zeigen erfundene Beispieldaten. Sie entstehen im Emulator mit `tools
 | --- | --- |
 | <img src="docs/screenshots/wireguard.png" width="200" alt="VPN-Zugänge mit Verbindungszustand"> | <img src="docs/screenshots/wireguard-qr.png" width="200" alt="QR-Code eines Zugangs zum Scannen"> |
 
+| Pi-hole | Pi-hole: pausiert | Pi-hole: Statistik |
+| --- | --- | --- |
+| <img src="docs/screenshots/pihole.png" width="200" alt="Werbefilter aller Pi-holes"> | <img src="docs/screenshots/pihole-pausiert.png" width="200" alt="Werbefilter für 5 Minuten pausiert"> | <img src="docs/screenshots/pihole-statistik.png" width="200" alt="Statistik aller Pi-holes zusammen"> |
+
 ## Konten und Anmeldung
 
 Jeder meldet sich mit Benutzername und Passwort an. Im Heimnetz reicht das, von außen, über einen Reverse Proxy mit HTTPS, gehört ein Passkey dazu.
@@ -68,6 +72,7 @@ Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sond
 | `modules/pocket-id-server/` | Installiert Pocket ID selbst, falls noch keins läuft (`home-net add pocket-id --with-server`) |
 | `modules/wireguard/` | Verwaltet die VPN-Zugänge von WireGuard-Easy: anlegen, sperren, QR-Code fürs Handy in der App, siehe [README](modules/wireguard/README.md) |
 | `modules/wireguard-server/` | Installiert WireGuard-Easy selbst, falls noch keins läuft (`home-net add wireguard --with-server`) |
+| `modules/pihole/` | Pausiert den Werbefilter aller Pi-holes gleichzeitig und zeigt ihre Statistik zusammen, siehe [README](modules/pihole/README.md) |
 | `modules/ntfy/` | Eigener Server für Benachrichtigungen |
 | `tools/` | Hilfsprogramme, zum Beispiel die Sicherung der Einstellungen |
 | `assets/icons/` | Logos |

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Takes the screenshots for the README: the app in an emulator against the real gateway with made-up data.
 
-Started by the CI workflow Screenshots. Pocket ID, WireGuard and PC-Sicherung run as their real services (with
-stand-ins for Pocket ID, WireGuard-Easy and the backup archive); the other modules answer with fixed example data. Nothing personal appears.
+Started by the CI workflow Screenshots. Pocket ID, WireGuard, Pi-hole and PC-Sicherung run as their real services (with
+stand-ins for Pocket ID, WireGuard-Easy, the Pi-holes and the backup archive); the other modules answer with fixed example data. Nothing personal appears.
 """
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -146,6 +147,53 @@ def start_pocket_id():
     return f"http://127.0.0.1:{httpd.server_address[1]}"
 
 
+def load(name, path):
+    """Loads a module file under its own name (several modules call their files server.py and test_service.py)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def start_pihole():
+    """The real module against two stand-in Pi-holes from its tests, with made-up numbers."""
+    folder = REPO / "modules" / "pihole"
+    sys.path.insert(0, str(folder / "service"))
+    import pihole
+    ph_server = load("pihole_server", folder / "service" / "server.py")
+    ph_tests = load("pihole_tests", folder / "tests" / "test_service.py")
+
+    def state(total, blocked, clients):
+        s = ph_tests.fake_state(total, blocked, clients=clients)
+        s["blocked"] = [{"domain": d, "count": blocked * share // 100} for d, share in
+                        (("ads.example.com", 31), ("tracker.example.net", 22), ("telemetry.example.org", 14),
+                         ("pixel.example.com", 9), ("metrics.example.io", 6))]
+        s["permitted"] = [{"domain": d, "count": total * share // 100} for d, share in
+                          (("example.org", 18), ("cdn.example.net", 12), ("mail.example.com", 7))]
+        for i, h in enumerate(s["history"]):  # quiet at night, busy in the evening, a little uneven
+            hour = (h["timestamp"] % 86400) / 3600 + 1
+            factor = (0.2 + 1.4 * max(0.0, math.sin((hour - 6) / 17 * math.pi)) ** 1.5) * (0.85 + 0.3 * ((i * 37) % 11) / 10)
+            h["total"] = int(h["total"] * factor)
+            h["blocked"] = int(h["total"] * (0.15 + 0.1 * ((i * 13) % 7) / 6))
+        return s
+
+    pis = [ph_tests.start_fake(state(18342, 3987, [{"ip": "192.168.1.31", "name": "Handy Anna", "count": 6120},
+                                                   {"ip": "192.168.1.40", "name": "Fernseher", "count": 4380},
+                                                   {"ip": "192.168.1.32", "name": "Laptop Ben", "count": 2950}])),
+           ph_tests.start_fake(state(2210, 412, [{"ip": "192.168.1.31", "name": "Handy Anna", "count": 800}]))]
+    settings = ph_server.Settings(tempfile.mkdtemp())
+    settings.update({"instances": [
+        {"name": "Pi im Flur", "url": f"http://127.0.0.1:{pis[0].server_address[1]}", "password": ph_tests.PASSWORD},
+        {"name": "Ersatz auf dem Server", "url": f"http://127.0.0.1:{pis[1].server_address[1]}",
+         "password": ph_tests.PASSWORD}]})
+    handler = type("PiholeApi", (ph_server.ApiHandler,), {"settings": settings, "piholes": pihole.Piholes(settings.get)})
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{httpd.server_address[1]}"
+
+
 def start_wireguard():
     """The real module against the stand-in WireGuard-Easy from its tests, with made-up devices and keys."""
     folder = REPO / "modules" / "wireguard"
@@ -213,6 +261,7 @@ def main():
         "unraid": canned({"/api/overview": UNRAID}),
         "pocket-id": start_pocket_id(),
         "wireguard": start_wireguard(),
+        "pihole": start_pihole(),
     }
     catalog = [{"id": m, "name": modules[m]["name"], "description": "d", "icon": "", "upstream": url,
                 "events": modules[m].get("events", [])} for m, url in upstreams.items()]
@@ -289,6 +338,21 @@ def main():
     find("QR-Code für Handy Anna", 30)
     find("Als Text teilen", 30)
     shot("wireguard-qr")
+    tap("Fertig")
+    tap("Zurück")
+    tap("Zurück")
+
+    tap("Pi-hole", scroll=True)
+    find("Pausieren für", 30)
+    shot("pihole")
+    tap("5 min")
+    find("Wieder einschalten", 30)
+    shot("pihole-pausiert")
+    tap("Wieder einschalten")
+    find("Werbefilter an", 30)
+    tap("Statistik")
+    find("Am häufigsten geblockt", 30)
+    shot("pihole-statistik")
     probe.report("notice", "Alle Bilder aufgenommen")
 
 

@@ -55,6 +55,8 @@ sealed interface Screen {
     data class PocketIdUser(val id: String) : Screen
     data object WireGuard : Screen
     data class WireGuardClient(val id: Int) : Screen
+    data object Pihole : Screen
+    data object PiholeStats : Screen
     data object HubSetup : Screen
     data object Notifications : Screen
 }
@@ -134,6 +136,7 @@ class MainActivity : FragmentActivity() {
                 Screen.UnraidShares, Screen.UnraidUsers, Screen.UnraidDocker, Screen.UnraidScripts -> Screen.UnraidOverview
                 is Screen.PocketIdUser -> Screen.PocketId
                 is Screen.WireGuardClient -> Screen.WireGuard
+                Screen.PiholeStats -> Screen.Pihole
                 Screen.HubSetup, Screen.Notifications -> Screen.Setup
                 else -> Screen.Home
             }
@@ -175,6 +178,7 @@ class MainActivity : FragmentActivity() {
                         onUnraid = { screen = Screen.UnraidOverview },
                         onPocketId = { screen = Screen.PocketId },
                         onWireGuard = { screen = Screen.WireGuard },
+                        onPihole = { screen = Screen.Pihole },
                     )
                     Screen.UnraidOverview -> UnraidOverviewScreen(
                         api = settings.unraidApi(),
@@ -201,6 +205,12 @@ class MainActivity : FragmentActivity() {
                         onBack = { screen = Screen.Home },
                     )
                     is Screen.WireGuardClient -> WireGuardClientScreen(settings.wireGuardApi(), s.id) { screen = Screen.WireGuard }
+                    Screen.Pihole -> PiholeScreen(
+                        api = settings.piholeApi(),
+                        onStats = { screen = Screen.PiholeStats },
+                        onBack = { screen = Screen.Home },
+                    )
+                    Screen.PiholeStats -> PiholeStatsScreen(settings.piholeApi()) { screen = Screen.Pihole }
                     Screen.PcOverview -> PcOverviewScreen(
                         api = settings.pcApi(),
                         onOpen = { screen = Screen.PcDetail(it) },

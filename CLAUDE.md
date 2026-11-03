@@ -27,6 +27,11 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
   QR-Code selbst aus `/api/clients/<id>/config` (zxing). Genutzt in `android/.../WireGuardApi.kt` und
   `WireGuardScreens.kt`. `modules/wireguard-server` installiert WireGuard-Easy selbst; das Passwort des ersten Kontos
   erzeugt der Kern (`Install.wireguard_server`) und legt die Anmeldung als `login.json` für `wireguard` ab.
+- `modules/pihole`: Dienst aus `service/server.py`, der Zugriff auf Pi-hole 6 (REST-API, Anmeldung mit Passwort oder
+  App-Passwort, Sitzung wird wiederverwendet) in `service/pihole.py`. Mehrere Pi-holes gelten als ein Netz: Pausieren geht
+  an alle, die Statistik wird zusammengezählt. Ansehen und Pausieren mit Ablaufzeit darf jeder mit Zugriff auf das Modul;
+  Pausieren ohne Ende und die Einstellungen nur Eigentümer und Admins. Genutzt in `android/.../PiholeApi.kt` und
+  `PiholeScreens.kt`.
 
 Ändert sich eine Schnittstelle, wird die App im selben Commit mit angepasst.
 

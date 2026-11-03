@@ -206,7 +206,7 @@ class Install:
         if "pc-sicherung" in state["modules"]:
             Path(pc_dir(state)).mkdir(parents=True, exist_ok=True)
             (self.data / "pc-sicherung" / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
-        for module_id in ("unraid", "pocket-id", "wireguard"):
+        for module_id in ("unraid", "pocket-id", "wireguard", "pihole"):
             if module_id in state["modules"]:
                 (self.data / module_id / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
         if "pocket-id-server" in state["modules"]:
@@ -413,6 +413,9 @@ def cmd_add(args):
     elif args.module == "wireguard":
         print("In Home-Net im Browser beim Modul WireGuard unter Einstellungen die Adresse und die Anmeldung von "
               "WireGuard-Easy eintragen.")
+    if args.module == "pihole":
+        print("Pi-hole: In Home-Net im Browser beim Modul Pi-hole unter Einstellungen die Adressen und Passwörter "
+              "deiner Pi-holes eintragen (Pi-hole 6 nötig).")
 
 
 def cmd_remove(args):

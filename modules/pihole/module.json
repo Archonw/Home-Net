@@ -1,0 +1,39 @@
+{
+  "id": "pihole",
+  "name": "Pi-hole",
+  "description": "Werbefilter aller Pi-holes kurz pausieren und Statistiken ansehen",
+  "icon": "assets/icons/pihole.png",
+  "api": {
+    "socket": "/run/pihole/api.sock",
+    "health": "/health",
+    "public": [
+      "/health"
+    ],
+    "web": true
+  },
+  "services": {
+    "pihole-verwaltung": {
+      "build": "modules/pihole",
+      "extra_hosts": [
+        "host.docker.internal:host-gateway"
+      ],
+      "environment": [
+        "TZ=${TZ}",
+        "DATA=/data",
+        "LISTEN_SOCKET=/run/pihole/api.sock"
+      ],
+      "volumes": [
+        "${DATA_DIR}/pihole/config:/data",
+        "${DATA_DIR}/pihole/run:/run/pihole"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python3",
+          "-c",
+          "import socket;s=socket.socket(socket.AF_UNIX);s.connect('/run/pihole/api.sock');s.send(b'GET /health HTTP/1.0\\r\\n\\r\\n');assert b' 200 ' in s.recv(64)"
+        ]
+      }
+    }
+  }
+}

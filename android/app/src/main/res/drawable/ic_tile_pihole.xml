@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="512" android:viewportHeight="512">
+    <!-- assets/icons/pihole.svg -->
+    <path android:fillColor="#C4111B" android:pathData="M0,0 H512 V512 H0 Z" />
+    <path android:fillColor="#FFFFFF" android:fillType="evenOdd" android:pathData="M256,92 L396,144 V244 C396,334 336,398 256,424 C176,398 116,334 116,244 V144 Z M256,140 L164,174 V244 C164,306 202,354 256,376 C310,354 348,306 348,244 V174 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M196,206 L218,184 L316,282 L294,304 Z" />
+</vector>
