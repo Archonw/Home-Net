@@ -170,6 +170,8 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     var unraidAlert by remember { mutableStateOf(false) }
     var installed by remember { mutableStateOf<Set<String>?>(null) }
     var hubError by remember { mutableStateOf<String?>(null) }
+    var order by remember { mutableStateOf(settings.homeTiles) }
+    var arranging by remember { mutableStateOf(false) }
 
     AppUpdatePrompt(api, settings)
 
@@ -238,28 +240,50 @@ fun HomeScreen(settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> 
     }
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
-        PageTitle("Home-Net")
+        PageTitle("Home-Net", trailing = {
+            if (!arranging && installed != null) TextAction("Anordnen") { arranging = true }
+        })
+        // Pc-Sicherung und Unraid nur über den gemeinsamen Zugang, darum erst sichtbar, wenn der Server das Modul meldet
+        val visible = order.filter {
+            when (it) {
+                "network" -> installed?.contains("netzwerkmonitor") != false
+                "pi" -> installed?.contains("pi-wartung") != false
+                "pc" -> installed?.contains("pc-sicherung") == true
+                "unraid" -> installed?.contains("unraid") == true
+                else -> false
+            }
+        }
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             hubError?.let { Text(it, color = p.blocked, fontSize = 14.sp) }
-            if (installed?.contains("netzwerkmonitor") != false) {
-                ServiceTile("Netzwerk", network, networkAlert, R.drawable.ic_tile_network, onNetwork)
-            }
-            if (installed?.contains("pi-wartung") != false) {
-                ServiceTile("Pi-Wartung", pi, piAlert, R.drawable.ic_tile_pi, onPi)
-            }
-            // Nur über den gemeinsamen Zugang, darum erst sichtbar, wenn der Server das Modul meldet
-            if (installed?.contains("pc-sicherung") == true) {
-                ServiceTile("PC-Sicherung", pc, pcAlert, R.drawable.ic_tile_pc, onPc)
-            }
-            if (installed?.contains("unraid") == true) {
-                ServiceTile("Unraid", unraid, unraidAlert, R.drawable.ic_tile_unraid, onUnraid)
+            if (arranging) {
+                ArrangeHint()
+                OrderList(visible, HOME_TILE_LABELS) { changed ->
+                    order = changed + order.filter { it !in changed }
+                    settings.homeTiles = order
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextAction("Zurücksetzen") { order = HOME_TILES; settings.homeTiles = order }
+                    TextAction("Fertig") { arranging = false }
+                }
+            } else {
+                visible.forEach { tile ->
+                    when (tile) {
+                        "network" -> ServiceTile("Netzwerk", network, networkAlert, R.drawable.ic_tile_network, onNetwork)
+                        "pi" -> ServiceTile("Pi-Wartung", pi, piAlert, R.drawable.ic_tile_pi, onPi)
+                        "pc" -> ServiceTile("PC-Sicherung", pc, pcAlert, R.drawable.ic_tile_pc, onPc)
+                        "unraid" -> ServiceTile("Unraid", unraid, unraidAlert, R.drawable.ic_tile_unraid, onUnraid)
+                    }
+                }
             }
         }
     }
 }
+
+val HOME_TILES = listOf("network", "pi", "pc", "unraid")
+private val HOME_TILE_LABELS = mapOf("network" to "Netzwerk", "pi" to "Pi-Wartung", "pc" to "PC-Sicherung", "unraid" to "Unraid")
 
 /** Eine Adresse und ein Passwort für alle Module. */
 @Composable

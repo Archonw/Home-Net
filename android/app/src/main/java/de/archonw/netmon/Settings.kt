@@ -63,6 +63,20 @@ class Settings(context: Context) {
         get() = prefs.getLong("last_event_id", 0)
         set(value) = prefs.edit().putLong("last_event_id", value).apply()
 
+    /** Eigene Reihenfolge der Kacheln auf der Startseite. */
+    var homeTiles: List<String>
+        get() = normalizedOrder(prefs.getString("home_tiles", "").orEmpty().split(','), HOME_TILES)
+        set(value) = prefs.edit().putString("home_tiles", value.joinToString(",")).apply()
+
+    /** Eigene Anordnung der Unraid-Übersicht (Bereiche und Menüpunkte). */
+    var unraidSections: List<String>
+        get() = normalizedOrder(prefs.getString("unraid_sections", "").orEmpty().split(','), UNRAID_SECTIONS)
+        set(value) = prefs.edit().putString("unraid_sections", value.joinToString(",")).apply()
+
+    var unraidMenu: List<String>
+        get() = normalizedOrder(prefs.getString("unraid_menu", "").orEmpty().split(','), UNRAID_MENU)
+        set(value) = prefs.edit().putString("unraid_menu", value.joinToString(",")).apply()
+
     /** Womit sich die App anmeldet: Geräteschlüssel, falls vorhanden, sonst das Passwort. */
     val hubSecret: String get() = hubToken.ifBlank { password }
 
