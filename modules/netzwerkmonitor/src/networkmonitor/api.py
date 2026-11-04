@@ -7,6 +7,7 @@ import html
 import logging
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -17,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
-from .appupdate import AppFolder, update_from_github
+from .appupdate import AppFolder, RateLimited, ReleaseCache, update_from_github
 from .auth import LoginGuard, client_ip, via_proxy
 from .config import EDITABLE, Settings, apply_overrides, coerce, public_view
 from .events import HubEvents
@@ -44,6 +45,8 @@ DEFAULT_PASSWORD = "netzwerkmonitor"
 MIN_PASSWORD_LENGTH = 8
 # So oft schaut der Monitor nach einer neuen App-Version
 APP_UPDATE_INTERVAL = 60 * 60
+# So lange nach einer erfolgreichen Suche nutzt „Jetzt suchen“ deren Ergebnis
+MANUAL_CHECK_PAUSE = 120
 APK_TYPE = "application/vnd.android.package-archive"
 
 
@@ -130,15 +133,27 @@ def create_app(
     state = {"last_error": None, "last_poll": None}
     app_folder = AppFolder(settings.app_dir)
     app_state: dict = {"checked": None, "message": None, "ok": None}
+    # Je Repository und Token eine eigene Ablage, ein neues Token hebt eine Sperre sofort auf
+    github: dict = {"key": None, "cache": ReleaseCache(), "last_ok": 0.0}
 
-    def check_app_update() -> dict:
+    def check_app_update(manual: bool = False) -> dict:
         repo = rt.settings.app_update_repo
+        token = rt.settings.app_update_token
+        if (repo, token) != github["key"]:
+            github.update(key=(repo, token), cache=ReleaseCache(), last_ok=0.0)
         if not repo:
             app_state.update(ok=None, message="Automatische Suche aus")
+        elif manual and time.monotonic() - github["last_ok"] < MANUAL_CHECK_PAUSE:
+            # Gerade erst gefragt: Ergebnis wiederverwenden, das spart Abfragen bei GitHub
+            return app_status()
         else:
             try:
-                message = update_from_github(app_folder, repo, rt.settings.app_update_token)
+                message = update_from_github(app_folder, repo, token, github["cache"])
                 app_state.update(ok=True, message=message)
+                github["last_ok"] = time.monotonic()
+            except RateLimited as exc:
+                log.info("App-Update: %s", exc)
+                app_state.update(ok=False, message=str(exc))
             except Exception as exc:  # noqa: BLE001 – Monitor läuft auch ohne App-Update
                 log.warning("App-Update von GitHub fehlgeschlagen: %s", exc)
                 app_state.update(ok=False, message=f"GitHub: {exc}")
@@ -354,7 +369,7 @@ def create_app(
 
     @app.post("/api/app/check", dependencies=[Depends(require_manager)])
     def post_app_check() -> dict:
-        return check_app_update()
+        return check_app_update(manual=True)
 
     @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_login)])
     def index() -> str:

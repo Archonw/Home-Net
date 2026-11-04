@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -76,6 +77,48 @@ class AppFolder:
         return AppFile(version, target)
 
 
+class RateLimited(Exception):
+    """GitHub hat das Kontingent an Abfragen für diese Adresse (oder dieses Token) aufgebraucht."""
+
+    def __init__(self, reset: float) -> None:
+        self.reset = reset
+        super().__init__(limit_message(reset))
+
+
+def limit_message(reset: float, now: float | None = None) -> str:
+    minutes = max(1, round((reset - (now or time.time())) / 60))
+    return (
+        "Abfrage-Limit von GitHub erreicht (ohne Token 60 pro Stunde für das ganze Heimnetz). "
+        f"Nächster Versuch in etwa {minutes} Minuten. Mit einem GitHub-Token in den Einstellungen "
+        "des Monitors steigt die Grenze auf 5000 pro Stunde."
+    )
+
+
+@dataclass
+class ReleaseCache:
+    """Letzte Antwort von GitHub, damit unveränderte Listen nicht erneut geladen werden."""
+
+    etag: str = ""
+    result: tuple[str, str] | None = None
+    blocked_until: float = 0.0
+
+
+def _rate_limit_reset(exc: urllib.error.HTTPError) -> float | None:
+    """Zeitpunkt, ab dem GitHub wieder antwortet, oder None, wenn kein Limit vorliegt."""
+    if exc.code not in (403, 429):
+        return None
+    headers = exc.headers or {}
+    remaining = headers.get("x-ratelimit-remaining")
+    retry_after = headers.get("retry-after")
+    if remaining != "0" and retry_after is None:
+        return None
+    now = time.time()
+    if retry_after and retry_after.isdigit():
+        return now + int(retry_after)
+    reset = headers.get("x-ratelimit-reset", "")
+    return float(reset) if reset.isdigit() else now + 60 * 60
+
+
 def _github(url: str, token: str, accept: str) -> urllib.request.Request:
     req = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": "networkmonitor"})
     if token:
@@ -84,20 +127,35 @@ def _github(url: str, token: str, accept: str) -> urllib.request.Request:
     return req
 
 
-def fetch_latest_release(repo: str, token: str = "", timeout: float = 30) -> tuple[str, str]:
+def fetch_latest_release(
+    repo: str, token: str = "", timeout: float = 30, cache: ReleaseCache | None = None
+) -> tuple[str, str]:
     """Version und Download-Adresse der APK aus dem Release mit der höchsten Nummer.
 
     Nicht ``releases/latest``: GitHub sortiert dort nach Datum des Commits, nicht nach Nummer.
+    Mit ``cache`` fragt sie per ETag nur nach Änderungen und wartet nach einem Limit ab.
     """
+    if cache is not None and cache.blocked_until > time.time():
+        raise RateLimited(cache.blocked_until)
     req = _github(
         f"https://api.github.com/repos/{repo}/releases?per_page=50",
         token,
         "application/vnd.github+json",
     )
+    if cache is not None and cache.etag and cache.result:
+        req.add_header("If-None-Match", cache.etag)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             releases = json.load(resp)
+            etag = resp.headers.get("ETag", "") if getattr(resp, "headers", None) else ""
     except urllib.error.HTTPError as exc:
+        if exc.code == 304 and cache is not None and cache.result:
+            return cache.result
+        reset = _rate_limit_reset(exc)
+        if reset is not None:
+            if cache is not None:
+                cache.blocked_until = reset
+            raise RateLimited(reset) from exc
         if exc.code == 404:
             hint = "Token gespeichert?" if not token else "Hat das Token Zugriff darauf?"
             raise ValueError(f"Repository {repo} nicht gefunden. {hint}") from exc
@@ -115,7 +173,10 @@ def fetch_latest_release(repo: str, token: str = "", timeout: float = 30) -> tup
     if not candidates:
         raise ValueError(f"Kein Release mit {RELEASE_ASSET} gefunden")
     number, url = max(candidates)
-    return f"0.1.{number}", url
+    result = (f"0.1.{number}", url)
+    if cache is not None:
+        cache.etag, cache.result = etag, result
+    return result
 
 
 def download(url: str, token: str = "", timeout: float = 120) -> bytes:
@@ -129,9 +190,11 @@ def download(url: str, token: str = "", timeout: float = 120) -> bytes:
     return data
 
 
-def update_from_github(folder: AppFolder, repo: str, token: str = "") -> str:
+def update_from_github(
+    folder: AppFolder, repo: str, token: str = "", cache: ReleaseCache | None = None
+) -> str:
     """Lädt die neueste App-Version, falls sie neuer ist; liefert eine Meldung."""
-    version, url = fetch_latest_release(repo, token)
+    version, url = fetch_latest_release(repo, token, cache=cache)
     current = folder.latest()
     if current and _key(current.version) >= _key(version):
         return f"Aktuell: {current.version}"
