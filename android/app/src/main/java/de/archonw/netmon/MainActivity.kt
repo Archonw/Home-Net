@@ -80,6 +80,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        I18n.init(applicationContext)
         settings = Settings(this)
         themeMode = settings.themeMode
         appStyle = settings.appStyle

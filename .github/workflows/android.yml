@@ -6,10 +6,12 @@ on:
     branches: [main]
     paths:
       - "android/**"
+      - "i18n/**"
       - ".github/workflows/android.yml"
   pull_request:
     paths:
       - "android/**"
+      - "i18n/**"
       - ".github/workflows/android.yml"
   # Von Hand starten (Actions → CI → Run workflow), z. B. für eine Test-Version der App
   workflow_dispatch:

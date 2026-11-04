@@ -29,6 +29,9 @@ PORTAL = os.path.join(HERE, "portal.html")
 LOGIN = os.path.join(HERE, "login.html")
 THEME = os.path.join(HERE, "theme.js")
 THEME_TAG = '<script src="/hn/theme.js"></script>'
+I18N = os.path.join(HERE, "i18n.js")
+I18N_DIR = os.environ.get("I18N_DIR", os.path.join(HERE, "i18n"))
+I18N_TAG = '<script src="/hn/i18n.js"></script>'
 EVENTS_DIR = os.environ.get("EVENTS_DIR", "/events")
 SCAN_SECONDS = 2
 STREAM_PING_SECONDS = 45
@@ -86,6 +89,32 @@ def is_home_address(address):
     return addr.is_private
 
 
+_dictionaries = {}
+
+
+def dictionary(lang):
+    """All word lists of a language from i18n/<lang>/*.json merged, read again when a file changes."""
+    folder = os.path.join(I18N_DIR, lang)
+    try:
+        files = sorted(f for f in os.listdir(folder) if f.endswith(".json"))
+    except OSError:
+        return b"{}"
+    stamp = tuple((f, os.path.getmtime(os.path.join(folder, f))) for f in files)
+    cached = _dictionaries.get(lang)
+    if cached and cached[0] == stamp:
+        return cached[1]
+    words = {}
+    for name in files:
+        try:
+            with open(os.path.join(folder, name), encoding="utf-8") as f:
+                words.update(json.load(f))
+        except (OSError, ValueError):
+            continue
+    body = json.dumps(words, ensure_ascii=False).encode()
+    _dictionaries[lang] = (stamp, body)
+    return body
+
+
 def security():
     return Security.shared(CONFIG_DIR)
 
@@ -135,7 +164,7 @@ def rewrite_html(body, prefix):
     """Modules write some links from their own root; under the gateway those need the module's prefix."""
     text = body.decode("utf-8", "replace")
     text = re.sub(r'(href|src|action)="/(?!/)', lambda m: f'{m.group(1)}="{prefix}/', text)
-    text = text.replace("<head>", f'<head><script>window.HOME_NET_PREFIX="{prefix}"</script>{THEME_TAG}', 1)
+    text = text.replace("<head>", f'<head><script>window.HOME_NET_PREFIX="{prefix}"</script>{THEME_TAG}{I18N_TAG}', 1)
     text = re.sub(r"<body[^>]*>", lambda m: m.group(0) + BACK_LINK, text, count=1)
     return text.encode()
 
@@ -250,6 +279,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/hn/theme.js" and self.command in ("GET", "HEAD"):
             with open(THEME, "rb") as f:
                 self.reply(200, f.read(), "text/javascript; charset=utf-8")
+            return
+        if path == "/hn/i18n.js" and self.command in ("GET", "HEAD"):
+            with open(I18N, "rb") as f:
+                self.reply(200, f.read(), "text/javascript; charset=utf-8")
+            return
+        lang = re.fullmatch(r"/hn/i18n/([a-z]{2})\.json", path)
+        if lang and self.command in ("GET", "HEAD"):
+            self.reply(200, dictionary(lang.group(1)), "application/json; charset=utf-8")
             return
         if path == "/login" and self.command == "GET":
             with open(LOGIN, "rb") as f:

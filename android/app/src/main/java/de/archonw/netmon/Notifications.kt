@@ -35,7 +35,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -148,11 +147,12 @@ class NotificationService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        I18n.init(applicationContext)
         createChannels(this)
         val notification = NotificationCompat.Builder(this, CHANNEL_SERVICE)
             .setSmallIcon(R.drawable.ic_notify)
             .setContentTitle("Home-Net")
-            .setContentText("Bereit für Meldungen")
+            .setContentText(t("Bereit für Meldungen"))
             .setOngoing(true)
             .setShowWhen(false)
             .setContentIntent(openIntent(this, ""))
@@ -343,9 +343,9 @@ class NotificationService : Service() {
             val manager = context.getSystemService(NotificationManager::class.java)
             manager.createNotificationChannels(
                 listOf(
-                    NotificationChannel(CHANNEL_HIGH, "Wichtige Meldungen", NotificationManager.IMPORTANCE_HIGH),
-                    NotificationChannel(CHANNEL_NORMAL, "Meldungen", NotificationManager.IMPORTANCE_DEFAULT),
-                    NotificationChannel(CHANNEL_SERVICE, "Verbindung zum Server", NotificationManager.IMPORTANCE_MIN),
+                    NotificationChannel(CHANNEL_HIGH, t("Wichtige Meldungen"), NotificationManager.IMPORTANCE_HIGH),
+                    NotificationChannel(CHANNEL_NORMAL, t("Meldungen"), NotificationManager.IMPORTANCE_DEFAULT),
+                    NotificationChannel(CHANNEL_SERVICE, t("Verbindung zum Server"), NotificationManager.IMPORTANCE_MIN),
                 ),
             )
         }
@@ -364,8 +364,8 @@ class NotificationService : Service() {
         private fun showServerState(context: Context, title: String, text: String, high: Boolean) {
             val notification = NotificationCompat.Builder(context, if (high) CHANNEL_HIGH else CHANNEL_NORMAL)
                 .setSmallIcon(R.drawable.ic_notify)
-                .setContentTitle(title)
-                .setContentText(text)
+                .setContentTitle(t(title))
+                .setContentText(t(text))
                 .setAutoCancel(true)
                 .setContentIntent(openIntent(context, ""))
                 .build()
@@ -375,9 +375,9 @@ class NotificationService : Service() {
         private fun show(context: Context, event: HubEvent) {
             val builder = NotificationCompat.Builder(context, if (event.high) CHANNEL_HIGH else CHANNEL_NORMAL)
                 .setSmallIcon(R.drawable.ic_notify)
-                .setContentTitle(event.title)
-                .setContentText(event.message)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(event.message))
+                .setContentTitle(t(event.title))
+                .setContentText(t(event.message))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(t(event.message)))
                 .setWhen(event.time * 1000)
                 .setShowWhen(true)
                 .setAutoCancel(true)

@@ -4,6 +4,7 @@ import http.client
 import io
 import json
 import os
+import re
 import struct
 import sys
 import tarfile
@@ -980,6 +981,29 @@ class Accounts(AccountBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Translations(unittest.TestCase):
+    def test_word_lists_are_merged_and_reread(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "en").mkdir()
+            Path(tmp, "en", "a.json").write_text('{"Anmelden": "Sign in"}')
+            Path(tmp, "en", "b.json").write_text('{"Abmelden": "Sign out"}')
+            with mock.patch.object(gateway, "I18N_DIR", tmp):
+                gateway._dictionaries.clear()
+                self.assertEqual(json.loads(gateway.dictionary("en")), {"Anmelden": "Sign in", "Abmelden": "Sign out"})
+                self.assertEqual(gateway.dictionary("fr"), b"{}")
+                Path(tmp, "en", "b.json").write_text('{"Abmelden": "Log out"}')
+                os.utime(Path(tmp, "en", "b.json"), (1, 1))
+                self.assertEqual(json.loads(gateway.dictionary("en"))["Abmelden"], "Log out")
+
+    def test_repo_word_lists_are_valid_and_keep_placeholders(self):
+        for path in sorted((ROOT / "i18n").glob("*/*.json")):
+            words = json.loads(path.read_text(encoding="utf-8"))
+            for german, english in words.items():
+                self.assertIsInstance(english, str, f"{path.name}: {german}")
+                self.assertEqual(sorted(re.findall(r"\{\d\}", german)), sorted(re.findall(r"\{\d\}", english)),
+                                 f"{path.name}: {german}")
 
 
 class HomeNetworks(unittest.TestCase):

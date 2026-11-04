@@ -61,3 +61,9 @@ Versionen: Releases heißen `vX.Y.Z` und entstehen mit `.github/workflows/releas
 gebaut. Installationen ohne `channel` in `home-net.json` laufen als `main`. Die App-Releases `app-NNN` zählen nicht als
 Version und bleiben „Latest“.
 
+
+Sprachen: Der deutsche Text ist der Schlüssel. Die Übersetzungen stehen in `i18n/<sprache>/<bereich>.json` (deutsch →
+englisch, Platzhalter `{0}`, `{1}`). Die App übersetzt beim Anzeigen (`I18n.kt`: eigenes `Text` und `t()`, die Listen
+kommen beim Bauen nach `assets/i18n`), Webseiten übersetzt `core/gateway/i18n.js`, das der Zugang in jede Seite setzt und
+dessen Wörter er unter `/hn/i18n/<sprache>.json` liefert. Neue sichtbare Texte gehören mit ihrer Übersetzung in denselben
+Commit; Text aus Teilen zusammensetzen nur über `t("… {0} …", wert)`, sonst findet die Übersetzung ihn nicht.
