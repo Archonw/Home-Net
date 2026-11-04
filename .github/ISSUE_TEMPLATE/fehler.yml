@@ -1,0 +1,32 @@
+name: Fehler / Bug
+description: Etwas funktioniert nicht wie erwartet / Something does not work
+labels: [bug]
+body:
+  - type: textarea
+    id: was
+    attributes:
+      label: Was passiert? / What happens?
+      description: Was hast du gemacht, was hast du erwartet, was kam stattdessen? Keine Passwörter oder Adressen einfügen.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`./home-net version` und Version der App (Einstellungen → Über die App)"
+  - type: dropdown
+    id: modul
+    attributes:
+      label: Bereich / Area
+      options: [Installation / home-net, Zugang / Login, App, netzwerkmonitor, pi-wartung, pc-sicherung, unraid, pocket-id, proxy-manager, wireguard, pihole, anderes / other]
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: z. B. Unraid 7.3, Debian 12 auf Raspberry Pi 5, Ubuntu 24.04 amd64
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: "`docker logs <container>` (ohne Geheimnisse)"
+      render: text
