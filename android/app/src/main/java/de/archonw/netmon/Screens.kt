@@ -229,15 +229,19 @@ fun AppUpdateCheck(api: Api) {
                 val server = if (api.canManage()) api.checkAppUpdate() else null
                 val release = api.latestApp()
                 val installed = installedVersionCode(context)
-                when {
-                    server?.ok == false -> "Suche fehlgeschlagen: ${server.message}"
-                    release == null -> server?.message?.ifBlank { null } ?: "Auf dem Monitor liegt keine App."
+                // Klappt die Suche bei GitHub nicht, zählt trotzdem, was der Monitor schon bereithält
+                val failed = server?.takeIf { it.ok == false }?.message
+                val local = when {
+                    release == null -> if (failed != null) null
+                        else server?.message?.ifBlank { null } ?: "Auf dem Monitor liegt keine App."
                     release.versionCode > installed -> {
                         offer = release
                         "Version ${release.version} ist verfügbar."
                     }
+                    failed != null -> "Auf dem Monitor liegt keine neuere Version (${release.version})."
                     else -> "Die App ist aktuell (${release.version})."
                 }
+                listOfNotNull(local, failed?.let { "Suche bei GitHub fehlgeschlagen: $it" }).joinToString("\n\n")
             } catch (e: ApiException) {
                 e.message
             } finally {

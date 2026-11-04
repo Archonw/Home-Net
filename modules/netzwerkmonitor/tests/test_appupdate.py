@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 
 import pytest
@@ -9,7 +10,7 @@ from test_monitor import PHONE, FakeRouter
 
 from networkmonitor import appupdate
 from networkmonitor.api import create_app
-from networkmonitor.appupdate import AppFolder, update_from_github
+from networkmonitor.appupdate import AppFolder, RateLimited, ReleaseCache, update_from_github
 from networkmonitor.config import Settings
 from networkmonitor.store import Store
 
@@ -147,3 +148,94 @@ def test_missing_repo_explains_token(tmp_path, monkeypatch):
     monkeypatch.setattr(appupdate.urllib.request, "urlopen", urlopen)
     with pytest.raises(ValueError, match="Token gespeichert"):
         update_from_github(AppFolder(tmp_path), "Archonw/Networkmonitor")
+
+
+def limit_error(req):
+    headers = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(time.time()) + 1200)}
+    return urllib.error.HTTPError(req.full_url, 403, "rate limit exceeded", headers, None)
+
+
+def test_rate_limit_waits_until_reset(tmp_path, monkeypatch):
+    calls: list = []
+
+    def urlopen(req, timeout):
+        calls.append(req)
+        raise limit_error(req)
+
+    monkeypatch.setattr(appupdate.urllib.request, "urlopen", urlopen)
+    cache = ReleaseCache()
+    with pytest.raises(RateLimited, match="in etwa 20 Minuten"):
+        update_from_github(AppFolder(tmp_path), "Archonw/Home-Net", cache=cache)
+    # Bis zum Ende der Sperre fragt der Monitor GitHub nicht noch einmal
+    with pytest.raises(RateLimited):
+        update_from_github(AppFolder(tmp_path), "Archonw/Home-Net", cache=cache)
+    assert len(calls) == 1
+
+
+def test_other_403_is_no_rate_limit(tmp_path, monkeypatch):
+    def urlopen(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
+
+    monkeypatch.setattr(appupdate.urllib.request, "urlopen", urlopen)
+    with pytest.raises(urllib.error.HTTPError):
+        update_from_github(AppFolder(tmp_path), "Archonw/Home-Net", cache=ReleaseCache())
+
+
+def test_unchanged_list_uses_etag(tmp_path, monkeypatch):
+    releases = [
+        {
+            "tag_name": "app-12",
+            "assets": [{"name": "netzwerkmonitor.apk", "url": "https://api.github.com/asset/12"}],
+        }
+    ]
+    sent: list = []
+
+    def urlopen(req, timeout):
+        sent.append(req)
+        if req.get_header("If-none-match") == '"abc"':
+            raise urllib.error.HTTPError(req.full_url, 304, "Not Modified", {}, None)
+        resp = FakeResponse(json.dumps(releases).encode())
+        resp.headers = {"ETag": '"abc"'}
+        return resp
+
+    monkeypatch.setattr(appupdate.urllib.request, "urlopen", urlopen)
+    cache = ReleaseCache()
+    assert appupdate.fetch_latest_release("Archonw/Home-Net", cache=cache) == (
+        "0.1.12",
+        "https://api.github.com/asset/12",
+    )
+    assert appupdate.fetch_latest_release("Archonw/Home-Net", cache=cache)[0] == "0.1.12"
+    assert sent[1].get_header("If-none-match") == '"abc"'
+
+
+def test_check_endpoint_reports_limit_and_reuses_recent_result(env, monkeypatch):
+    c, folder = env
+    folder.save("0.1.12", APK)
+    calls: list = []
+
+    def urlopen(req, timeout):
+        calls.append(req)
+        raise limit_error(req)
+
+    monkeypatch.setattr(appupdate.urllib.request, "urlopen", urlopen)
+    body = c.post("/api/app/check", auth=AUTH).json()
+    assert body["ok"] is False and "Abfrage-Limit" in body["message"]
+    assert body["version"] == "0.1.12"
+    c.post("/api/app/check", auth=AUTH)
+    assert len(calls) == 1
+    # Ein neues Token hebt die Sperre auf
+    assert c.put("/api/settings", auth=AUTH, json={"app_update_token": "neu"}).status_code == 200
+    c.post("/api/app/check", auth=AUTH)
+    assert len(calls) == 2
+
+
+def test_manual_check_right_after_success_asks_github_once(env, monkeypatch):
+    c, folder = env
+    # Frisch gestarteter Rechner: die Uhr für Abstände steht noch nahe null
+    monkeypatch.setattr("networkmonitor.api.time.monotonic", lambda: 5.0)
+    requests: list = []
+    fake_github(monkeypatch, requests)
+    assert c.post("/api/app/check", auth=AUTH).json()["message"] == "Neue Version 0.1.12 geladen"
+    n = len(requests)
+    assert c.post("/api/app/check", auth=AUTH).json()["version"] == "0.1.12"
+    assert len(requests) == n
