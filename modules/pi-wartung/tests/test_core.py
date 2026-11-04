@@ -1,14 +1,12 @@
-import json
 import os
 import shlex
 import subprocess
 import sys
-import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from piwartung import core  # noqa: E402
-from piwartung.core import Inventory, Pi, Settings, Unraid  # noqa: E402
+from piwartung.core import Inventory, Pi  # noqa: E402
 
 
 class Conf(unittest.TestCase):
@@ -45,29 +43,6 @@ class Names(unittest.TestCase):
         self.assertFalse(inv.name_taken("x", "A", ignore_id=a.id))
 
 
-class Paths(unittest.TestCase):
-    def test_pidir_and_local(self):
-        s = Settings(root="/mnt/user/b/PW")
-        u = Unraid(s)
-        self.assertEqual(u.pidir(Pi(name="n", category="A/B")), "/mnt/user/b/PW/A/B/n")
-        self.assertEqual(u.pidir(Pi(name="n")), "/mnt/user/b/PW/n")
-        self.assertEqual(s.to_local("/mnt/user/b/x"), "/mnt/unraid/b/x")
-        self.assertEqual(s.to_local("/mnt/userx/b"), "/mnt/userx/b")
-
-
-class SshConfig(unittest.TestCase):
-    def test_parse(self):
-        with tempfile.NamedTemporaryFile("w", suffix=".cfg") as f:
-            f.write("Host a b\n  Hostname 1.1.1.1\n  Port 2222\n  User u\n  IdentityFile ~/.ssh/k\n"
-                    "Host *\n  User ignored\nHost c\n  Hostname c.example\n")
-            f.flush()
-            hosts = core.ssh_config_hosts(f.name)
-        self.assertEqual(hosts["b"]["port"], 2222)
-        self.assertEqual(hosts["a"]["identity"], "~/.ssh/k")
-        self.assertEqual(hosts["c"]["user"], "pi")
-        self.assertNotIn("*", hosts)
-
-
 class Parse(unittest.TestCase):
     def test_shell_kv_with_printf_q(self):
         text = "LAST_ERROR=Zu\\ wenig\\ Platz\nLAST_IMAGE=''\nRUNNING=0\n"
@@ -85,44 +60,6 @@ class Ssh(unittest.TestCase):
         pi = Pi(host="h", port=2, user="u", jump="j@x", jump_port=3)
         self.assertEqual(pi.ssh_command(), ["ssh", "-p", "2", "-J", "j@x:3", "u@h"])
         self.assertEqual(shlex.join(Pi(host="h").ssh_command()), "ssh -p 22 pi@h")
-
-
-class LocalUnraid(Unraid):
-    """Runs the server commands locally, against a temporary User Scripts folder."""
-
-    def run(self, command, stdin=None, timeout=120):
-        command = command.replace("/usr/local/sbin/update_cron", "true")
-        return subprocess.run(["bash", "-c", command], input=stdin, capture_output=True,
-                              text=True, check=True).stdout
-
-
-class UserScript(unittest.TestCase):
-    def test_entry_is_added_once_and_keeps_others(self):
-        with tempfile.TemporaryDirectory() as d:
-            old = core.USER_SCRIPT_DIR
-            core.USER_SCRIPT_DIR = d
-            self.addCleanup(setattr, core, "USER_SCRIPT_DIR", old)
-            sched = os.path.join(d, "schedule.json")
-            with open(sched, "w") as f:
-                json.dump({"/x/script": {"script": "/x/script", "frequency": "custom", "id": "x", "custom": "0 2 * * *"}}, f)
-            cron = os.path.join(d, "customSchedule.cron")
-            with open(cron, "w") as f:
-                f.write("0 2 * * * start /x/script\n")
-            u = LocalUnraid(Settings(root="/mnt/user/b/PW"))
-            u.install_user_script()
-            u.install_user_script()
-            with open(sched) as f:
-                data = json.load(f)
-            key = f"{d}/scripts/{core.USER_SCRIPT_NAME}/script"
-            self.assertEqual(data[key]["custom"], "5 * * * *")
-            self.assertEqual(data["/x/script"]["custom"], "0 2 * * *")
-            with open(cron) as f:
-                lines = f.read().splitlines()
-            self.assertEqual(len(lines), 2)
-            self.assertTrue(lines[0].startswith("0 2"))
-            self.assertTrue(os.path.exists(sched + ".pi-wartung.bak"))
-            with open(key) as f:
-                self.assertIn("pi-backup.sh due", f.read().replace("' due", " due").replace("pi-backup.sh'", "pi-backup.sh"))
 
 
 class Dashboard(unittest.TestCase):

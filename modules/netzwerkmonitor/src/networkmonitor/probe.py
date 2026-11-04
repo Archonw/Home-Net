@@ -1,7 +1,7 @@
 """Prüft, was die FritzBox über TR-064 kann.
 
 Aufruf (im Container):  networkmonitor-probe
-Mit Sperr-Test:          networkmonitor-probe --test-block 192.168.178.50
+Mit Sperr-Test:          networkmonitor-probe --test-block 192.168.1.50
 """
 
 from __future__ import annotations

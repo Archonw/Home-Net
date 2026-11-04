@@ -1005,3 +1005,16 @@ class HomeNetworks(unittest.TestCase):
         with mock.patch.object(home_net, "docker_out", return_value=""):
             self.assertEqual(home_net.vpn_networks(), [])
 
+
+class TimeZone(unittest.TestCase):
+    def test_sources(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"TZ": ""}):
+            etc = Path(tmp)
+            ident = etc / "ident.cfg"
+            self.assertEqual(home_net.host_timezone(etc, ident), "UTC")
+            ident.write_text('NAME="Tower"\ntimeZone="America/New_York"\n')
+            self.assertEqual(home_net.host_timezone(etc, ident), "America/New_York")
+            (etc / "localtime").symlink_to("/usr/share/zoneinfo/Asia/Tokyo")
+            self.assertEqual(home_net.host_timezone(etc, ident), "Asia/Tokyo")
+            (etc / "timezone").write_text("Europe/Vienna\n")
+            self.assertEqual(home_net.host_timezone(etc, ident), "Europe/Vienna")
