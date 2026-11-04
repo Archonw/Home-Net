@@ -137,6 +137,5 @@
  "Zu viele Fehlversuche, bitte in 15 Minuten erneut versuchen": "Too many failed attempts, please try again in 15 minutes",
  "läuft": "running",
  "{0} Fehlversuche von {1}, die Adresse ist für 15 Minuten gesperrt.": "{0} failed attempts from {1}, the address is locked for 15 minutes.",
- "{0} für {1}": "{0} for {1}",
  "{0} lehnt die Anmeldung des Gateways ab": "{0} rejects the gateway's credentials"
 }

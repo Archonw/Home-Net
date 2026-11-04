@@ -8,6 +8,7 @@ on:
       - "android/**"
       - ".github/workflows/android-probe.yml"
       - "tools/app_probe.py"
+      - "i18n/**"
       - "core/gateway/**"
   workflow_dispatch:
 

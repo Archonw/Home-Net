@@ -141,5 +141,14 @@
  "{0} Geräte entfernt.": "{0} devices removed.",
  "{0} Geräte, die gerade offline sind, werden aus der Liste gelöscht. Kommen sie wieder ins Netz, gelten sie als neu und du musst sie erneut bestätigen.\n\nGesperrte Geräte bleiben in der Liste, damit ihre Sperre erhalten bleibt.": "{0} devices that are currently offline will be removed from the list. If they come back online, they count as new and you have to confirm them again.\n\nBlocked devices stay in the list so that they remain blocked.",
  "{0} kopiert.": "{0} copied.",
- "Über die App": "About the app"
+ "Über die App": "About the app",
+ "Home-Net einrichten": "Set up Home-Net",
+ "Die Adresse deines Home-Net-Servers, zum Beispiel http://192.168.1.10:8093, dein Konto und ein Kopplungscode. Den Code bekommst du im Browser unter Mein Konto.": "The address of your Home-Net server, for example http://192.168.1.10:8093, your account and a pairing code. You get the code in the browser under My account.",
+ "Adresse für unterwegs (optional)": "Address for use away from home (optional)",
+ "Benutzername": "Username",
+ "Passwort, nur für eine neue Kopplung": "Password, only for a new pairing",
+ "Kopplungscode (optional)": "Pairing code (optional)",
+ "Gerät ist gekoppelt, neuer Code optional": "Device is paired, new code optional",
+ "Die Adresse für unterwegs muss mit https:// beginnen.": "The address for use away from home must start with https://.",
+ "Bitte den Kopplungscode aus Mein Konto eintragen.": "Please enter the pairing code from My account."
 }

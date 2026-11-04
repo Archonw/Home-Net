@@ -23,6 +23,38 @@ OUT = Path("probe")
 PORT = 8093
 
 
+def load_words():
+    """English word lists as the app has them; the emulator runs in English, so the app shows these."""
+    words = {}
+    for path in sorted((REPO / "i18n" / "en").glob("*.json")):
+        words.update(json.loads(path.read_text(encoding="utf-8")))
+    templates = []
+    for german, english in words.items():
+        if "{" in german:
+            parts = re.split(r"(\{\d\})", german)
+            regex = "".join(f"(?P<p{p[1]}>.+?)" if re.fullmatch(r"\{\d\}", p) else re.escape(p) for p in parts)
+            templates.append((re.compile(regex), english))
+    return words, templates
+
+
+WORDS, TEMPLATES = load_words()
+
+
+def english(text):
+    if text in WORDS:
+        return WORDS[text]
+    for regex, target in TEMPLATES:
+        match = regex.fullmatch(text)
+        if match:
+            return re.sub(r"\{(\d)\}", lambda m: english(match.group(f"p{m.group(1)}")), target)
+    return text
+
+
+def shown(label, haystack):
+    """True if the label appears in German or in its English translation."""
+    return label in haystack or english(label) in haystack
+
+
 def adb(*args, check=True):
     return subprocess.run(["adb", *args], check=check, capture_output=True, text=True, timeout=120).stdout
 
@@ -68,8 +100,9 @@ def find(label, timeout=30, scroll=False):
     end = time.time() + timeout
     while time.time() < end:
         found = nodes()
-        for wanted in (lambda n: label == (n.get("text") or n.get("content-desc")),
-                       lambda n: label in (n.get("text") or "") or label in (n.get("content-desc") or "")):
+        names = {label, english(label)}
+        for wanted in (lambda n: (n.get("text") or n.get("content-desc")) in names,
+                       lambda n: any(shown(label, n.get(key) or "") for key in ("text", "content-desc"))):
             for node in found:
                 if wanted(node):
                     return node
@@ -217,7 +250,7 @@ def main():
     # Vor der ersten Meldung: Deren Einblendung läge sonst über der Kachel
     tap("Pi-Wartung")
     find("Zurück")
-    if "Einstellungen" in texts():
+    if shown("Einstellungen", texts()):
         fail("Untere Leiste im Dienst noch sichtbar")
     tap("Zurück")
     find("Einstellungen")
@@ -239,7 +272,7 @@ def main():
     (Path(spool) / "pi-wartung" / "probe.json").write_text(json.dumps(
         {"type": "backup_failed", "title": "Sicherung von Probe fehlgeschlagen", "message": "Testfehler",
          "priority": "high", "category": "Familie", "link": "pi/a1"}))
-    wait_for(lambda: "Sicherung von Probe fehlgeschlagen" in notifications(), "Meldung kommt nicht als Benachrichtigung an")
+    wait_for(lambda: shown("Sicherung von Probe fehlgeschlagen", notifications()), "Meldung kommt nicht als Benachrichtigung an")
     report("notice", "Meldung kam auf dem Gerät an")
 
     tap("Einstellungen")
@@ -258,7 +291,7 @@ def main():
     adb("shell", "am", "force-stop", PKG)
     gateway.inbox().add("pi-wartung", "backup_failed", "Nachgeliefert", "x", "high")
     adb("shell", "monkey", "-p", PKG, "-c", "android.intent.category.LAUNCHER", "1")
-    wait_for(lambda: "Nachgeliefert" in notifications(), "Verpasste Meldung kommt nicht nach")
+    wait_for(lambda: shown("Nachgeliefert", notifications()), "Verpasste Meldung kommt nicht nach")
     report("notice", "Verpasste Meldung wird nachgeliefert")
 
     # Echter Ausfall: Niemand nimmt mehr an, die offene Verbindung bricht ab
@@ -269,10 +302,10 @@ def main():
     gateway.inbox().wake()
     time.sleep(3)
     gateway.Handler.identify = identify
-    wait_for(lambda: "Home-Net nicht erreichbar" in notifications(), "Keine Warnung beim Server-Ausfall", 150)
+    wait_for(lambda: shown("Home-Net nicht erreichbar", notifications()), "Keine Warnung beim Server-Ausfall", 150)
     report("notice", "Warnung beim Server-Ausfall kommt")
     httpd = serve()
-    wait_for(lambda: "Home-Net wieder erreichbar" in notifications(), "Keine Entwarnung", 330)
+    wait_for(lambda: shown("Home-Net wieder erreichbar", notifications()), "Keine Entwarnung", 330)
     report("notice", "Entwarnung kommt")
 
     adb("reboot")
