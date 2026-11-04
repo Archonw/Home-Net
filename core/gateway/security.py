@@ -38,7 +38,27 @@ def password_matches(record, password):
 
 
 def public_user(user):
-    return {k: user[k] for k in ("id", "name", "role", "active", "modules", "categories")}
+    return dict({k: user[k] for k in ("id", "name", "role", "active", "modules", "categories")},
+                groups=list(user.get("groups", [])))
+
+
+def public_group(group, users):
+    return dict({k: group[k] for k in ("id", "name", "modules", "categories")},
+                members=[u["id"] for u in users if group["id"] in u.get("groups", [])])
+
+
+def merged(*lists):
+    out = []
+    for items in lists:
+        out += [v for v in items if v not in out]
+    return out
+
+
+def with_group_rights(user, groups):
+    """A copy of the account whose rights include those of its groups; only this copy is used for access checks."""
+    own = [g for g in groups if g["id"] in user.get("groups", [])]
+    return dict(user, rights_modules=merged(user["modules"], *(g["modules"] for g in own)),
+                rights_categories=merged(user["categories"], *(g["categories"] for g in own)))
 
 
 class Security:
@@ -71,6 +91,7 @@ class Security:
             data.setdefault("external_url", "")
             data.setdefault("passkeys", [])
             data.setdefault("devices", [])
+            data.setdefault("groups", [])
             if not data.get("users"):
                 self.first_owner(data)
             return data
@@ -124,11 +145,15 @@ class Security:
 
     # ---- accounts
     def find_user(self, user_id):
-        return next((u for u in self.load()["users"] if u["id"] == user_id), None)
+        data = self.load()
+        user = next((u for u in data["users"] if u["id"] == user_id), None)
+        return with_group_rights(user, data["groups"]) if user else None
 
     def user_by_name(self, name):
         wanted = str(name).strip().casefold()
-        return next((u for u in self.load()["users"] if u["name"].casefold() == wanted), None)
+        data = self.load()
+        user = next((u for u in data["users"] if u["name"].casefold() == wanted), None)
+        return with_group_rights(user, data["groups"]) if user else None
 
     def check_login(self, name, password):
         """The active user with this name and password, or None. Always takes about the same time."""
@@ -160,6 +185,14 @@ class Security:
             raise ValueError("Ungültige Rechte")
         return [str(v) for v in values]
 
+    @staticmethod
+    def clean_groups(data, values):
+        known = {g["id"] for g in data["groups"]}
+        values = Security.clean_rights(values)
+        if any(v not in known for v in values):
+            raise ValueError("Unbekannte Gruppe")
+        return values
+
     def create_user(self, actor, form):
         role = form.get("role", "user")
         self.check_role_change(actor, None, role)
@@ -168,7 +201,8 @@ class Security:
             user = {"id": secrets.token_hex(6), "name": self.check_name(data, form.get("name", "")), "role": role,
                     "active": True, "pw": password_record(self.check_password(form.get("password"))),
                     "modules": self.clean_rights(form.get("modules", [])),
-                    "categories": self.clean_rights(form.get("categories", [])), "recovery": []}
+                    "categories": self.clean_rights(form.get("categories", [])),
+                    "groups": self.clean_groups(data, form.get("groups", [])), "recovery": []}
             data["users"].append(user)
             self.save(data)
         return public_user(user)
@@ -210,6 +244,8 @@ class Security:
                 user["modules"] = self.clean_rights(form["modules"])
             if "categories" in form:
                 user["categories"] = self.clean_rights(form["categories"])
+            if "groups" in form:
+                user["groups"] = self.clean_groups(data, form["groups"])
             self.save(data)
         return public_user(user)
 
@@ -251,13 +287,71 @@ class Security:
             self.save(data)
         return public_user(user)
 
+    # ---- groups: accounts in a group get its services and categories in addition to their own
+    def groups(self):
+        data = self.load()
+        return [public_group(g, data["users"]) for g in data["groups"]]
+
+    @staticmethod
+    def check_group_name(data, name, ignore=None):
+        name = str(name).strip()
+        if not NAME_RE.match(name):
+            raise ValueError("Der Name braucht 2 bis 40 Zeichen: Buchstaben, Ziffern, Leerzeichen, . @ _ oder -")
+        if any(g["name"].casefold() == name.casefold() and g["id"] != ignore for g in data["groups"]):
+            raise ValueError("Diese Gruppe gibt es schon")
+        return name
+
+    @staticmethod
+    def set_members(data, group_id, members):
+        members = Security.clean_rights(members)
+        if any(m not in {u["id"] for u in data["users"]} for m in members):
+            raise ValueError("Unbekanntes Konto")
+        for user in data["users"]:
+            own = [g for g in user.get("groups", []) if g != group_id]
+            user["groups"] = own + [group_id] if user["id"] in members else own
+
+    def save_group(self, group_id, form):
+        """Creates (group_id None) or changes a group, including who belongs to it."""
+        with self.lock:
+            data = self.load()
+            if group_id is None:
+                group = {"id": secrets.token_hex(6), "name": "", "modules": [], "categories": []}
+            else:
+                group = next((g for g in data["groups"] if g["id"] == group_id), None)
+                if not group:
+                    raise LookupError
+            if group_id is None or "name" in form:
+                group["name"] = self.check_group_name(data, form.get("name", ""), group_id)
+            for key in ("modules", "categories"):
+                if key in form:
+                    group[key] = self.clean_rights(form[key])
+            if group_id is None:
+                data["groups"].append(group)
+            if "members" in form:
+                self.set_members(data, group["id"], form["members"])
+            self.save(data)
+            return public_group(group, data["users"])
+
+    def delete_group(self, group_id):
+        with self.lock:
+            data = self.load()
+            group = next((g for g in data["groups"] if g["id"] == group_id), None)
+            if not group:
+                raise LookupError
+            data["groups"].remove(group)
+            for user in data["users"]:
+                user["groups"] = [g for g in user.get("groups", []) if g != group_id]
+            self.save(data)
+        return group
+
     @staticmethod
     def may_use(user, module_id):
-        return user["role"] in ("owner", "admin") or "*" in user["modules"] or module_id in user["modules"]
+        modules = user.get("rights_modules", user["modules"])
+        return user["role"] in ("owner", "admin") or "*" in modules or module_id in modules
 
     @staticmethod
     def categories_of(user):
-        return ["*"] if user["role"] in ("owner", "admin") else user["categories"]
+        return ["*"] if user["role"] in ("owner", "admin") else user.get("rights_categories", user["categories"])
 
     # ---- address for passkeys
     def origin_and_rp(self):
