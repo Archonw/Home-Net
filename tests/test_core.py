@@ -1018,3 +1018,44 @@ class TimeZone(unittest.TestCase):
             self.assertEqual(home_net.host_timezone(etc, ident), "Asia/Tokyo")
             (etc / "timezone").write_text("Europe/Vienna\n")
             self.assertEqual(home_net.host_timezone(etc, ident), "Europe/Vienna")
+class Releases(unittest.TestCase):
+    def test_release_images_cover_every_build(self):
+        sys.path.insert(0, str(Path(home_net.REPO, "tools")))
+        import release_images
+        listed = {i["name"]: i for i in release_images.images()}
+        doc = home_net.compose_document(home_net.available_modules(), list(home_net.available_modules()))
+        built = {name for name, svc in doc["services"].items() if "build" in svc}
+        self.assertEqual(set(listed), built)
+        self.assertEqual(listed["pc-sicherung"]["platforms"], "linux/amd64")
+        self.assertEqual(listed["home-net-gateway"]["platforms"], "linux/amd64,linux/arm64")
+        for item in listed.values():
+            self.assertTrue(Path(home_net.REPO, item["dockerfile"]).exists(), item)
+
+    def test_newest_release_ignores_app_and_drafts(self):
+        releases = [{"tag_name": "app-230"}, {"tag_name": "v1.2.0"}, {"tag_name": "v1.10.0"},
+                    {"tag_name": "v2.0.0", "draft": True}, {"tag_name": "v1.11.0", "prerelease": True}]
+        self.assertEqual(home_net.newest_release(releases), "v1.10.0")
+        self.assertIsNone(home_net.newest_release([{"tag_name": "app-1"}]))
+
+    def test_release_uses_finished_images(self):
+        modules = home_net.available_modules()
+        doc = home_net.compose_document(modules, ["pi-wartung", "ntfy"], version="v1.2.0")
+        services = doc["services"]
+        self.assertEqual(services["home-net-gateway"]["image"], "ghcr.io/archonw/home-net/home-net-gateway:v1.2.0")
+        self.assertEqual(services["pi-wartung-engine"]["image"], "ghcr.io/archonw/home-net/pi-wartung-engine:v1.2.0")
+        self.assertNotIn("build", services["pi-wartung-service"])
+        self.assertEqual(services["ntfy"]["image"], modules["ntfy"]["services"]["ntfy"]["image"])
+        built = home_net.compose_document(modules, ["pi-wartung"])
+        self.assertIn("build", built["services"]["pi-wartung-engine"])
+
+    def test_release_of(self):
+        self.assertIsNone(home_net.release_of({}))
+        self.assertIsNone(home_net.release_of({"channel": "main", "version": "main"}))
+        self.assertEqual(home_net.release_of({"channel": "stabil", "version": "v1.0.0"}), "v1.0.0")
+
+    def test_arch_requirement(self):
+        module = {"requires": {"arch": ["amd64"]}}
+        with mock.patch("platform.machine", return_value="x86_64"):
+            self.assertTrue(home_net.usable(module))
+        with mock.patch("platform.machine", return_value="aarch64"):
+            self.assertFalse(home_net.usable(module))

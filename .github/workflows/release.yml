@@ -1,0 +1,100 @@
+name: Release
+
+# Eine Version von Home-Net: fertige Container für amd64 und arm64 auf ghcr.io und ein Release vX.Y.Z.
+# Starten: Actions → Release → Run workflow mit der neuen Nummer, oder ein Tag vX.Y.Z pushen.
+# Installationen im Kanal "stabil" holen sich mit `home-net update` die höchste Version.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Neue Version, z. B. v1.0.0"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: tag
+        env:
+          INPUT: ${{ inputs.version }}
+        run: |
+          tag="${INPUT:-$GITHUB_REF_NAME}"
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version bitte als vX.Y.Z, nicht $tag"
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+              echo "::error::$tag gibt es schon"
+              exit 1
+            fi
+            git tag "$tag"
+            git push origin "refs/tags/$tag"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - id: matrix
+        run: echo "matrix=$(python3 tools/release_images.py)" >> "$GITHUB_OUTPUT"
+
+  images:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        image: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          platforms: ${{ matrix.image.platforms }}
+          push: true
+          tags: |
+            ghcr.io/archonw/home-net/${{ matrix.image.name }}:${{ needs.prepare.outputs.tag }}
+            ghcr.io/archonw/home-net/${{ matrix.image.name }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.tag }}
+            org.opencontainers.image.licenses=Apache-2.0
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+
+  release:
+    needs: [prepare, images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Home-Net ${{ needs.prepare.outputs.tag }}
+          generate_release_notes: true
+          # "Latest" bleibt die App, deren APK unter Releases gesucht wird
+          make_latest: "false"
+          body: |
+            Update auf dem Server: `home-net update` (Kanal stabil). Zurück zu dieser Version: `home-net update --version ${{ needs.prepare.outputs.tag }}`.
