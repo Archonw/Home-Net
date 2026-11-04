@@ -12,6 +12,7 @@ on:
       - "i18n/**"
       - "tests/**"
       - "tools/**"
+      - "install.sh"
       - ".github/workflows/modules.yml"
   pull_request:
     paths:
@@ -20,6 +21,7 @@ on:
       - "i18n/**"
       - "tests/**"
       - "tools/**"
+      - "install.sh"
       - ".github/workflows/modules.yml"
   workflow_dispatch:
 
