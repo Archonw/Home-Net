@@ -77,8 +77,8 @@ async function show() {
   if (tab === "settings") return showSettings();
   try { data = await api("api/overview"); } catch (e) { app.replaceChildren($("p", { className: "err", textContent: e.message })); return; }
   if (!data.configured) {
-    app.replaceChildren($("div", { className: "card note" }, "Es fehlt noch die Anmeldung für den Proxy Manager. Bitte unter ",
-      $("a", { href: "#", textContent: "Einstellungen", onclick: e => { e.preventDefault(); tab = "settings"; show(); } }), " eintragen."));
+    app.replaceChildren($("div", { className: "card note" }, "Es fehlt noch die Anmeldung für den Proxy Manager. ",
+      $("a", { href: "#", textContent: "Jetzt unter Einstellungen eintragen.", onclick: e => { e.preventDefault(); tab = "settings"; show(); } })));
     return;
   }
   if (data.error) { app.replaceChildren($("p", { className: "err", textContent: data.error })); return; }
@@ -88,7 +88,7 @@ async function show() {
 const date = t => t ? new Date(t * 1000).toLocaleDateString("de-DE") : "–";
 const days = c => c.state === "expired" ? "abgelaufen" : c.days === 0 ? "läuft heute ab" : `noch ${c.days} Tage`;
 const certClass = c => c.state === "expired" ? "bad" : c.state === "soon" ? "warn" : "quiet";
-const kindLabel = { proxy: "", redirect: "Weiterleitung · ", "404": "404-Seite · " };
+const kindLabel = { redirect: "Weiterleitung", "404": "404-Seite" };
 
 function hostCard(h) {
   const problems = [];
@@ -102,7 +102,8 @@ function hostCard(h) {
   } });
   return $("div", { className: "card" },
     $("div", { className: "name" }, h.domains.join(", ")),
-    $("div", { className: "quiet" }, kindLabel[h.kind] + (h.target || "") + (h.target_state === "unknown" ? " (nicht prüfbar)" : ""), h.enabled ? ssl : null),
+    $("div", { className: "quiet" }, kindLabel[h.kind] ? $("span", { textContent: kindLabel[h.kind] }) : null, kindLabel[h.kind] ? " · " : null,
+      h.target || "", h.target_state === "unknown" ? $("span", { textContent: " (nicht prüfbar)" }) : null, h.enabled ? ssl : null),
     h.note ? $("div", { className: "quiet", textContent: h.note }) : null, ...problems,
     $("div", { className: "actions" }, toggle));
 }
@@ -121,7 +122,8 @@ function showHosts() {
         $("div", { className: "quiet", textContent: [st.tcp ? "TCP" : "", st.udp ? "UDP" : "", st.enabled ? "" : "abgeschaltet"].filter(Boolean).join(" · ") }))));
   }
   if (!data.hosts.length) parts.push($("p", { className: "quiet", textContent: "Im Proxy Manager sind noch keine Adressen eingetragen." }));
-  parts.push($("p", { className: "hint", textContent: "„Nur intern“ heißt: die Zugriffsliste lässt nur Adressen aus dem Heimnetz zu. Ob der Router Port 443 weiterleitet, sieht Home-Net nicht." + (data.version ? ` Proxy Manager ${data.version}.` : "") }));
+  parts.push($("p", { className: "hint" }, "„Nur intern“ heißt: die Zugriffsliste lässt nur Adressen aus dem Heimnetz zu. Ob der Router Port 443 weiterleitet, sieht Home-Net nicht.",
+    data.version ? ` Proxy Manager ${data.version}.` : null));
   app.replaceChildren(...parts);
 }
 
