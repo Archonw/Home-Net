@@ -2,7 +2,9 @@
 
 Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dienste. Der Plan steht in `docs/PLAN.md`.
 
-- `modules/netzwerkmonitor`: REST-API aus `src/networkmonitor/api.py`, genutzt in `android/.../Api.kt`.
+- `modules/netzwerkmonitor`: REST-API aus `src/networkmonitor/api.py`, genutzt in `android/.../Api.kt`. Die Geräte kommen von der FritzBox
+  (`fritzbox.py`) oder, ohne FritzBox, aus der ARP-Tabelle des Rechners (`lanscan.py`, `router: scan`); dann kann der
+  Monitor nicht sperren und meldet das über `can_block` in `/api/me`.
 - `modules/pi-wartung`: Dienst aus `service/server.py`, genutzt in `android/.../PiApi.kt` und `PiScreens.kt`.
 - `modules/pc-sicherung`: Dienst aus `service/server.py`, genutzt in `android/.../PcApi.kt` und `PcScreens.kt` (nur über den
   Zugang; PCs anlegen und Einstellungen bleiben in der Weboberfläche). Das

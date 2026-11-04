@@ -89,11 +89,15 @@ class Api(
         Device.from(JSONObject(request("POST", "api/devices/${enc(mac)}/block")))
 
     /** Ob dieses Konto Geräte ändern darf; ältere Server kennen die Frage nicht und erlauben alles. */
-    suspend fun canManage(): Boolean =
+    suspend fun canManage(): Boolean = access().manage
+
+    /** Rechte des Kontos und ob der Server sperren kann (ohne FritzBox nicht). */
+    suspend fun access(): Access =
         try {
-            JSONObject(request("GET", "api/me")).optBoolean("can_manage", true)
+            val me = JSONObject(request("GET", "api/me"))
+            Access(me.optBoolean("can_manage", true), me.optBoolean("can_block", true))
         } catch (e: ApiException) {
-            true
+            Access(manage = true, block = true)
         }
 
     suspend fun setWatched(mac: String, watched: Boolean): Device =
@@ -179,3 +183,5 @@ class Api(
         private var lastWorking: String? = null
     }
 }
+
+data class Access(val manage: Boolean, val block: Boolean)

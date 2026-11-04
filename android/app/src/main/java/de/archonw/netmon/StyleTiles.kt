@@ -238,14 +238,16 @@ fun TilesDetail(ui: DetailUi) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 val allowed = d.status == "allowed"
                 val blocked = d.status == "blocked"
-                BigButton(
-                    "Sperren",
-                    background = if (blocked) p.card else p.danger,
-                    foreground = if (blocked) p.muted else Color.White,
-                    enabled = !ui.busy && !blocked,
-                    modifier = Modifier.weight(1f),
-                    onClick = ui.onBlock,
-                )
+                if (ui.canBlock) {
+                    BigButton(
+                        "Sperren",
+                        background = if (blocked) p.card else p.danger,
+                        foreground = if (blocked) p.muted else Color.White,
+                        enabled = !ui.busy && !blocked,
+                        modifier = Modifier.weight(1f),
+                        onClick = ui.onBlock,
+                    )
+                }
                 BigButton(
                     "Erlauben",
                     background = if (allowed) p.card else p.accent,

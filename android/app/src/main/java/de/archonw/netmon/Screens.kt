@@ -104,6 +104,7 @@ class DetailUi(
     val onBlock: () -> Unit,
     val onWatch: () -> Unit,
     val canManage: Boolean,
+    val canBlock: Boolean,
     val onBack: () -> Unit,
     val onCopy: (label: String, value: String) -> Unit,
 )
@@ -366,10 +367,13 @@ fun DetailScreen(api: Api, mac: String, style: AppStyle, onBack: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     var confirmBlock by remember { mutableStateOf(false) }
     var canManage by remember(mac) { mutableStateOf(false) }
+    var canBlock by remember(mac) { mutableStateOf(true) }
 
     LaunchedEffect(mac) {
         try {
-            canManage = api.canManage()
+            val access = api.access()
+            canManage = access.manage
+            canBlock = access.block
             device = api.device(mac)
         } catch (e: ApiException) {
             error = e.message
@@ -399,6 +403,7 @@ fun DetailScreen(api: Api, mac: String, style: AppStyle, onBack: () -> Unit) {
         onAllow = { act(true) },
         onBlock = { if (device?.related.isNullOrEmpty()) act(false) else confirmBlock = true },
         canManage = canManage,
+        canBlock = canBlock,
         onWatch = {
             val watched = device?.watched != true
             busy = true

@@ -285,15 +285,17 @@ fun SoftDetail(ui: DetailUi) {
                     modifier = Modifier.weight(1f),
                     onClick = ui.onAllow,
                 )
-                ActionButton(
-                    "Sperren",
-                    background = if (blocked) p.danger else Color.Transparent,
-                    foreground = if (blocked) (if (p.dark) p.bg else Color.White) else p.danger,
-                    border = p.danger,
-                    enabled = !ui.busy && !blocked,
-                    modifier = Modifier.weight(1f),
-                    onClick = ui.onBlock,
-                )
+                if (ui.canBlock) {
+                    ActionButton(
+                        "Sperren",
+                        background = if (blocked) p.danger else Color.Transparent,
+                        foreground = if (blocked) (if (p.dark) p.bg else Color.White) else p.danger,
+                        border = p.danger,
+                        enabled = !ui.busy && !blocked,
+                        modifier = Modifier.weight(1f),
+                        onClick = ui.onBlock,
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
             TextButton(onClick = ui.onWatch, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {

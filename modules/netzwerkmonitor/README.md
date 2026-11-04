@@ -1,6 +1,7 @@
 # Networkmonitor
 
 Überwacht das Heimnetz über die FritzBox, erkennt neue Geräte und lässt sie erlauben oder sperren.
+Ohne FritzBox findet der Monitor die Geräte selbst (siehe [Ohne FritzBox](#ohne-fritzbox)), kann sie dann aber nicht sperren.
 
 Plan und Architektur: [docs/PLAN.md](docs/PLAN.md) · Zugriff von unterwegs: [docs/FERNZUGRIFF.md](docs/FERNZUGRIFF.md) · App-Updates: [docs/APP-UPDATES.md](../../docs/APP-UPDATES.md)
 
@@ -12,6 +13,15 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md) · Zugriff von unterwegs: [do
 - **Sperren** trennt das Gerät vom **Internet** (FritzBox-Kindersicherung per TR-064). Im Heimnetz bleibt es erreichbar, denn den WLAN-MAC-Filter kann die FritzBox über TR-064 nicht pflegen.
 - **WLAN-Repeater** schreiben MAC-Adressen um und lassen dabei die letzten drei Bytes stehen. Einträge ohne IP mit lokal verwalteter MAC, deren letzte drei Bytes zu einem bekannten Gerät mit IP passen, gelten als Kopie und werden nicht angelegt. Bekommt so ein Eintrag eine IP, wird er normal gemeldet. Vor dem Sperren einer möglichen Kopie fragen Weboberfläche und App nach, und eine Meldung weist darauf hin, wenn ein neues Gerät zu einem gesperrten passt.
 - Optional: `QUARANTINE_UNKNOWN=true` trennt unbekannte Geräte sofort vom Internet, bis sie erlaubt werden.
+
+## Ohne FritzBox
+
+In den Einstellungen unter **Router → Geräte finden über** „Suche im Heimnetz“ wählen. Der Monitor läuft im Host-Netz und
+liest die ARP-Tabelle des Rechners; damit jedes Gerät darin steht, schickt er vor jedem Lesen ein leeres UDP-Paket an jede
+Adresse der eigenen Heimnetze (höchstens 1024 je Netz, ohne Docker-, VM- und VPN-Netze). Namen kommen aus dem DNS des
+Heimnetzes. Neue Geräte werden wie gewohnt gemeldet und lassen sich erlauben, umbenennen und im Blick behalten. **Sperren**
+geht so nicht: Weboberfläche und App blenden den Knopf aus, und `QUARANTINE_UNKNOWN` wirkt nicht. Geräte in einem anderen
+Netz als dem des Servers (z. B. ein Gäste-WLAN) sieht der Monitor nicht.
 
 ## 1. FritzBox vorbereiten
 
