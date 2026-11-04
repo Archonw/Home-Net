@@ -3,28 +3,24 @@
 from __future__ import annotations
 
 import asyncio
-import html
 import logging
 import os
 import secrets
-import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
-from .appupdate import AppFolder, RateLimited, ReleaseCache, update_from_github
 from .auth import LoginGuard, client_ip, via_proxy
 from .config import EDITABLE, Settings, apply_overrides, coerce, public_view
 from .events import HubEvents
 from .fritzbox import FritzBox, Router
 from .monitor import BlockNotPossible, Monitor
-from .notify import TEST_DEVICE, Notifier, TelegramNotifier, build_notifiers
 from .store import Device, Status, Store
 
 log = logging.getLogger(__name__)
@@ -43,15 +39,10 @@ ASSETS = {
 # Gilt, solange kein eigenes Passwort gesetzt ist; muss beim ersten Anmelden geändert werden
 DEFAULT_PASSWORD = "netzwerkmonitor"
 MIN_PASSWORD_LENGTH = 8
-# So oft schaut der Monitor nach einer neuen App-Version
-APP_UPDATE_INTERVAL = 60 * 60
-# So lange nach einer erfolgreichen Suche nutzt „Jetzt suchen“ deren Ergebnis
-MANUAL_CHECK_PAUSE = 120
-APK_TYPE = "application/vnd.android.package-archive"
 
 
 class Runtime:
-    """Aktuelle Einstellungen samt daraus gebauter Router-Anbindung und Benachrichtigungen.
+    """Aktuelle Einstellungen samt daraus gebauter Router-Anbindung.
 
     Wird bei Änderungen über die Einstellungsseite neu aufgebaut, ohne Neustart.
     """
@@ -61,15 +52,10 @@ class Runtime:
         settings: Settings,
         store: Store,
         router: Router | None,
-        notifiers: list[Notifier] | None,
     ) -> None:
         self._fixed_router = router
-        self._fixed_notifiers = notifiers
         self.settings = settings
         self.router: Router = router or self._make_router(settings)
-        self.notifiers: list[Notifier] = (
-            notifiers if notifiers is not None else build_notifiers(settings)
-        )
         self.monitor = Monitor(self.router, store, settings)
 
     @property
@@ -94,8 +80,6 @@ class Runtime:
         )
         if self._fixed_router is None and fritz_changed:
             self.router = self._make_router(settings)
-        if self._fixed_notifiers is None:
-            self.notifiers = build_notifiers(settings)
         self.settings = settings
         self.monitor.router = self.router
         self.monitor.settings = settings
@@ -120,83 +104,20 @@ def create_app(
     router: Router | None = None,
     store: Store | None = None,
     start_poller: bool = True,
-    notifiers: list[Notifier] | None = None,
 ) -> FastAPI:
     store = store or Store(settings.db_path)
     try:
         settings = apply_overrides(settings, store.get_config())
     except ValueError as exc:
         log.warning("Gespeicherte Einstellungen ungültig, nutze Umgebung: %s", exc)
-    rt = Runtime(settings, store, router, notifiers)
+    rt = Runtime(settings, store, router)
     hub_events = HubEvents(os.environ.get("EVENTS_DIR", ""))
     monitor = rt.monitor
     state = {"last_error": None, "last_poll": None}
-    app_folder = AppFolder(settings.app_dir)
-    app_state: dict = {"checked": None, "message": None, "ok": None}
-    # Je Repository und Token eine eigene Ablage, ein neues Token hebt eine Sperre sofort auf
-    github: dict = {"key": None, "cache": ReleaseCache(), "last_ok": None}
-
-    def check_app_update(manual: bool = False) -> dict:
-        repo = rt.settings.app_update_repo
-        token = rt.settings.app_update_token
-        if (repo, token) != github["key"]:
-            github.update(key=(repo, token), cache=ReleaseCache(), last_ok=None)
-        if not repo:
-            app_state.update(ok=None, message="Automatische Suche aus")
-        elif (
-            manual
-            and github["last_ok"] is not None
-            and time.monotonic() - github["last_ok"] < MANUAL_CHECK_PAUSE
-        ):
-            # Gerade erst gefragt: Ergebnis wiederverwenden, das spart Abfragen bei GitHub
-            return app_status()
-        else:
-            try:
-                message = update_from_github(app_folder, repo, token, github["cache"])
-                app_state.update(ok=True, message=message)
-                github["last_ok"] = time.monotonic()
-            except RateLimited as exc:
-                log.info("App-Update: %s", exc)
-                app_state.update(ok=False, message=str(exc))
-            except Exception as exc:  # noqa: BLE001 – Monitor läuft auch ohne App-Update
-                log.warning("App-Update von GitHub fehlgeschlagen: %s", exc)
-                app_state.update(ok=False, message=f"GitHub: {exc}")
-        app_state["checked"] = datetime.now(UTC).isoformat(timespec="seconds")
-        return app_status()
-
-    def app_status() -> dict:
-        latest = app_folder.latest()
-        return {
-            "version": latest.version if latest else None,
-            "file": latest.filename if latest else None,
-            **app_state,
-        }
-
-    async def app_update_loop() -> None:
-        while True:
-            await asyncio.to_thread(check_app_update)
-            await asyncio.sleep(APP_UPDATE_INTERVAL)
 
     def notify_new(devices) -> None:
         for device in devices:
             hub_events.new_device(device)
-            for notifier in rt.notifiers:
-                try:
-                    notifier.new_device(device)
-                except Exception as exc:  # noqa: BLE001 – Benachrichtigung darf nicht blockieren
-                    log.warning("Benachrichtigung über %s fehlgeschlagen: %s", device.mac, exc)
-
-    async def telegram_loop() -> None:
-        while True:
-            notifier = next((n for n in rt.notifiers if isinstance(n, TelegramNotifier)), None)
-            if notifier is None:
-                await asyncio.sleep(5)
-                continue
-            try:
-                await asyncio.to_thread(notifier.process_updates, monitor.set_status)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("Telegram-Abfrage fehlgeschlagen: %s", exc)
-                await asyncio.sleep(10)
 
     async def poll_loop() -> None:
         while True:
@@ -225,8 +146,6 @@ def create_app(
         tasks = []
         if start_poller:
             tasks.append(asyncio.create_task(poll_loop()))
-            tasks.append(asyncio.create_task(telegram_loop()))
-            tasks.append(asyncio.create_task(app_update_loop()))
         yield
         for task in tasks:
             task.cancel()
@@ -329,51 +248,6 @@ def create_app(
             "error": state["last_error"],
             "last_poll": state["last_poll"],
         }
-
-    # Ohne Anmeldung, damit Obtainium die App laden kann; die APK enthält keine Zugangsdaten
-    @app.get("/app", response_class=HTMLResponse)
-    def app_page() -> str:
-        latest = app_folder.latest()
-        if latest is None:
-            body = "<p>Auf diesem Monitor liegt noch keine App.</p>"
-        else:
-            name = html.escape(latest.filename)
-            body = (
-                f'<p><a href="/app/{name}">{name}</a></p>'
-                "<p>Für automatische Updates diese Seite in Obtainium als Quelle hinzufügen.</p>"
-            )
-        return (
-            '<!doctype html><html lang="de"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            f"<title>Netzwerkmonitor-App</title></head><body><h1>Netzwerkmonitor-App</h1>{body}"
-            "</body></html>"
-        )
-
-    @app.get("/app/latest.json")
-    def app_latest() -> dict:
-        latest = app_folder.latest()
-        if latest is None:
-            raise HTTPException(404, "Keine App bereitgestellt")
-        return {
-            "version": latest.version,
-            "version_code": latest.version_code,
-            "url": f"/app/{latest.filename}",
-        }
-
-    @app.get("/app/{filename}")
-    def app_download(filename: str) -> FileResponse:
-        found = app_folder.get(filename)
-        if found is None:
-            raise HTTPException(404, "Nicht gefunden")
-        return FileResponse(found.path, media_type=APK_TYPE, filename=found.filename)
-
-    @app.get("/api/app", dependencies=[Depends(require_login)])
-    def get_app_status() -> dict:
-        return app_status()
-
-    @app.post("/api/app/check", dependencies=[Depends(require_manager)])
-    def post_app_check() -> dict:
-        return check_app_update(manual=True)
 
     @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_login)])
     def index() -> str:
@@ -496,20 +370,6 @@ def create_app(
             return {"ok": False, "message": f"Keine Verbindung: {exc}"}
         active = sum(h.active for h in hosts)
         return {"ok": True, "message": f"Verbunden: {len(hosts)} Geräte bekannt, {active} aktiv"}
-
-    @app.post("/api/settings/test-notify", dependencies=[Depends(require_manager)])
-    def test_notify() -> dict:
-        if not rt.notifiers:
-            return {"ok": False, "results": [], "message": "Kein Kanal eingerichtet"}
-        results = []
-        for notifier in rt.notifiers:
-            name = type(notifier).__name__.removesuffix("Notifier")
-            try:
-                notifier.new_device(TEST_DEVICE)
-                results.append({"channel": name, "ok": True, "message": "gesendet"})
-            except Exception as exc:  # noqa: BLE001
-                results.append({"channel": name, "ok": False, "message": str(exc)})
-        return {"ok": all(r["ok"] for r in results), "results": results}
 
     @app.get("/api/events", dependencies=[Depends(require_login)])
     def events(limit: int = 100) -> list[dict]:

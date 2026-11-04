@@ -56,10 +56,10 @@ fun authHeader(secret: String): String =
     if (secret.startsWith("hnd_")) "Bearer $secret"
     else "Basic " + Base64.encodeToString("app:$secret".toByteArray(), Base64.NO_WRAP)
 
-/** Auf dem Monitor bereitgestellte App-Version; [url] ist die volle Download-Adresse. */
+/** Auf dem Server bereitgestellte App-Version; [url] ist die volle Download-Adresse. */
 data class AppRelease(val version: String, val versionCode: Long, val url: String)
 
-/** Antwort des Monitors auf „Jetzt nach Update suchen“; [ok] ist null, wenn die Suche aus ist. */
+/** Antwort des Servers auf „Jetzt nach Update suchen“; [ok] ist null, wenn die Suche aus ist. */
 data class AppCheck(val ok: Boolean?, val message: String)
 
 /**
@@ -103,7 +103,7 @@ class Api(
     suspend fun removeOffline(): Int =
         JSONObject(request("POST", "api/devices/remove-offline")).getInt("removed")
 
-    /** Neueste App-Version auf dem Monitor, null wenn dort keine liegt. */
+    /** Neueste App-Version auf dem Server (Home-Net), null wenn dort keine liegt. */
     suspend fun latestApp(): AppRelease? {
         val o = try {
             JSONObject(request("GET", "app/latest.json"))
@@ -115,8 +115,8 @@ class Api(
     }
 
     /**
-     * Lässt den Monitor sofort bei GitHub nach einer neuen App-Version suchen (nur Eigentümer und Admins).
-     * Der Monitor lädt eine neue Version dabei gleich herunter, darum darf es länger dauern.
+     * Lässt Home-Net sofort bei GitHub nach einer neuen App-Version suchen (nur Eigentümer und Admins).
+     * Home-Net lädt eine neue Version dabei gleich herunter, darum darf es länger dauern.
      */
     suspend fun checkAppUpdate(): AppCheck {
         val o = JSONObject(request("POST", "api/app/check", readTimeout = 120000))

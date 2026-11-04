@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+import sqlite3
 import struct
 import sys
 import tarfile
@@ -286,17 +287,28 @@ class Installation(unittest.TestCase):
         with self.assertRaises(home_net.HomeNetError):
             home_net.ask_wireguard_host("vpn.example.org:51820")
 
-    def test_monitor_links_follow_the_outside_address(self):
+    def test_app_settings_move_from_the_monitor_once(self):
         with tempfile.TemporaryDirectory() as d:
             inst = home_net.Install(d)
             state = home_net.new_state(d, None, ["netzwerkmonitor"], 8093, "geheim123", owner="chef")
-            env = Path(d, "netzwerkmonitor.env")
-            inst.write_private(env, "NTFY_TOKEN=x\nPUBLIC_URL=http://alt:8085/\n")
+            old = Path(d, "netzwerkmonitor")
+            (old / "app").mkdir(parents=True)
+            (old / "app" / "netzwerkmonitor-0.1.250.apk").write_bytes(b"PK apk")
+            con = sqlite3.connect(old / "networkmonitor.db")
+            con.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+            con.executemany("INSERT INTO meta VALUES (?, ?)", [("cfg.app_update_token", json.dumps("ghp_x")),
+                                                                ("cfg.poll_interval", "30")])
+            con.commit()
+            con.close()
             inst.apply(state)
-            self.assertIn("PUBLIC_URL=http://alt:8085/", env.read_text())
-            Path(d, "gateway", "security.json").write_text(json.dumps({"external_url": "https://home.example"}))
+            app = Path(d, "gateway", "app.json")
+            self.assertEqual(json.loads(app.read_text()), {"repo": "Archonw/Home-Net", "token": "ghp_x"})
+            self.assertEqual(oct(app.stat().st_mode)[-3:], "600")
+            self.assertEqual(Path(d, "gateway", "app", "netzwerkmonitor-0.1.250.apk").read_bytes(), b"PK apk")
+            # Changes made on the page afterwards stay
+            app.write_text(json.dumps({"repo": "", "token": ""}))
             inst.apply(state)
-            self.assertEqual(env.read_text(), "NTFY_TOKEN=x\nPUBLIC_URL=https://home.example/m/netzwerkmonitor/\n")
+            self.assertEqual(json.loads(app.read_text())["repo"], "")
 
     def test_unraid_folder_holds_exactly_the_home_net_containers(self):
         with tempfile.TemporaryDirectory() as d:

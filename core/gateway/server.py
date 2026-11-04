@@ -19,6 +19,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import appupdate
 import events
 import webauthn
 from security import DEVICE_PREFIX, SESSION_SECONDS, Security
@@ -36,6 +37,9 @@ EVENTS_DIR = os.environ.get("EVENTS_DIR", "/events")
 SCAN_SECONDS = 2
 STREAM_PING_SECONDS = 45
 COOKIE = "home_net_session"
+APK_TYPE = "application/vnd.android.package-archive"
+# Apps from before the move to the core still ask the network monitor for updates
+OLD_APP_PATHS = re.compile(r"/m/netzwerkmonitor(/app(?:/.*)?|/api/app(?:/check)?)")
 MAX_FAILS = 5
 FAIL_WINDOW = 15 * 60
 MAX_BODY = 200 * 1024 * 1024
@@ -117,6 +121,15 @@ def dictionary(lang):
 
 def security():
     return Security.shared(CONFIG_DIR)
+
+
+_APP_UPDATES = {}
+
+
+def app_updates():
+    if CONFIG_DIR not in _APP_UPDATES:
+        _APP_UPDATES[CONFIG_DIR] = appupdate.AppUpdates(CONFIG_DIR)
+    return _APP_UPDATES[CONFIG_DIR]
 
 
 def inbox():
@@ -295,6 +308,12 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/auth/"):
             self.handle_auth(path)
             return
+        old = OLD_APP_PATHS.fullmatch(path)
+        if old:
+            path = old.group(1)
+        if path == "/app" or path.startswith("/app/"):
+            self.serve_app(path)
+            return
         match = re.fullmatch(r"/m/([a-z0-9-]+)(/.*)?", path)
         module = None
         if match:
@@ -320,8 +339,39 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/modules" and self.command == "GET":
             allowed = [m for m in self.modules() if security().may_use(user, m["id"])]
             self.reply_json(200, {"modules": [self.public_entry(m) for m in allowed]})
+        elif path == "/api/me" and self.command == "GET":
+            self.reply_json(200, {"name": user["name"], "role": user["role"],
+                                  "can_manage": user["role"] in ("owner", "admin")})
+        elif path == "/api/app" and self.command == "GET":
+            self.reply_json(200, app_updates().status())
+        elif path == "/api/app/check" and self.command == "POST":
+            if user["role"] not in ("owner", "admin"):
+                self.reply_json(403, {"detail": "Das darf nur ein Admin"})
+            else:
+                self.reply_json(200, app_updates().check(manual=True))
         else:
             self.reply_json(404, {"detail": "Nicht gefunden"})
+
+    def serve_app(self, path):
+        """The app for phones and Obtainium, without login; the APK holds no secrets."""
+        if self.command not in ("GET", "HEAD"):
+            self.reply_json(405, {"detail": "Nicht erlaubt"})
+        elif path in ("/app", "/app/"):
+            self.reply(200, app_updates().page().encode(), "text/html; charset=utf-8")
+        elif path == "/app/latest.json":
+            latest = app_updates().latest_json()
+            if latest:
+                self.reply_json(200, latest)
+            else:
+                self.reply_json(404, {"detail": "Keine App bereitgestellt"})
+        else:
+            found = app_updates().folder.get(path[len("/app/"):])
+            if not found:
+                self.reply_json(404, {"detail": "Nicht gefunden"})
+                return
+            with open(found.path, "rb") as f:
+                data = f.read()
+            self.reply(200, data, APK_TYPE, {"Content-Disposition": f'attachment; filename="{found.filename}"'})
 
     def handle_auth(self, path):
         store = security()
@@ -475,6 +525,12 @@ class Handler(BaseHTTPRequestHandler):
             removed = store.delete_group(group.group(1))
             store.audit(actor["name"], "Gruppe gelöscht", removed["name"], ip)
             self.reply_json(200, {"ok": True})
+        elif path == "/auth/app" and method == "GET":
+            self.reply_json(200, {**app_updates().public_settings(), "status": app_updates().status()})
+        elif path == "/auth/app" and method == "PUT":
+            saved = app_updates().save(self.read_json())
+            store.audit(actor["name"], "App-Updates geändert", saved["repo"] or "aus", ip)
+            self.reply_json(200, {**saved, "status": app_updates().status()})
         elif path == "/auth/audit" and method == "GET":
             self.reply_json(200, {"entries": store.audit_tail()})
         else:
@@ -697,6 +753,7 @@ def scan_forever():
 
 def main():
     threading.Thread(target=scan_forever, daemon=True).start()
+    threading.Thread(target=app_updates().run_forever, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", "8080"))), Handler).serve_forever()
 
 

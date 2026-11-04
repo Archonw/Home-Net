@@ -1,18 +1,23 @@
-"""Stellt die Android-App zum Herunterladen bereit, damit Obtainium sie vom Monitor laden kann.
+"""Keeps the newest Android app ready for download, so phones update without the network monitor.
 
-Die APK liegt als ``netzwerkmonitor-<version>.apk`` im App-Ordner (Standard ``/data/app``).
-Sie kommt entweder automatisch aus den GitHub-Releases oder wird von Hand dort abgelegt.
+Once an hour (or when asked) it looks for the release with the highest number in the GitHub repository and keeps
+its APK as ``netzwerkmonitor-<version>.apk`` in ``<config>/app``. Repository and token live in ``<config>/app.json``.
+The app and Obtainium fetch it from ``/app`` without logging in; the APK holds no secrets.
 """
 
 from __future__ import annotations
 
+import html
 import json
 import logging
+import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -89,8 +94,8 @@ def limit_message(reset: float, now: float | None = None) -> str:
     minutes = max(1, round((reset - (now or time.time())) / 60))
     return (
         "Abfrage-Limit von GitHub erreicht (ohne Token 60 pro Stunde für das ganze Heimnetz). "
-        f"Nächster Versuch in etwa {minutes} Minuten. Mit einem GitHub-Token in den Einstellungen "
-        "des Monitors steigt die Grenze auf 5000 pro Stunde."
+        f"Nächster Versuch in etwa {minutes} Minuten. Mit einem GitHub-Token unter Einstellungen "
+        "auf der Home-Net-Seite steigt die Grenze auf 5000 pro Stunde."
     )
 
 
@@ -120,7 +125,7 @@ def _rate_limit_reset(exc: urllib.error.HTTPError) -> float | None:
 
 
 def _github(url: str, token: str, accept: str) -> urllib.request.Request:
-    req = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": "networkmonitor"})
+    req = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": "home-net"})
     if token:
         # Nicht an die Weiterleitung zum Download-Speicher mitschicken, der lehnt sie ab
         req.add_unredirected_header("Authorization", f"Bearer {token}")
@@ -201,3 +206,113 @@ def update_from_github(
     saved = folder.save(version, download(url, token))
     log.info("Neue App-Version %s bereitgestellt", saved.version)
     return f"Neue Version {saved.version} geladen"
+
+
+DEFAULT_REPO = "Archonw/Home-Net"
+CHECK_INTERVAL = 60 * 60
+# A manual check right after a successful one reuses its answer, that spares requests to GitHub
+MANUAL_CHECK_PAUSE = 60
+REPO_FORMAT = re.compile(r"[\w.-]+/[\w.-]+")
+
+
+class AppUpdates:
+    """Settings, state and the hourly check of the app download."""
+
+    def __init__(self, config_dir: str) -> None:
+        self.folder = AppFolder(Path(config_dir) / "app")
+        self.path = Path(config_dir) / "app.json"
+        self.lock = threading.Lock()
+        self.state: dict = {"checked": None, "message": None, "ok": None}
+        self.key: tuple[str, str] | None = None
+        self.cache = ReleaseCache()
+        self.last_ok: float | None = None
+
+    def settings(self) -> dict:
+        try:
+            data = json.loads(self.path.read_text())
+        except (OSError, ValueError):
+            data = {}
+        repo = data.get("repo", DEFAULT_REPO)
+        return {"repo": repo if isinstance(repo, str) else DEFAULT_REPO, "token": str(data.get("token") or "")}
+
+    def public_settings(self) -> dict:
+        current = self.settings()
+        return {"repo": current["repo"], "token_set": bool(current["token"])}
+
+    def save(self, form: dict) -> dict:
+        """Changes the repository and/or token; an empty token field keeps the stored one, ``clear_token`` drops it."""
+        current = self.settings()
+        if "repo" in form:
+            repo = str(form["repo"] or "").strip()
+            if repo and not REPO_FORMAT.fullmatch(repo):
+                raise ValueError("Bitte als Besitzer/Repository angeben, z. B. Archonw/Home-Net")
+            current["repo"] = repo
+        if form.get("clear_token"):
+            current["token"] = ""
+        elif str(form.get("token") or "").strip():
+            current["token"] = str(form["token"]).strip()
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(current) + "\n")
+        os.chmod(tmp, 0o600)
+        tmp.replace(self.path)
+        return self.public_settings()
+
+    def check(self, manual: bool = False) -> dict:
+        with self.lock:
+            current = self.settings()
+            repo, token = current["repo"], current["token"]
+            if (repo, token) != self.key:
+                # A new token lifts a block at once
+                self.key, self.cache, self.last_ok = (repo, token), ReleaseCache(), None
+            if not repo:
+                self.state.update(ok=None, message="Automatische Suche aus")
+            elif manual and self.last_ok is not None and time.monotonic() - self.last_ok < MANUAL_CHECK_PAUSE:
+                return self.status()
+            else:
+                try:
+                    message = update_from_github(self.folder, repo, token, self.cache)
+                    self.state.update(ok=True, message=message)
+                    self.last_ok = time.monotonic()
+                except RateLimited as exc:
+                    log.info("App-Update: %s", exc)
+                    self.state.update(ok=False, message=str(exc))
+                except Exception as exc:  # noqa: BLE001 - the gateway runs on without app updates
+                    log.warning("App-Update von GitHub fehlgeschlagen: %s", exc)
+                    self.state.update(ok=False, message=f"GitHub: {exc}")
+            self.state["checked"] = datetime.now(UTC).isoformat(timespec="seconds")
+            return self.status()
+
+    def status(self) -> dict:
+        latest = self.folder.latest()
+        return {
+            "version": latest.version if latest else None,
+            "file": latest.filename if latest else None,
+            **self.state,
+        }
+
+    def latest_json(self) -> dict | None:
+        latest = self.folder.latest()
+        if latest is None:
+            return None
+        return {"version": latest.version, "version_code": latest.version_code, "url": f"/app/{latest.filename}"}
+
+    def page(self) -> str:
+        latest = self.folder.latest()
+        if latest is None:
+            body = "<p>Hier liegt noch keine App.</p>"
+        else:
+            name = html.escape(latest.filename)
+            body = (
+                f'<p><a href="/app/{name}">{name}</a></p>'
+                "<p>Für automatische Updates diese Seite in Obtainium als Quelle hinzufügen.</p>"
+            )
+        return (
+            '<!doctype html><html lang="de"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            f"<title>Home-Net-App</title></head><body><h1>Home-Net-App</h1>{body}</body></html>"
+        )
+
+    def run_forever(self) -> None:
+        while True:
+            self.check()
+            time.sleep(CHECK_INTERVAL)

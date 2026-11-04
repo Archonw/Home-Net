@@ -10,7 +10,6 @@ import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from .notify import describe
 from .store import Device
 
 log = logging.getLogger(__name__)
@@ -18,6 +17,19 @@ log = logging.getLogger(__name__)
 # WLAN-Geräte schlafen oft kurz, erst nach dieser Zeit gilt ein Gerät wirklich als weg
 OFFLINE_AFTER = 5 * 60
 ROUTER_AFTER = 10 * 60
+
+
+def describe(device: Device) -> str:
+    lines = [
+        "Neues Gerät im Netz",
+        f"Name: {device.hostname or 'unbekannt'}",
+        f"MAC: {device.mac}" + (" (zufällige MAC)" if device.random_mac else ""),
+        f"IP: {device.ip or 'keine'}",
+        f"Verbindung: {device.interface or '?'}",
+    ]
+    if device.hint:
+        lines.append(f"Hinweis: {device.hint}")
+    return "\n".join(lines)
 
 
 def _title(device: Device) -> str:

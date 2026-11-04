@@ -132,11 +132,11 @@ class SettingsUi(
     val onSave: () -> Unit,
     val onAccess: () -> Unit,
     val onNotifications: () -> Unit,
-    /** Monitor, bei dem die App nach Updates sucht; null, solange nichts eingerichtet ist. */
+    /** Server, bei dem die App nach Updates sucht; null, solange nichts eingerichtet ist. */
     val updateApi: Api?,
 )
 
-/** Fragt den Monitor beim Start nach einer neuen App-Version und bietet sie an. */
+/** Fragt Home-Net beim Start nach einer neuen App-Version und bietet sie an. */
 @Composable
 fun AppUpdatePrompt(api: Api, settings: Settings) {
     var update by remember { mutableStateOf<AppRelease?>(null) }
@@ -176,10 +176,10 @@ fun AppUpdateDialog(release: AppRelease, onClose: () -> Unit, onLater: () -> Uni
                     updateBusy -> "Version ${release.version} wird geladen …"
                     updateError != null -> updateError!!
                     !Updater.canInstall(context) ->
-                        "Auf dem Monitor liegt Version ${release.version}. Damit die App sich selbst " +
+                        "Auf dem Server liegt Version ${release.version}. Damit die App sich selbst " +
                             "aktualisieren kann, erlaube ihr einmalig, Apps zu installieren, und tippe " +
                             "danach erneut auf „Installieren“."
-                    else -> "Auf dem Monitor liegt Version ${release.version}. Jetzt installieren?"
+                    else -> "Auf dem Server liegt Version ${release.version}. Jetzt installieren?"
                 },
             )
         },
@@ -210,8 +210,8 @@ fun AppUpdateDialog(release: AppRelease, onClose: () -> Unit, onLater: () -> Uni
 }
 
 /**
- * „Nach Update suchen“ in den Einstellungen der App. Eigentümer und Admins lassen den Monitor
- * zuerst bei GitHub suchen; alle anderen sehen nach, was der Monitor schon bereithält.
+ * „Nach Update suchen“ in den Einstellungen der App. Eigentümer und Admins lassen Home-Net
+ * zuerst bei GitHub suchen; alle anderen sehen nach, was der Server schon bereithält.
  */
 @Composable
 fun AppUpdateCheck(api: Api) {
@@ -230,16 +230,16 @@ fun AppUpdateCheck(api: Api) {
                 val server = if (api.canManage()) api.checkAppUpdate() else null
                 val release = api.latestApp()
                 val installed = installedVersionCode(context)
-                // Klappt die Suche bei GitHub nicht, zählt trotzdem, was der Monitor schon bereithält
+                // Klappt die Suche bei GitHub nicht, zählt trotzdem, was der Server schon bereithält
                 val failed = server?.takeIf { it.ok == false }?.message
                 val local = when {
                     release == null -> if (failed != null) null
-                        else server?.message?.ifBlank { null } ?: "Auf dem Monitor liegt keine App."
+                        else server?.message?.ifBlank { null } ?: "Auf dem Server liegt keine App."
                     release.versionCode > installed -> {
                         offer = release
                         "Version ${release.version} ist verfügbar."
                     }
-                    failed != null -> "Auf dem Monitor liegt keine neuere Version (${release.version})."
+                    failed != null -> "Auf dem Server liegt keine neuere Version (${release.version})."
                     else -> "Die App ist aktuell (${release.version})."
                 }
                 listOfNotNull(local, failed?.let { "Suche bei GitHub fehlgeschlagen: $it" }).joinToString("\n\n")
@@ -496,7 +496,7 @@ fun SettingsScreen(
         message = message,
         onAccess = onAccess,
         onNotifications = onNotifications,
-        updateApi = if (settings.isConfigured) settings.api() else null,
+        updateApi = settings.updateApi(),
         onSave = {
             busy = true
             message = null

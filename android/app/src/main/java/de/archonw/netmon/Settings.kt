@@ -190,4 +190,11 @@ class Settings(context: Context) {
     val isConfigured: Boolean get() = serverUrl.isNotBlank()
 
     fun api() = Api(serverUrl, if (isHubConfigured) hubSecret else password, externalUrl)
+
+    /** Woher die App ihre Updates holt: Home-Net selbst, ohne Zugang noch der Monitor allein. */
+    fun updateApi(): Api? = when {
+        isHubConfigured -> Api(hubUrl, hubSecret, hubExternalUrl)
+        isConfigured -> api()
+        else -> null
+    }
 }
