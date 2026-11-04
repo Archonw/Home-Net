@@ -55,7 +55,7 @@ fun piholeTileAlert(o: PhOverview): Boolean = !o.configured || o.blocking != "en
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PiholeScreen(api: PiholeApi, onStats: () -> Unit, onBack: () -> Unit) {
+fun PiholeScreen(api: PiholeApi, onStats: () -> Unit, onOpen: (Int) -> Unit, onBack: () -> Unit) {
     val p = LocalPalette.current
     val scope = rememberCoroutineScope()
     var reload by remember { mutableStateOf(0) }
@@ -116,8 +116,8 @@ fun PiholeScreen(api: PiholeApi, onStats: () -> Unit, onBack: () -> Unit) {
                         }
                     }
                     SectionTitle("Pi-holes")
-                    data.instances.forEach { i ->
-                        HubCard {
+                    data.instances.forEachIndexed { n, i ->
+                        HubCard(onClick = { onOpen(n) }) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(i.name, color = p.text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
                                 Text(i.url.removePrefix("http://").removePrefix("https://"), color = p.muted, fontSize = 12.sp)
@@ -152,6 +152,87 @@ fun PiholeScreen(api: PiholeApi, onStats: () -> Unit, onBack: () -> Unit) {
             onDone = { confirmEndless = false; reload++ },
         ) {
             Text("Er bleibt dann auf allen Pi-holes aus, bis jemand ihn wieder einschaltet.", color = LocalPalette.current.text, fontSize = 14.sp)
+        }
+    }
+}
+
+private fun duration(s: Long): String {
+    val d = s / 86400
+    val h = s % 86400 / 3600
+    val m = s % 3600 / 60
+    return if (d > 0) "$d Tg. $h Std." else if (h > 0) "$h Std. $m Min." else "$m Min."
+}
+
+private fun gb(b: Long): String =
+    if (b >= 1L shl 30) String.format(Locale.GERMANY, "%.1f GB", b / 1073741824.0) else "${b / 1048576} MB"
+
+@Composable
+fun PiholeDetailScreen(api: PiholeApi, index: Int, onBack: () -> Unit) {
+    val p = LocalPalette.current
+    val (d, error) = rememberLoaded(0, PH_REFRESH_MS) { api.detail(index) }
+
+    Column(Modifier.fillMaxSize().background(p.bg)) {
+        PageTitle(d?.name ?: "Pi-hole", onBack = onBack)
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            error?.let { Text(it, color = p.blocked, fontSize = 14.sp) }
+            if (d == null) {
+                if (error == null) Text("Wird geladen …", color = p.muted)
+                return@Column
+            }
+            HubCard {
+                Text(
+                    if (d.blocking == "enabled") "Filter an" else d.timer?.let { "Pausiert, noch ${minutes(it)}" } ?: "Pausiert",
+                    color = if (d.blocking == "enabled") p.allowed else p.unknown, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                )
+                Text(d.url, color = p.muted, fontSize = 13.sp)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatTile("Anfragen (24 h)", num(d.total), "${d.clients} Geräte aktiv", Modifier.weight(1f))
+                StatTile("Geblockt", num(d.blocked), String.format(Locale.GERMANY, "%.1f %%", d.percent), Modifier.weight(1f))
+            }
+            SectionTitle("Anfragen")
+            HubCard {
+                InfoRow("Aus dem Zwischenspeicher", num(d.cached))
+                InfoRow("Weitergeleitet", num(d.forwarded))
+                InfoRow("Verschiedene Domains", num(d.uniqueDomains))
+            }
+            SectionTitle("Blocklisten")
+            HubCard {
+                InfoRow("Domains auf den Listen", num(d.gravity))
+                if (d.lists > 0) InfoRow("Listen", d.lists.toString())
+                InfoRow("Eigene Ausnahmen", d.ownAllowed.toString())
+                InfoRow("Eigene Sperren", d.ownDenied.toString())
+                if (d.gravityUpdate > 0) InfoRow("Stand", formatEpoch(d.gravityUpdate))
+            }
+            SectionTitle("Version")
+            HubCard {
+                d.versions.forEach { (part, v) -> InfoRow(part, v) }
+                if (d.updates.isNotEmpty()) {
+                    Text("Update verfügbar: ${d.updates.joinToString(", ")}", color = p.unknown, fontSize = 13.sp)
+                    Text("Einspielen auf dem Gerät mit „pihole -up“.", color = p.muted, fontSize = 12.sp)
+                } else {
+                    Text("Aktuell", color = p.muted, fontSize = 13.sp)
+                }
+            }
+            SectionTitle("Gerät")
+            HubCard {
+                if (d.model.isNotBlank()) InfoRow("Modell", d.model)
+                if (d.hostname.isNotBlank()) InfoRow("Name", d.hostname)
+                if (d.os.isNotBlank()) InfoRow("System", d.os)
+                if (d.uptime > 0) InfoRow("Gerät läuft seit", duration(d.uptime))
+                if (d.ftlUptime > 0) InfoRow("Pi-hole läuft seit", duration(d.ftlUptime))
+                d.temp?.let { InfoRow("Temperatur", String.format(Locale.GERMANY, "%.1f °C", it)) }
+                if (d.cpus > 0) InfoRow("Prozessor", "${d.cpus} Kerne, Last " + d.load.joinToString(" / ") { String.format(Locale.GERMANY, "%.2f", it) })
+                if (d.ramTotal > 0) InfoRow("Arbeitsspeicher", "${gb(d.ramUsed)} von ${gb(d.ramTotal)}")
+            }
+            if (d.messages.isNotEmpty()) {
+                SectionTitle("Hinweise von Pi-hole")
+                d.messages.forEach { m -> HubCard { Text(m, color = p.text, fontSize = 13.sp) } }
+            }
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

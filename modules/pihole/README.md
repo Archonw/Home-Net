@@ -10,6 +10,8 @@ Gedacht für ein Netz mit einem oder mehreren Pi-holes, die gemeinsam arbeiten (
 - **Statistik:** Anfragen, geblockte Anfragen, Verlauf, häufigste geblockte und erlaubte Domains und die aktivsten Geräte,
   zusammengezählt über alle Pi-holes. Ist eins nicht erreichbar, steht das dabei.
 
+- **Ein Pi-hole antippen** zeigt seine eigenen Zahlen, die Version (mit Hinweis auf Updates), die Blocklisten und das
+  Gerät: Modell, Laufzeit, Temperatur, Prozessorlast und Arbeitsspeicher, dazu die Hinweise von Pi-hole selbst.
 - **Meldungen** in der App: wenn ein Pi-hole drei Minuten lang nicht antwortet, wenn es wieder da ist, und wenn es
   eine neue Pi-hole-Version gibt (alle sechs Stunden geprüft, nur für Eigentümer und Admins). Jedes Konto wählt unter
   **Mein Konto** oder in der App unter **Einstellungen → Benachrichtigungen**, welche es haben möchte.
