@@ -1009,6 +1009,17 @@ class Translations(unittest.TestCase):
                     self.assertGreaterEqual(len(re.sub(r"\{\d\}|[\W\d_]", "", german)), 5, f"{path.name}: {german}")
 
 
+    def test_module_labels_have_english(self):
+        words = {}
+        for path in (ROOT / "i18n" / "en").glob("*.json"):
+            words.update(json.loads(path.read_text(encoding="utf-8")))
+        for path in sorted((ROOT / "modules").glob("*/module.json")):
+            info = json.loads(path.read_text(encoding="utf-8"))
+            for text in [info.get("description", "")] + [e.get("label", "") for e in info.get("events", [])]:
+                if text:
+                    self.assertIn(text, words, f"{path.parent.name}: {text}")
+
+
 class HomeNetworks(unittest.TestCase):
     def test_host_networks_skip_docker_and_vms(self):
         with tempfile.TemporaryDirectory() as tmp:

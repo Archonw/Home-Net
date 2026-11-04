@@ -264,11 +264,11 @@ def main():
     find("01.11.26, 03:00")
     tap("Jetzt sichern")
     tap("Starten")
-    find("wartet auf den Start des PCs")
+    find("Sicherung wartet auf den Start des PCs")
     tap("Zurück")
     find("1 gerade in Arbeit")
     tap("Zurück")
-    find("1 PC, 5,0 GB, 1 in Arbeit")
+    find(f"1 PC, 5,0 GB, {english('1 in Arbeit')}")  # the tile translates its parts
     report("notice", "PC-Sicherung: Liste, Detail und Sicherung starten in Ordnung")
     time.sleep(5)
 
