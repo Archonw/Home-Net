@@ -1,7 +1,9 @@
 name: Android
 
 on:
+  # Auf Zweigen baut der Pull Request, auf main entsteht nach dem Merge das Release
   push:
+    branches: [main]
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
