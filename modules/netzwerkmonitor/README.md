@@ -22,18 +22,20 @@ Plan und Architektur: [docs/PLAN.md](docs/PLAN.md) · Zugriff von unterwegs: [do
 
 Eine `.env` ist nicht nötig. Alles wird in der Weboberfläche eingerichtet.
 
-**Container starten**, z. B. auf Unraid mit dem Code unter `/mnt/user/appdata/networkmonitor/src` (jeder andere Docker-Host geht genauso):
+**Mit Home-Net** (empfohlen): `home-net add netzwerkmonitor`. Der Monitor ist dann über den gemeinsamen Zugang erreichbar.
+
+**Allein**, ohne Home-Net, auf einem beliebigen Docker-Rechner:
 
 ```
-docker build -t networkmonitor:local /mnt/user/appdata/networkmonitor/src
+docker build -t networkmonitor:local modules/netzwerkmonitor
 docker run -d --name networkmonitor --network host --cap-add NET_ADMIN --cap-add NET_RAW \
-  -v /mnt/user/appdata/networkmonitor/data:/data --restart unless-stopped networkmonitor:local
+  -v /opt/networkmonitor/data:/data --restart unless-stopped networkmonitor:local
 ```
 
-Alternativ die Vorlage `unraid/networkmonitor.xml` nach `/boot/config/plugins/dockerMan/templates-user/my-networkmonitor.xml` kopieren und in Unraid unter **Docker → Add Container** wählen, oder `docker compose up -d --build`.
+oder in `modules/netzwerkmonitor` mit `docker compose up -d --build`. Die Schritte unten gelten für den Betrieb allein.
 
 **Ersteinrichtung im Browser:**
-1. `http://<unraid-ip>:8085/` öffnen und mit dem Standardpasswort **`netzwerkmonitor`** anmelden (Benutzername beliebig).
+1. `http://<server-ip>:8085/` öffnen und mit dem Standardpasswort **`netzwerkmonitor`** anmelden (Benutzername beliebig).
 2. Ein eigenes Passwort festlegen (mindestens 8 Zeichen). Vorher ist nichts anderes erreichbar, auch nicht für die App.
 3. Der Browser fragt erneut: jetzt mit dem neuen Passwort anmelden.
 4. Auf der Einstellungsseite den FritzBox-Zugang aus Schritt 1 eintragen, „Verbindung testen“, speichern. Erst dann beginnt die Überwachung; der erste Scan übernimmt die vorhandenen Geräte als erlaubt.
@@ -45,7 +47,7 @@ Einstellungen liegen in der Datenbank unter `/data`. Wer den Container neu anleg
 
 ```
 docker exec -it networkmonitor networkmonitor-probe
-docker exec -it networkmonitor networkmonitor-probe --test-block 192.168.178.50   # IP eines eigenen Testgeräts
+docker exec -it networkmonitor networkmonitor-probe --test-block 192.168.1.50   # IP eines eigenen Testgeräts
 ```
 
 Zeigt Modell und FritzOS-Version, ob Hostliste und Internet-Sperre funktionieren, welche WLAN-Aktionen die Schnittstelle anbietet (MAC-Filter?) und relevante Zeilen aus dem Ereignisprotokoll.

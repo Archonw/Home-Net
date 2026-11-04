@@ -22,6 +22,7 @@ Das Programm fragt nach Datenordner, Modulen und Passwort. Danach läuft alles u
 | `./home-net status` | Zeigt, was läuft |
 | `./home-net update` | Lädt die neue Version von GitHub, baut und startet neu. Schlägt der Download fehl, bleibt die alte |
 | `./home-net password` | Ändert das Passwort |
+| `./home-net heimnetz` | Zeigt oder ändert, welche Netze als Heimnetz gelten (Anmeldung nur mit Passwort) |
 | `./home-net backup` / `restore <archiv>` | Sichert Einstellungen und Geheimnisse oder spielt sie zurück |
 
 ## So sieht die App aus
@@ -52,6 +53,12 @@ Alle Bilder zeigen erfundene Beispieldaten. Sie entstehen im Emulator mit `tools
 
 Jeder meldet sich mit Benutzername und Passwort an. Im Heimnetz reicht das, von außen, über einen Reverse Proxy mit HTTPS, gehört ein Passkey dazu.
 
+- **Was als Heimnetz gilt:** Die Installation merkt sich die Netze, mit denen der Rechner verbunden ist, und die Wege, auf
+  denen Nutzer eines VPN-Containers wie WireGuard-Easy ankommen. Nur Geräte aus diesen Netzen melden sich mit dem Passwort allein an. Alles, was über
+  einen Reverse Proxy oder Tunnel kommt (Nginx Proxy Manager, Cloudflare Tunnel, Tailscale Funnel, ngrok), gilt immer als
+  „von außen“, auch wenn der Tunnel auf demselben Rechner läuft. `./home-net heimnetz` zeigt die Liste,
+  `./home-net heimnetz 192.168.1.0/24,10.8.0.0/24` setzt sie, `auto` erkennt sie neu.
+
 - **Rollen:** Der Eigentümer darf alles. Admins verwalten Benutzer. Benutzer sehen nur die Dienste und Pi-Kategorien, die ihnen freigegeben sind.
 - **Passkey einrichten:** Unter **Benutzer** die Adresse für unterwegs speichern, unter **Mein Konto** einen Code holen und auf dieser Adresse `/login` öffnen. Die Wiederherstellungscodes aufbewahren.
 - **Benachrichtigungen:** Jedes Konto wählt unter **Mein Konto** oder in der App unter **Einstellungen → Benachrichtigungen**, welche Meldungen es möchte. Es bekommt nur Meldungen zu Diensten und Pi-Kategorien, die es sehen darf. Die gekoppelte App empfängt sie über eine Verbindung im Hintergrund direkt vom eigenen Server, ohne Dienste von Google; ntfy ist dafür nicht nötig. Hat das Handy Internet, der Server aber 15 Minuten lang nicht geantwortet, warnt die App von selbst, sofern eine Adresse für unterwegs eingetragen ist.
@@ -80,7 +87,7 @@ Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sond
 | `modules/ntfy/` | Eigener Server für Benachrichtigungen |
 | `tools/` | Hilfsprogramme, zum Beispiel die Sicherung der Einstellungen |
 | `assets/icons/` | Logos |
-| `docs/` | Plan und Anleitung zur Neuinstallation |
+| `docs/` | Plan und Bilder der App |
 
 ## Android-App: Installation und Updates
 
@@ -91,7 +98,13 @@ Damit Updates ankommen, muss im Networkmonitor unter *Einstellungen* das Reposit
 `Archonw/Home-Net` stehen. Die Versionsnummern laufen oberhalb der alten Releases weiter.
 
 Signiert wird mit den Secrets `NETMON_KEYSTORE_BASE64`, `NETMON_KEYSTORE_PASSWORD`, `NETMON_KEY_ALIAS` und
-`NETMON_KEY_PASSWORD`.
+`NETMON_KEY_PASSWORD`. Den Signierschlüssel und sein Passwort sicher aufbewahren: Ohne sie gehen Updates der App nur
+per Neuinstallation.
+
+## Umzug auf einen neuen Rechner
+
+`./home-net backup` sichert Einstellungen und Geheimnisse, `./home-net restore <archiv>` spielt sie auf dem neuen Rechner
+ein. Die Images der Pis und die PC-Sicherungen liegen in ihren eigenen Ordnern und brauchen eine eigene Kopie.
 
 ## Logos
 
