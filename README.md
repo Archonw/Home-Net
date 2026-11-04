@@ -22,6 +22,7 @@ Das Programm fragt nach Datenordner, Modulen und Passwort. Danach läuft alles u
 | `./home-net status` | Zeigt, was läuft |
 | `./home-net update` | Lädt die neue Version von GitHub, baut und startet neu. Schlägt der Download fehl, bleibt die alte |
 | `./home-net password` | Ändert das Passwort |
+| `./home-net heimnetz` | Zeigt oder ändert, welche Netze als Heimnetz gelten (Anmeldung nur mit Passwort) |
 | `./home-net backup` / `restore <archiv>` | Sichert Einstellungen und Geheimnisse oder spielt sie zurück |
 
 ## So sieht die App aus
@@ -51,6 +52,12 @@ Alle Bilder zeigen erfundene Beispieldaten. Sie entstehen im Emulator mit `tools
 ## Konten und Anmeldung
 
 Jeder meldet sich mit Benutzername und Passwort an. Im Heimnetz reicht das, von außen, über einen Reverse Proxy mit HTTPS, gehört ein Passkey dazu.
+
+- **Was als Heimnetz gilt:** Die Installation merkt sich die Netze, mit denen der Rechner verbunden ist, und die Netze von
+  VPN-Containern wie WireGuard-Easy. Nur Geräte aus diesen Netzen melden sich mit dem Passwort allein an. Alles, was über
+  einen Reverse Proxy oder Tunnel kommt (Nginx Proxy Manager, Cloudflare Tunnel, Tailscale Funnel, ngrok), gilt immer als
+  „von außen“, auch wenn der Tunnel auf demselben Rechner läuft. `./home-net heimnetz` zeigt die Liste,
+  `./home-net heimnetz 192.168.1.0/24,10.8.0.0/24` setzt sie, `auto` erkennt sie neu.
 
 - **Rollen:** Der Eigentümer darf alles. Admins verwalten Benutzer. Benutzer sehen nur die Dienste und Pi-Kategorien, die ihnen freigegeben sind.
 - **Passkey einrichten:** Unter **Benutzer** die Adresse für unterwegs speichern, unter **Mein Konto** einen Code holen und auf dieser Adresse `/login` öffnen. Die Wiederherstellungscodes aufbewahren.
