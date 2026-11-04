@@ -73,6 +73,8 @@ data class PiRow(
     val updateState: String = "",
     /** "all", "single" oder "careful" (gesperrt, nur nach Eintippen des Namens). */
     val updateMode: String = "single",
+    /** Zählt in der Kachel „X Pis haben Updates“ mit. */
+    val updateTile: Boolean = true,
 ) {
     companion object {
         fun from(o: JSONObject) = PiRow(
@@ -91,6 +93,7 @@ data class PiRow(
             updates = o.optInt("updates", -1),
             updateState = o.optString("update_state"),
             updateMode = o.optString("update_mode", "single"),
+            updateTile = o.optBoolean("update_tile", true),
         )
     }
 }
@@ -229,6 +232,10 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
     }
 
     suspend fun checkUpdates(id: String) { request("POST", "api/pis/$id/check-updates") }
+
+    suspend fun setUpdateTile(id: String, on: Boolean) {
+        request("PUT", "api/pis/$id", JSONObject().put("update_tile", on).toString())
+    }
 
     suspend fun setUpdateMode(id: String, mode: String) {
         request("PUT", "api/pis/$id", JSONObject().put("updates", mode).toString())

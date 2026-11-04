@@ -226,13 +226,14 @@ function piFields(p, isNew) {
     $("div", { className: "two" }, choice("schedule", "Zeitplan", p.schedule ?? "off", [["off","Aus"],["daily","Täglich"],["weekly","Wöchentlich"],["monthly","Monatlich"]]), field("hour", "Frühestens ab Stunde", p.hour ?? 3, "number")),
     choice("notify", "Benachrichtigung", p.notify ?? "errors", [["errors","Nur bei Fehlern"],["always","Auch bei Erfolg"],["off","Aus"]]),
     choice("updates", "Updates", p.updates ?? (isNew ? "all" : "single"), UPDATE_MODES),
+    check("update_tile", "In der Update-Kachel mitzählen", p.update_tile ?? true),
     field("excludes", "Ausschlüsse", p.excludes, "textarea", "Ein rsync-Muster je Zeile, zusätzlich zu Swap, Caches und /tmp."),
     field("pre_cmd", "Befehl vorher", p.pre_cmd), field("post_cmd", "Befehl nachher", p.post_cmd))];
   return b;
 }
 function formValues(fd) {
   const out = Object.fromEntries(fd.entries());
-  out.compress = fd.has("compress"); out.expand = fd.has("expand");
+  out.compress = fd.has("compress"); out.expand = fd.has("expand"); out.update_tile = fd.has("update_tile");
   return out;
 }
 document.getElementById("add").onclick = () => openDialog("Pi hinzufügen", piFields({}, true), "Hinzufügen", async fd => {

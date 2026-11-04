@@ -181,7 +181,7 @@ class Store:
             "errors": [{"stamp": r["stamp"], "pi": names.get(r["dir"], ""), "message": r["error"] or "Unbekannt"}
                        for r in failed[:10]],
             "devices_checked": int(checked),
-            "update_pis": sum(1 for r in rows if r["updates"] > 0),
+            "update_pis": sum(1 for r in rows if r["updates"] > 0 and r["update_tile"]),
             "update_all": [{"id": r["id"], "name": r["name"], "updates": r["updates"]} for r in ready],
         }
 
@@ -337,7 +337,7 @@ class Store:
 EDITABLE = {"name": str, "category": str, "host": str, "port": int, "user": str, "key": str, "jump": str,
             "jump_port": int, "keep": int, "format": str, "expand": bool, "excludes": str, "bwlimit": int,
             "compress": bool, "pre_cmd": str, "post_cmd": str, "schedule": str, "hour": int, "notify": str,
-            "notes": str, "updates": str}
+            "notes": str, "updates": str, "update_tile": bool}
 CHOICES = {"format": ("xz", "gz", "img"), "schedule": ("off", "daily", "weekly", "monthly"),
            "notify": ("errors", "always", "off"), "updates": ("all", "single", "careful")}
 
@@ -441,6 +441,7 @@ def pi_row(pi, row, device):
         "card": parts[2] if len(parts) == 3 else "", "temp": device.get("temp", "") if device else "",
         "updates": row.get("upd_count", -1), "update_checked": row.get("upd_time", 0),
         "update_state": row.get("upd_state", ""), "update_last": row.get("upd_last", ""), "update_mode": pi.updates,
+        "update_tile": pi.update_tile,
     }
 
 

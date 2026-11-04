@@ -182,7 +182,8 @@ class Service(unittest.TestCase):
         """Fenster in update all, Wohnzimmer careful, Kueche single; all three have updates waiting."""
         self.backend.inventory = json.dumps({"pis": [
             {"id": ID, "name": "Fenster", "category": "Familie", "host": "h", "updates": "all"},
-            {"id": "def456", "name": "Wohnzimmer", "category": "Familie", "host": "h", "updates": "careful"},
+            {"id": "def456", "name": "Wohnzimmer", "category": "Familie", "host": "h", "updates": "careful",
+             "update_tile": False},
             {"id": "aaa111", "name": "Kueche", "category": "Familie", "host": "h"}]})
         line = "PI\t/r/Familie/{}\t0\tok\t50\t40\t2\t300\t77\tdaily\t40\t\t{}\t60\t\t\n"
         self.backend.summary = ("DISK\t100\t1000\n" + line.format("Fenster", 58) + line.format("Wohnzimmer", 12)
@@ -192,7 +193,7 @@ class Service(unittest.TestCase):
     def test_update_all_only_takes_pis_set_to_all(self):
         self.with_updates()
         code, data = self.call("/api/overview")
-        self.assertEqual((code, data["update_pis"]), (200, 3))
+        self.assertEqual((code, data["update_pis"]), (200, 2))
         self.assertEqual([p["name"] for p in data["update_all"]], ["Fenster"])
         self.assertEqual({p["name"]: p["update_mode"] for p in data["pis"]},
                          {"Fenster": "all", "Wohnzimmer": "careful", "Kueche": "single"})

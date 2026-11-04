@@ -76,6 +76,7 @@ class Pi:
     # all: part of "update all", single: only on its own, careful: only on its own after typing the name.
     # Pis from before this setting count as single; the engine treats a pi.conf without it as careful.
     updates: str = "single"
+    update_tile: bool = True     # counts in the tile "X Pis haben Updates"
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     def conf_text(self):

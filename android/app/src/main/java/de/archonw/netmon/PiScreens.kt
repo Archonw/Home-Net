@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -804,6 +805,18 @@ fun PiDetailScreen(api: PiApi, id: String, onBack: () -> Unit) {
                                 )
                                 Text(label, color = p.text, fontSize = 14.sp)
                             }
+                        }
+                        Row(
+                            Modifier.fillMaxWidth().clickable(enabled = !busy) {
+                                act { api.setUpdateTile(id, !d.row.updateTile) }
+                            }.heightIn(min = 48.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("In der Update-Kachel mitzählen", color = p.text, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                            Switch(
+                                checked = d.row.updateTile, enabled = !busy,
+                                onCheckedChange = { on -> act { api.setUpdateTile(id, on) } },
+                            )
                         }
                     }
                 }
