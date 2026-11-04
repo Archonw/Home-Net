@@ -53,8 +53,8 @@ Alle Bilder zeigen erfundene Beispieldaten. Sie entstehen im Emulator mit `tools
 
 Jeder meldet sich mit Benutzername und Passwort an. Im Heimnetz reicht das, von außen, über einen Reverse Proxy mit HTTPS, gehört ein Passkey dazu.
 
-- **Was als Heimnetz gilt:** Die Installation merkt sich die Netze, mit denen der Rechner verbunden ist, und die Netze von
-  VPN-Containern wie WireGuard-Easy. Nur Geräte aus diesen Netzen melden sich mit dem Passwort allein an. Alles, was über
+- **Was als Heimnetz gilt:** Die Installation merkt sich die Netze, mit denen der Rechner verbunden ist, und die Wege, auf
+  denen Nutzer eines VPN-Containers wie WireGuard-Easy ankommen. Nur Geräte aus diesen Netzen melden sich mit dem Passwort allein an. Alles, was über
   einen Reverse Proxy oder Tunnel kommt (Nginx Proxy Manager, Cloudflare Tunnel, Tailscale Funnel, ngrok), gilt immer als
   „von außen“, auch wenn der Tunnel auf demselben Rechner läuft. `./home-net heimnetz` zeigt die Liste,
   `./home-net heimnetz 192.168.1.0/24,10.8.0.0/24` setzt sie, `auto` erkennt sie neu.

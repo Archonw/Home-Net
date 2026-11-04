@@ -167,28 +167,45 @@ def host_networks(route_file="/proc/net/route"):
     return out
 
 
-def vpn_networks():
-    """Docker networks of VPN containers: their users arrive with the container's address, not their own."""
+def docker_out(*args):
     try:
-        names = subprocess.run(["docker", "ps", "--format", "{{.Names}}\t{{.Image}}"], capture_output=True,
-                               text=True, timeout=20).stdout.splitlines()
+        return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=20).stdout
     except (OSError, subprocess.SubprocessError):
-        return []
+        return ""
+
+
+def network_info(container):
+    """(subnet, gateway) of every IPv4 network the container is in."""
     out = []
-    for row in names:
+    for net in docker_out("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.NetworkID}} {{end}}", container).split():
+        for row in docker_out("network", "inspect", "-f", "{{range .IPAM.Config}}{{.Subnet}}|{{.Gateway}} {{end}}",
+                              net).split():
+            subnet, _, gateway = row.partition("|")
+            if not subnet or ":" in subnet:
+                continue
+            try:
+                network = ipaddress.ip_network(subnet, strict=False)
+            except ValueError:
+                continue
+            out.append((str(network), gateway or str(next(network.hosts()))))
+    return out
+
+
+def vpn_networks():
+    """Where users of a VPN container on this computer show up at Home-Net.
+
+    In the container's own network they keep its address. A container in another Docker network reaches the published
+    port of Home-Net through Docker, which hands the request over with the gateway address of Home-Net's network; on
+    Unraid with WireGuard-Easy in the bridge network that is e.g. 172.19.0.1. Only that one address is added, so other
+    containers count as home network too, but proxies and tunnels are still recognized by their headers."""
+    out = []
+    for row in docker_out("ps", "--format", "{{.Names}}\t{{.Image}}").splitlines():
         name, _, image = row.partition("\t")
         if name.endswith("-verwaltung") or not any(word in image.lower() or word in name.lower() for word in VPN_IMAGES):
             continue
-        try:
-            nets = subprocess.run(["docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.NetworkID}} {{end}}",
-                                   name], capture_output=True, text=True, timeout=20).stdout.split()
-            for net in nets:
-                subnets = subprocess.run(["docker", "network", "inspect", "-f",
-                                          "{{range .IPAM.Config}}{{.Subnet}} {{end}}", net],
-                                         capture_output=True, text=True, timeout=20).stdout.split()
-                out += [s for s in subnets if ":" not in s and s not in out]
-        except (OSError, subprocess.SubprocessError):
-            continue
+        out += [subnet for subnet, _ in network_info(name) if subnet not in out]
+    if out:
+        out += [f"{gateway}/32" for _, gateway in network_info(GATEWAY) if f"{gateway}/32" not in out]
     return out
 
 

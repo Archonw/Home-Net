@@ -992,3 +992,16 @@ class HomeNetworks(unittest.TestCase):
     def test_gateway_config_carries_networks(self):
         cfg = home_net.gateway_config(home_net.available_modules(), [], {}, lan=["192.168.1.0/24"])
         self.assertEqual(cfg["lan"], ["192.168.1.0/24"])
+
+    def test_vpn_container_and_docker_gateway(self):
+        def docker(*args):
+            if args[0] == "ps":
+                return "WireGuard-Easy\tghcr.io/wg-easy/wg-easy:edge\nwireguard-verwaltung\tx\nnginx\tnginx\n"
+            if args[0] == "inspect":
+                return {"WireGuard-Easy": "n1 ", "home-net-gateway": "n2 "}[args[-1]]
+            return {"n1": "172.17.0.0/16|172.17.0.1 ", "n2": "172.19.0.0/16| "}[args[-1]]
+        with mock.patch.object(home_net, "docker_out", side_effect=docker):
+            self.assertEqual(home_net.vpn_networks(), ["172.17.0.0/16", "172.19.0.1/32"])
+        with mock.patch.object(home_net, "docker_out", return_value=""):
+            self.assertEqual(home_net.vpn_networks(), [])
+
