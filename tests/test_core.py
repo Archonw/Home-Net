@@ -426,6 +426,14 @@ class Gateway(unittest.TestCase):
         self.assertIn(b'<body class="x"><a href="/" style', page)
         self.assertIn(b'href="/m/demo/settings"', page)
 
+    def test_theme_script_is_public_and_in_every_module_page(self):
+        page = gateway.rewrite_html(b"<html><head></head><body></body></html>", "/m/demo")
+        self.assertIn(b'<script src="/hn/theme.js"></script>', page)
+        code, body, headers = self.call("/hn/theme.js", None)
+        self.assertEqual(code, 200)
+        self.assertIn(b"window.HN", body)
+        self.assertTrue(headers["Content-Type"].startswith("text/javascript"))
+
     def test_html_and_redirect_get_prefix(self):
         _, body, _ = self.call("/m/demo/page")
         self.assertIn(b'href="/m/demo/x"', body)

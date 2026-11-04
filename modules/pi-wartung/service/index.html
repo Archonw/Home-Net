@@ -6,7 +6,8 @@
 <title>Pi-Wartung</title>
 <style>
 :root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#c2366b; --ok:#1a7f37; --bad:#c93a3a; --warn:#b35a0a; --soft:#c2366b1f; }
-@media (prefers-color-scheme: dark) { :root { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#e0568a; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#e0568a26; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme=light]) { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#e0568a; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#e0568a26; } }
+:root[data-theme=dark] { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#e0568a; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#e0568a26; }
 * { box-sizing: border-box; }
 body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
 header { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:18px 16px 6px; max-width:1000px; margin:auto; }

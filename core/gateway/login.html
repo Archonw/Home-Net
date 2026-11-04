@@ -4,9 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home-Net anmelden</title>
+<script src="/hn/theme.js"></script>
 <style>
 :root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#4f5bd5; --bad:#c93a3a; }
-@media (prefers-color-scheme: dark) { :root { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#8b95f0; --bad:#ec6a6a; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme=light]) { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#8b95f0; --bad:#ec6a6a; } }
+:root[data-theme=dark] { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#8b95f0; --bad:#ec6a6a; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 system-ui,sans-serif; }
 main { max-width:420px; margin:0 auto; padding:48px 16px; }
