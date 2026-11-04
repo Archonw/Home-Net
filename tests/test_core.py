@@ -409,6 +409,28 @@ class Gateway(unittest.TestCase):
             urllib.request.urlopen(req, timeout=5)
         self.assertEqual(caught.exception.code, 429)
 
+    def test_tunnel_headers_count_as_outside(self):
+        for header, value in (("CF-Connecting-IP", "203.0.113.9"), ("X-Real-IP", "203.0.113.9"),
+                              ("Forwarded", "for=203.0.113.9"), ("Tailscale-Funnel-Request", "?1")):
+            req = urllib.request.Request(self.base + "/", headers={
+                "Authorization": "Basic " + base64.b64encode(b"app:geheim").decode(), header: value})
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(req, timeout=5)
+            self.assertEqual(caught.exception.code, 401, header)
+
+    def test_home_networks(self):
+        cfg = json.loads(Path(self.dir.name, "gateway.json").read_text())
+        self.assertTrue(gateway.is_home_address("172.18.0.5"))
+        cfg["lan"] = ["192.168.178.0/24", "kaputt"]
+        Path(self.dir.name, "gateway.json").write_text(json.dumps(cfg))
+        self.assertTrue(gateway.is_home_address("192.168.178.40"))
+        self.assertTrue(gateway.is_home_address("::ffff:192.168.178.40"))
+        self.assertTrue(gateway.is_home_address("127.0.0.1"))
+        self.assertFalse(gateway.is_home_address("172.18.0.5"))
+        self.assertFalse(gateway.is_home_address("10.0.0.2"))
+        self.assertFalse(gateway.is_home_address("fd00::1"))
+        self.assertFalse(gateway.is_home_address("203.0.113.9"))
+
     def test_proxy_swaps_password(self):
         code, body, _ = self.call("/m/demo/api/x?a=1")
         self.assertEqual(code, 200)
@@ -950,3 +972,36 @@ class Accounts(AccountBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HomeNetworks(unittest.TestCase):
+    def test_host_networks_skip_docker_and_vms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            route = Path(tmp, "route")
+            route.write_text(
+                "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+                "br0\t00000000\t01B2A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"
+                "br0\t00B2A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n"
+                "docker0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n"
+                "br-1a2b3c\t000012AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n"
+                "virbr0\t007AA8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n"
+                "wg0\t0000080A\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n")
+            self.assertEqual(home_net.host_networks(route), ["192.168.178.0/24", "10.8.0.0/24"])
+            self.assertEqual(home_net.host_networks(Path(tmp, "fehlt")), [])
+
+    def test_gateway_config_carries_networks(self):
+        cfg = home_net.gateway_config(home_net.available_modules(), [], {}, lan=["192.168.1.0/24"])
+        self.assertEqual(cfg["lan"], ["192.168.1.0/24"])
+
+    def test_vpn_container_and_docker_gateway(self):
+        def docker(*args):
+            if args[0] == "ps":
+                return "WireGuard-Easy\tghcr.io/wg-easy/wg-easy:edge\nwireguard-verwaltung\tx\nnginx\tnginx\n"
+            if args[0] == "inspect":
+                return {"WireGuard-Easy": "n1 ", "home-net-gateway": "n2 "}[args[-1]]
+            return {"n1": "172.17.0.0/16|172.17.0.1 ", "n2": "172.19.0.0/16| "}[args[-1]]
+        with mock.patch.object(home_net, "docker_out", side_effect=docker):
+            self.assertEqual(home_net.vpn_networks(), ["172.17.0.0/16", "172.19.0.1/32"])
+        with mock.patch.object(home_net, "docker_out", return_value=""):
+            self.assertEqual(home_net.vpn_networks(), [])
+

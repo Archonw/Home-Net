@@ -37,6 +37,11 @@ MAX_BODY = 200 * 1024 * 1024
 HOP_BY_HOP = {"connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "proxy-authorization",
               "proxy-authenticate", "host", "content-length", "cookie"}
 BAD_LOGIN = "Benutzername oder Passwort ist falsch"
+# Headers a reverse proxy or tunnel adds. If any is there, the request came through one, so from outside.
+# A tunnel (Cloudflare, Tailscale Funnel, ngrok) often runs as a container beside Home-Net and connects from a
+# private address; without these it would pass as a device in the home network and skip the passkey.
+PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "X-Real-IP", "X-Forwarded-Host", "CF-Connecting-IP",
+                 "CF-Ray", "True-Client-IP", "Tailscale-Funnel-Request", "Tailscale-User-Login")
 
 
 # The same way back on every module's page.
@@ -47,6 +52,36 @@ BACK_LINK = ('<a href="/" style="display:table;position:relative;z-index:1000;pa
 def load(name):
     with open(os.path.join(CONFIG_DIR, name)) as f:
         return json.load(f)
+
+
+def home_networks():
+    """The networks set as home network (`home-net heimnetz`); empty means every private address."""
+    try:
+        listed = load("gateway.json").get("lan") or []
+    except (OSError, ValueError):
+        return []
+    out = []
+    for net in listed:
+        try:
+            out.append(ipaddress.ip_network(net, strict=False))
+        except ValueError:
+            continue
+    return out
+
+
+def is_home_address(address):
+    try:
+        addr = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    if addr.version == 6 and addr.ipv4_mapped:
+        addr = addr.ipv4_mapped
+    if addr.is_loopback:
+        return True
+    networks = home_networks()
+    if networks:
+        return any(addr in net for net in networks if net.version == addr.version)
+    return addr.is_private
 
 
 def security():
@@ -138,13 +173,10 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(code, json.dumps(payload, ensure_ascii=False).encode(), headers=headers)
 
     def is_external(self):
-        """Through the reverse proxy, or from any address outside the private ranges."""
-        if self.headers.get("X-Forwarded-For"):
+        """Through a reverse proxy or tunnel, or from an address outside the home network."""
+        if any(self.headers.get(name) for name in PROXY_HEADERS):
             return True
-        try:
-            return not ipaddress.ip_address(self.client_address[0]).is_private
-        except ValueError:
-            return True
+        return not is_home_address(self.client_address[0])
 
     def session_token(self):
         cookies = http.cookies.SimpleCookie(self.headers.get("Cookie", ""))

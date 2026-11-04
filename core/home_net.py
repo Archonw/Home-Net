@@ -6,6 +6,7 @@ Usage:
   home-net add <modul> [--dir DIR]   home-net remove <modul>
   home-net status            home-net modules
   home-net update            home-net password <konto> [neues Passwort]
+  home-net heimnetz [netze|auto|alle]   Welche Netze nur das Passwort brauchen
   home-net apply             Erstellt alles neu aus dem vorhandenen Programmstand
   home-net backup            home-net restore <archiv>
 """
@@ -13,6 +14,7 @@ import argparse
 import base64
 import getpass
 import hashlib
+import ipaddress
 import json
 import os
 import secrets
@@ -120,7 +122,7 @@ def sync_unraid_folder(containers, path=None):
     return changed
 
 
-def gateway_config(modules, chosen, upstream_passwords, owner="admin"):
+def gateway_config(modules, chosen, upstream_passwords, owner="admin", lan=None):
     entries = []
     for module_id in chosen:
         module = modules[module_id]
@@ -137,7 +139,78 @@ def gateway_config(modules, chosen, upstream_passwords, owner="admin"):
                         public=api.get("public", []), web=bool(api.get("web")),
                         password=upstream_passwords.get(module_id, ""))
         entries.append(item)
-    return {"owner": owner, "modules": entries}
+    return {"owner": owner, "modules": entries, "lan": list(lan or [])}
+
+
+VIRTUAL_INTERFACES = ("lo", "docker", "br-", "veth", "virbr", "vnet", "shim-", "tap", "dummy")
+VPN_IMAGES = ("wg-easy", "wireguard", "openvpn", "pivpn")
+
+
+def host_networks(route_file="/proc/net/route"):
+    """The IPv4 networks this computer is directly connected to, without Docker's and the VMs' own."""
+    out = []
+    try:
+        lines = Path(route_file).read_text().splitlines()[1:]
+    except OSError:
+        return out
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 8 or fields[0].startswith(VIRTUAL_INTERFACES) or fields[2] != "00000000":
+            continue
+        dest = ipaddress.IPv4Address(bytes.fromhex(fields[1])[::-1])
+        mask = ipaddress.IPv4Address(bytes.fromhex(fields[7])[::-1])
+        if int(mask) == 0:
+            continue
+        net = ipaddress.IPv4Network(f"{dest}/{mask}", strict=False)
+        if net.is_private and str(net) not in out:
+            out.append(str(net))
+    return out
+
+
+def docker_out(*args):
+    try:
+        return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def network_info(container):
+    """(subnet, gateway) of every IPv4 network the container is in."""
+    out = []
+    for net in docker_out("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.NetworkID}} {{end}}", container).split():
+        for row in docker_out("network", "inspect", "-f", "{{range .IPAM.Config}}{{.Subnet}}|{{.Gateway}} {{end}}",
+                              net).split():
+            subnet, _, gateway = row.partition("|")
+            if not subnet or ":" in subnet:
+                continue
+            try:
+                network = ipaddress.ip_network(subnet, strict=False)
+            except ValueError:
+                continue
+            out.append((str(network), gateway or str(next(network.hosts()))))
+    return out
+
+
+def vpn_networks():
+    """Where users of a VPN container on this computer show up at Home-Net.
+
+    In the container's own network they keep its address. A container in another Docker network reaches the published
+    port of Home-Net through Docker, which hands the request over with the gateway address of Home-Net's network; on
+    Unraid with WireGuard-Easy in the bridge network that is e.g. 172.19.0.1. Only that one address is added, so other
+    containers count as home network too, but proxies and tunnels are still recognized by their headers."""
+    out = []
+    for row in docker_out("ps", "--format", "{{.Names}}\t{{.Image}}").splitlines():
+        name, _, image = row.partition("\t")
+        if name.endswith("-verwaltung") or not any(word in image.lower() or word in name.lower() for word in VPN_IMAGES):
+            continue
+        out += [subnet for subnet, _ in network_info(name) if subnet not in out]
+    if out:
+        out += [f"{gateway}/32" for _, gateway in network_info(GATEWAY) if f"{gateway}/32" not in out]
+    return out
+
+
+def detect_home_networks():
+    return host_networks() + [n for n in vpn_networks() if n not in host_networks()]
 
 
 class Install:
@@ -172,6 +245,11 @@ class Install:
 
     def apply(self, state, repo=REPO):
         """Writes all generated files from the state."""
+        if "lan" not in state:
+            # Once, at the install or the first update after it came: which addresses count as home network.
+            state["lan"] = detect_home_networks()
+            if state["lan"]:
+                print(f"Heimnetz: {', '.join(state['lan'])}. Ändern mit: home-net heimnetz")
         modules = available_modules(repo)
         unknown = [m for m in state["modules"] if m not in modules]
         if unknown:
@@ -193,7 +271,8 @@ class Install:
                     if not path.exists():
                         self.write_private(path, "")
         self.write_private(self.data / "gateway" / "gateway.json",
-                           json.dumps(gateway_config(modules, state["modules"], state["upstream"], state.get("owner", "admin")),
+                           json.dumps(gateway_config(modules, state["modules"], state["upstream"], state.get("owner", "admin"),
+                                                     state.get("lan")),
                                       indent=2) + "\n")
         self.write_private(self.data / "gateway" / "auth.json", json.dumps(state["auth"]) + "\n")
         if "netzwerkmonitor" in state["modules"]:
@@ -519,6 +598,34 @@ def cmd_apply(_args):
     inst.start()
 
 
+def cmd_heimnetz(args):
+    """Shows or sets the networks whose devices log in with the password alone."""
+    inst = Install.locate()
+    state = inst.load()
+    if args.networks:
+        if args.networks == ["auto"]:
+            state["lan"] = detect_home_networks()
+        elif args.networks == ["alle"]:
+            state["lan"] = []
+        else:
+            try:
+                state["lan"] = [str(ipaddress.ip_network(n.strip(), strict=False))
+                                for part in args.networks for n in part.split(",") if n.strip()]
+            except ValueError as exc:
+                raise HomeNetError(f"Kein gültiges Netz: {exc}")
+        inst.apply(state)
+    current = state.get("lan") or []
+    if current:
+        print("Als Heimnetz gelten (Anmeldung nur mit Passwort):")
+        for net in current:
+            print(f"  {net}")
+    else:
+        print("Als Heimnetz gilt jede private Adresse (10.x, 172.16-31.x, 192.168.x).")
+    print("Alles andere und alles über einen Proxy oder Tunnel braucht zusätzlich einen Passkey.")
+    if not args.networks:
+        print("Ändern: home-net heimnetz <netz,netz>  |  home-net heimnetz auto  |  home-net heimnetz alle")
+
+
 def cmd_password(args):
     """Sets an account's password; the way back in if it is lost."""
     sys.path.insert(0, str(REPO / "core" / "gateway"))
@@ -600,6 +707,9 @@ def main(argv=None):
     p = sub.add_parser("update")
     p.add_argument("--installed", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_update)
+    p = sub.add_parser("heimnetz", help="Zeigt oder setzt, welche Netze als Heimnetz gelten")
+    p.add_argument("networks", nargs="*", help="z. B. 192.168.178.0/24, oder auto, oder alle")
+    p.set_defaults(func=cmd_heimnetz)
     p = sub.add_parser("password")
     p.add_argument("user")
     p.add_argument("password", nargs="?")
