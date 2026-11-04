@@ -1,5 +1,7 @@
 name: Module
 
+# Einmal je Änderung: auf Zweigen über den Pull Request, auf main nach dem Merge. Es laufen nur die Module, die die
+# Änderung betrifft, und immer der Kern. Ändert sich diese Datei, laufen alle.
 on:
   # Zweige prüft der PR; push nur für main, sonst läuft alles doppelt
   push:
@@ -8,18 +10,48 @@ on:
       - "modules/**"
       - "core/**"
       - "tests/**"
+      - "tools/**"
       - ".github/workflows/modules.yml"
   pull_request:
     paths:
       - "modules/**"
       - "core/**"
       - "tests/**"
+      - "tools/**"
       - ".github/workflows/modules.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: module-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.diff.outputs.modules }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          all=$(ls modules | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().split()))')
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null \
+             || git diff --name-only "$BASE" HEAD | grep -q '^.github/workflows/modules.yml$'; then
+            echo "modules=$all" >> "$GITHUB_OUTPUT"
+          else
+            changed=$(git diff --name-only "$BASE" HEAD | sed -n 's#^modules/\([^/]*\)/.*#\1#p' | sort -u \
+              | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().split()))')
+            echo "modules=$changed" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
   core:
     runs-on: ubuntu-latest
     steps:
@@ -32,6 +64,8 @@ jobs:
       - run: docker build -q -f core/gateway/Dockerfile -t home-net-gateway:test .
 
   netzwerkmonitor:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.modules), 'netzwerkmonitor')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -48,6 +82,8 @@ jobs:
       - run: docker build -q -t netzwerkmonitor:test .
 
   pi-wartung:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.modules), 'pi-wartung')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -62,6 +98,8 @@ jobs:
       - run: docker build -q -f service/Dockerfile -t pi-wartung-service:test .
 
   pc-sicherung:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.modules), 'pc-sicherung')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -76,6 +114,8 @@ jobs:
       - run: docker build -q -t pc-sicherung:test .
 
   unraid:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.modules), 'unraid')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -89,6 +129,8 @@ jobs:
       - run: docker build -q -t unraid-verwaltung:test .
 
   pocket-id:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.modules), 'pocket-id')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -102,6 +144,8 @@ jobs:
       - run: docker build -q -t pocket-id-verwaltung:test .
 
   wireguard:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.modules), 'wireguard')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -115,6 +159,8 @@ jobs:
       - run: docker build -q -t wireguard-verwaltung:test .
 
   pihole:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.modules), 'pihole')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -128,6 +174,8 @@ jobs:
       - run: docker build -q -t pihole-verwaltung:test .
 
   proxy-manager:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.modules), 'proxy-manager')
     runs-on: ubuntu-latest
     defaults:
       run:

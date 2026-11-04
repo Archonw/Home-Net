@@ -1,7 +1,7 @@
 name: Android
 
 on:
-  # Zweige prüft der PR; push nur für main, sonst läuft alles doppelt
+  # Auf Zweigen baut der Pull Request, auf main entsteht nach dem Merge das Release
   push:
     branches: [main]
     paths:
