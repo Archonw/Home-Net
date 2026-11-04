@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -23,6 +24,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -75,6 +77,31 @@ fun formatStamp(stamp: String): String {
 }
 
 private data class PiState(val label: String, val color: Color)
+
+val PI_UPDATE_MODES = listOf(
+    "all" to "Bei „Alle aktualisieren“ dabei",
+    "single" to "Nur einzeln aktualisieren",
+    "careful" to "Gesperrt, nur einzeln nach Eintippen des Namens",
+)
+
+fun piCount(n: Int): String = if (n == 1) "1 Pi" else "$n Pis"
+
+/** Kurzer Zusatz für die Zeile eines Pi in der Liste. */
+fun piUpdateLabel(row: PiRow): String = when {
+    row.updateState == "upgrading" -> "Update läuft"
+    row.updates == 1 -> "1 Update"
+    row.updates > 1 -> "${row.updates} Updates"
+    else -> ""
+}
+
+fun piSoftwareState(s: PiSoftware): String = when {
+    s.state == "upgrading" -> "Update läuft …"
+    s.state == "checking" -> "Wird geprüft …"
+    s.count < 0 -> "Noch nicht geprüft"
+    s.count == 0 -> "Alles aktuell"
+    s.count == 1 -> "1 Update verfügbar"
+    else -> "${s.count} Updates verfügbar"
+}
 
 @Composable
 private fun piState(row: PiRow): PiState {
@@ -466,6 +493,8 @@ fun PiOverviewScreen(api: PiApi, onOpen: (String) -> Unit, onSetup: (() -> Unit)
     var data by remember { mutableStateOf<PiOverview?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableStateOf(0) }
+    var confirmAll by remember { mutableStateOf<List<PiUpdateTarget>?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(reload) {
@@ -515,6 +544,17 @@ fun PiOverviewScreen(api: PiApi, onOpen: (String) -> Unit, onSetup: (() -> Unit)
                         color = if (o.problems > 0) p.blocked else p.allowed,
                     )
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatTile(
+                        "Updates", piCount(o.updatePis), if (o.updatePis > 0) "haben Updates" else "alles aktuell",
+                        Modifier.weight(1f), color = if (o.updatePis > 0) p.unknown else p.allowed,
+                    )
+                    Spacer(Modifier.weight(1f))
+                }
+                if (o.updateAll.isNotEmpty()) {
+                    PrimaryButton("Alle aktualisieren (${o.updateAll.size})", Modifier.fillMaxWidth()) { confirmAll = o.updateAll }
+                }
+                notice?.let { Text(it, color = p.muted, fontSize = 14.sp) }
                 if (o.attention.isNotEmpty()) {
                     SectionTitle("Braucht Aufmerksamkeit")
                     HubCard {
@@ -545,6 +585,36 @@ fun PiOverviewScreen(api: PiApi, onOpen: (String) -> Unit, onSetup: (() -> Unit)
             }
         }
     }
+
+    confirmAll?.let { list ->
+        AlertDialog(
+            onDismissRequest = { confirmAll = null },
+            title = { Text("Alle aktualisieren?") },
+            text = {
+                Text(
+                    list.joinToString("\n") { "${it.name}: ${it.updates} Updates" } +
+                        "\n\nPis, die für Updates gesperrt sind oder nur einzeln aktualisiert werden, bleiben unberührt. " +
+                        "Ein Neustart erfolgt nicht."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmAll = null
+                    scope.launch {
+                        try {
+                            val (started, failed) = api.upgradeAll(list.map { it.id })
+                            notice = (if (started.isEmpty()) "Kein Update gestartet." else "Update läuft: ${started.joinToString()}") +
+                                failed.joinToString("") { "\n$it" }
+                            reload++
+                        } catch (e: ApiException) {
+                            error = e.message
+                        }
+                    }
+                }) { Text("Aktualisieren") }
+            },
+            dismissButton = { TextButton(onClick = { confirmAll = null }) { Text("Abbrechen") } },
+        )
+    }
 }
 
 @Composable
@@ -564,7 +634,10 @@ private fun PiRowCard(row: PiRow, onClick: () -> Unit) {
                     false -> "Offline"
                     null -> "Wird geprüft"
                 }
-                Text("$reach · Backup ${formatEpoch(row.okTime)}", color = p.muted, fontSize = 12.sp)
+                Text(
+                    "$reach · Backup ${formatEpoch(row.okTime)}" + piUpdateLabel(row).let { if (it.isEmpty()) "" else " · $it" },
+                    color = p.muted, fontSize = 12.sp,
+                )
             }
             Icon(NavIcons.chevron, contentDescription = null, tint = p.muted)
         }
@@ -579,6 +652,9 @@ fun PiDetailScreen(api: PiApi, id: String, onBack: () -> Unit) {
     var reload by remember { mutableStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
+    var showPackages by remember { mutableStateOf(false) }
+    var typed by remember { mutableStateOf("") }
+    var newMode by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(reload) {
@@ -589,7 +665,8 @@ fun PiDetailScreen(api: PiApi, id: String, onBack: () -> Unit) {
             } catch (e: ApiException) {
                 error = e.message
             }
-            delay(if (data?.row?.running == true) RUNNING_REFRESH_MS else OVERVIEW_REFRESH_MS)
+            val active = data?.row?.running == true || data?.software?.state?.isNotEmpty() == true
+            delay(if (active) RUNNING_REFRESH_MS else OVERVIEW_REFRESH_MS)
         }
     }
 
@@ -660,6 +737,76 @@ fun PiDetailScreen(api: PiApi, id: String, onBack: () -> Unit) {
                 } else if (d.row.online == false) {
                     Text("Der Pi ist gerade nicht erreichbar.", color = p.blocked, fontSize = 14.sp)
                 }
+                d.software?.let { sw ->
+                    val careful = d.row.updateMode == "careful"
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) { SectionTitle("Software") }
+                        if (sw.state.isEmpty()) TextAction("Updates prüfen") { act { api.checkUpdates(id) } }
+                    }
+                    HubCard {
+                        Text(
+                            piSoftwareState(sw), fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                            color = if (sw.count > 0 || sw.state.isNotEmpty()) p.unknown else p.allowed,
+                        )
+                        InfoRow("System", d.device["os"].orEmpty().ifBlank { "–" })
+                        InfoRow("Kernel", d.device["kernel"].orEmpty().ifBlank { "–" })
+                        InfoRow("Pakete", if (sw.installed > 0) "${sw.installed} installiert" else "–")
+                        InfoRow("Geprüft", formatEpoch(sw.checked))
+                        InfoRow("Zuletzt apt", formatEpoch(sw.lastApt))
+                        if (sw.lastStatus.isNotBlank()) {
+                            InfoRow(
+                                "Letztes Update", (if (sw.lastStatus == "ok") "erfolgreich, " else "fehlgeschlagen, ") +
+                                    formatEpoch(sw.lastTime),
+                            )
+                        }
+                        if (careful) {
+                            Text(
+                                "Für Updates gesperrt: ein Update kann die Software dieses Pi kaputt machen.",
+                                color = p.blocked, fontSize = 14.sp,
+                            )
+                        }
+                        if (sw.error.isNotBlank()) Text(sw.error, color = p.unknown, fontSize = 14.sp)
+                        if (sw.lastStatus == "failed" && sw.lastError.isNotBlank()) Text(sw.lastError, color = p.blocked, fontSize = 14.sp)
+                        if (sw.reboot) Text("Ein Neustart ist nötig.", color = p.unknown, fontSize = 14.sp)
+                        sw.log.forEach { Text(it, color = p.muted, fontSize = 12.sp, maxLines = 1) }
+                        if (sw.packages.isNotEmpty()) {
+                            TextAction(if (showPackages) "Pakete ausblenden" else "Pakete anzeigen (${sw.packages.size})") {
+                                showPackages = !showPackages
+                            }
+                            if (showPackages) {
+                                sw.packages.forEach {
+                                    Text(it.name, color = p.text, fontSize = 13.sp)
+                                    Text("${it.old} → ${it.new}", color = p.muted, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                    if (sw.count > 0 && sw.state.isEmpty() && !d.row.running) {
+                        PrimaryButton(
+                            if (busy) "Bitte warten …" else if (careful) "Trotzdem aktualisieren …" else "Jetzt aktualisieren",
+                            Modifier.fillMaxWidth(), enabled = !busy,
+                        ) {
+                            typed = ""
+                            confirm = if (careful) "upgrade-careful" else "upgrade"
+                        }
+                    }
+                    SectionTitle("Updates bei diesem Pi")
+                    HubCard {
+                        PI_UPDATE_MODES.forEach { (value, label) ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable(enabled = !busy) { if (value != d.row.updateMode) newMode = value }
+                                    .heightIn(min = 40.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(
+                                    selected = value == d.row.updateMode, enabled = !busy,
+                                    onClick = { if (value != d.row.updateMode) newMode = value },
+                                )
+                                Text(label, color = p.text, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                }
                 SectionTitle("Images")
                 HubCard {
                     if (d.imagesList.isEmpty()) Text("Noch keine Images", color = p.muted, fontSize = 14.sp)
@@ -678,7 +825,63 @@ fun PiDetailScreen(api: PiApi, id: String, onBack: () -> Unit) {
         }
     }
 
-    confirm?.let { action ->
+    newMode?.let { mode ->
+        val unlock = data?.row?.updateMode == "careful"
+        AlertDialog(
+            onDismissRequest = { newMode = null },
+            title = { Text(if (unlock) "Sperre aufheben?" else "Einstellung ändern?") },
+            text = {
+                Text(
+                    (if (unlock) "Dieser Pi ist für Updates gesperrt, weil ein Update seine Software kaputt machen kann. " else "") +
+                        "Neu: ${PI_UPDATE_MODES.first { it.first == mode }.second}."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    newMode = null
+                    act { api.setUpdateMode(id, mode) }
+                }) { Text(if (unlock) "Sperre aufheben" else "Ändern") }
+            },
+            dismissButton = { TextButton(onClick = { newMode = null }) { Text("Abbrechen") } },
+        )
+    }
+
+    if (confirm == "upgrade" || confirm == "upgrade-careful") {
+        val careful = confirm == "upgrade-careful"
+        val name = data?.row?.name.orEmpty()
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text(if (careful) "Achtung: $name ist gesperrt" else "$name aktualisieren?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (careful) {
+                            "Ein Update kann die Software dieses Pi kaputt machen. Wenn du es trotzdem willst, tippe zur " +
+                                "Bestätigung den Namen „$name“ ein."
+                        } else {
+                            "${data?.software?.count ?: 0} Pakete werden installiert. Das dauert einige Minuten, ein Neustart erfolgt nicht."
+                        }
+                    )
+                    if (careful) {
+                        OutlinedTextField(
+                            value = typed, onValueChange = { typed = it }, singleLine = true,
+                            label = { Text("Name des Pi") }, modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !careful || typed.trim() == name, onClick = {
+                    confirm = null
+                    val text = typed
+                    act { api.upgrade(id, if (careful) text else "") }
+                }) { Text(if (careful) "Trotzdem aktualisieren" else "Aktualisieren") }
+            },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Abbrechen") } },
+        )
+    }
+
+    confirm?.takeIf { it == "backup" || it == "cancel" }?.let { action ->
         AlertDialog(
             onDismissRequest = { confirm = null },
             title = { Text(if (action == "backup") "Sicherung starten?" else "Sicherung abbrechen?") },

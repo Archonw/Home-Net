@@ -12,6 +12,10 @@
 #   pi-backup.sh install-key <pi-dir>  same, then install it using a password from stdin
 #   pi-backup.sh due    <root>      run every Pi whose schedule is due (for cron)
 #   pi-backup.sh summary <root>     facts about all Pis as tab separated lines
+#   pi-backup.sh check-updates <pi-dir>  ask apt on the Pi which updates are waiting
+#   pi-backup.sh updates <pi-dir>   result of the last check and update as key=value
+#   pi-backup.sh upgrade-run <pi-dir>  install the waiting updates (full-upgrade)
+#   pi-backup.sh updates-due <root> check every Pi whose last check is older than 12 hours
 #   pi-backup.sh api                forced ssh command of the phone service, see cmd_api
 #
 # How a backup works: rsync keeps a file level mirror of the Pi in an ext4
@@ -36,6 +40,9 @@ load_conf() {
   NAME="" HOST="" PORT=22 USER_NAME=pi KEY=/root/.ssh/pi-wartung JUMP="" JUMP_PORT=22
   KEEP=3 FORMAT=xz EXPAND=1 EXCLUDES="" BWLIMIT=0 COMPRESS=0 PRE_CMD="" POST_CMD=""
   SCHEDULE=off HOUR=3 MARGIN_MB=512 NOTIFY=errors
+  # all: part of "update all", single: only on its own, careful: only on its own after the name was typed.
+  # Missing means careful, so a Pi whose setting was never saved is never updated by accident.
+  UPDATES=careful
   # shellcheck disable=SC1091
   . "$PIDIR/pi.conf"
   STATE="$PIDIR/.state"
@@ -566,6 +573,7 @@ cmd_backup() {
   load_conf "$1"
   exec 9>"$LOCK"
   flock -n 9 || { echo "Für diesen Pi läuft schon eine Sicherung" >&2; exit 3; }
+  upgrading && { log "Gerade läuft ein Update, Sicherung übersprungen"; exit 3; }
   echo $$ > "$STATE/pid"
   make_ssh_wrapper
   trap cleanup EXIT
@@ -616,6 +624,7 @@ cmd_start() {
   local logfile
   logfile="$PIDIR/logs/$(date +%Y-%m-%d_%H%M%S).log"
   ( flock -n 9 ) 9>"$LOCK" || { echo "Für diesen Pi läuft schon eine Sicherung" >&2; exit 3; }
+  upgrading && { echo "Gerade läuft ein Update, bitte danach sichern" >&2; exit 3; }
   setsid nohup bash "$SCRIPT" backup "$PIDIR" >"$logfile" 2>&1 </dev/null &
   echo "$logfile"
 }
@@ -710,6 +719,190 @@ cmd_install_key() {
   on_pi 'sudo -n true' 2>/dev/null && echo "sudo=ok" || echo "sudo=fehlt"
 }
 
+# ---------------------------------------------------------------- updates
+# A check and an update each hold update.lock; an update also leaves the file upgrading. Backups and
+# updates exclude each other. apt itself runs detached on the Pi, so that a lost connection never stops
+# it halfway, and the engine only watches for its exit code.
+UPD_REMOTE=/var/tmp/pi-wartung-update
+
+upgrading() { [ -f "$STATE/upgrading" ] && ! ( flock -n 7 ) 7>"$STATE/update.lock"; }
+
+cmd_check_updates() {
+  load_conf "$1"
+  exec 7>"$STATE/update.lock"
+  flock -n 7 || { echo "Für diesen Pi läuft schon eine Prüfung oder ein Update" >&2; exit 3; }
+  make_ssh_wrapper
+  trap 'rm -f "$SSHW"' EXIT
+  check_updates_locked
+}
+
+# Needs the update lock and the ssh wrapper. apt-get update only refreshes the package lists; on a careful
+# Pi not even that happens, the check then only reads the lists the Pi already has.
+check_updates_locked() {
+  local out err="" count=0 installed=0 last=0 reboot=0 line refresh=1
+  [ "$UPDATES" = careful ] && refresh=0
+  out=$({ echo "REFRESH=$refresh"; cat <<'EOF'; } | timeout 1800 "$SSHW" "$TARGET" 'bash -s' 2>/dev/null
+export LC_ALL=C
+if [ "$REFRESH" = 1 ]; then
+  t=$(mktemp)
+  sudo -n apt-get -qq update >"$t" 2>&1 </dev/null || echo "@@ERR $(grep '^E:' "$t" | tail -1 | cut -c1-200)"
+  rm -f "$t"
+fi
+echo "@@INSTALLED $(dpkg-query -f '.' -W </dev/null | wc -c)"
+echo "@@LAST $(stat -c %Y /var/log/apt/history.log 2>/dev/null || echo 0)"
+[ -f /var/run/reboot-required ] && echo "@@REBOOT"
+apt-get -s -o Debug::NoLocking=1 full-upgrade 2>/dev/null </dev/null | awk '/^Inst /{
+  if ($3 ~ /^\[/) { old = $3; new = $4 } else { old = "neu"; new = $3 }
+  gsub(/[][()]/, "", old); gsub(/[()]/, "", new); print "@@PKG", $2, old, new }'
+echo "@@END"
+EOF
+)
+  if ! grep -q '^@@END' <<< "$out"; then
+    # Keep the last known result, only note the failure.
+    {
+      grep -sv '^UPD_ERROR=' "$STATE/updates"
+      printf 'UPD_ERROR=%q\n' "Pi bei der Update-Prüfung nicht erreichbar"
+    } > "$STATE/updates.new"
+    mv "$STATE/updates.new" "$STATE/updates"
+    return 1
+  fi
+  while IFS= read -r line; do
+    case "$line" in
+      "@@ERR "*) err="Paketlisten nicht aktualisiert: ${line#@@ERR }" ;;
+      "@@INSTALLED "*) installed=${line#@@INSTALLED } ;;
+      "@@LAST "*) last=${line#@@LAST } ;;
+      "@@REBOOT") reboot=1 ;;
+    esac
+  done <<< "$out"
+  sed -n 's/^@@PKG //p' <<< "$out" > "$STATE/updates.list"
+  count=$(wc -l < "$STATE/updates.list")
+  {
+    echo "UPD_TIME=$(date +%s)"
+    echo "UPD_COUNT=$count"
+    echo "UPD_INSTALLED=$installed"
+    echo "UPD_LAST_APT=$last"
+    echo "UPD_REBOOT=$reboot"
+    printf 'UPD_ERROR=%q\n' "$err"
+  } > "$STATE/updates.new"
+  mv "$STATE/updates.new" "$STATE/updates"
+}
+
+cmd_upgrade_start() {
+  load_conf "$1"
+  local confirmed=$2 logfile
+  if [ "$UPDATES" = careful ] && [ "$confirmed" != 1 ]; then
+    echo "Dieser Pi wird nur nach ausdrücklicher Bestätigung aktualisiert" >&2; exit 2
+  fi
+  ( flock -n 9 ) 9>"$LOCK" || { echo "Gerade läuft eine Sicherung, bitte danach aktualisieren" >&2; exit 3; }
+  ( flock -n 7 ) 7>"$STATE/update.lock" || { echo "Für diesen Pi läuft schon eine Prüfung oder ein Update" >&2; exit 3; }
+  mkdir -p "$PIDIR/logs/updates"
+  logfile="$PIDIR/logs/updates/$(date +%Y-%m-%d_%H%M%S).log"
+  setsid nohup bash "$SCRIPT" upgrade-run "$PIDIR" >"$logfile" 2>&1 </dev/null &
+  echo "$logfile"
+}
+
+cmd_upgrade_run() {
+  load_conf "$1"
+  exec 7>"$STATE/update.lock"
+  flock -n 7 || { log "Für diesen Pi läuft schon eine Prüfung oder ein Update"; exit 3; }
+  ( flock -n 9 ) 9>"$LOCK" || { log "Gerade läuft eine Sicherung"; exit 3; }
+  touch "$STATE/upgrading"
+  make_ssh_wrapper
+  trap 'rm -f "$SSHW" "$STATE/upgrading" "$STATE/update.tail"' EXIT
+  local status=failed error="" rc="" out start
+  start=$(date +%s)
+  log "Update von $NAME ($TARGET) startet"
+  if ! "$SSHW" "$TARGET" 'sudo -n bash -s' <<'EOF'
+set -e
+R=/var/tmp/pi-wartung-update
+if [ -f $R.pid ] && [ ! -f $R.rc ] && kill -0 "$(cat $R.pid)" 2>/dev/null; then exit 0; fi
+cat > $R.sh <<'X'
+#!/bin/sh
+export DEBIAN_FRONTEND=noninteractive LC_ALL=C
+echo $$ > /var/tmp/pi-wartung-update.pid
+{ apt-get -q update && apt-get -y -q -o DPkg::Lock::Timeout=900 -o Dpkg::Options::=--force-confdef \
+    -o Dpkg::Options::=--force-confold full-upgrade; } > /var/tmp/pi-wartung-update.log 2>&1
+echo $? > /var/tmp/pi-wartung-update.rc
+X
+rm -f $R.rc
+if command -v systemd-run >/dev/null 2>&1; then
+  systemd-run --quiet --collect --unit="pi-wartung-update-$(date +%s)" sh $R.sh </dev/null
+else
+  setsid nohup sh $R.sh >/dev/null 2>&1 </dev/null &
+fi
+EOF
+  then
+    error="Das Update ließ sich auf dem Pi nicht starten. Ist sudo ohne Passwort möglich?"
+  fi
+  while [ -z "$error" ]; do
+    sleep 15
+    if out=$("$SSHW" "$TARGET" "cat $UPD_REMOTE.rc 2>/dev/null; echo @@; tail -n 12 $UPD_REMOTE.log 2>/dev/null"); then
+      printf '%s\n' "${out#*@@}" | sed '1{/^$/d}' > "$STATE/update.tail"
+      rc=$(printf '%s' "${out%%@@*}" | tr -dc 0-9)
+      [ -n "$rc" ] && break
+    fi
+    [ $(($(date +%s) - start)) -lt 14400 ] || error="Keine Rückmeldung vom Pi nach 4 Stunden"
+  done
+  if [ -z "$error" ]; then
+    log "--- Ausgabe von apt"
+    out=$("$SSHW" "$TARGET" "cat $UPD_REMOTE.log" 2>/dev/null)
+    printf '%s\n' "$out"
+    if [ "$rc" = 0 ]; then
+      status=ok
+    else
+      error=$(grep -a '^E:' <<< "$out" | tail -1 | cut -c1-300)
+      [ -n "$error" ] || error="apt endete mit Code $rc"
+    fi
+  fi
+  [ -n "$error" ] && log "FEHLER: $error"
+  {
+    echo "UPD_LAST_STATUS=$status"
+    echo "UPD_LAST_TIME=$(date +%s)"
+    printf 'UPD_LAST_ERROR=%q\n' "$error"
+  } > "$STATE/update-last"
+  rm -f "$STATE/upgrading" "$STATE/update.tail"
+  if [ "$status" = ok ]; then
+    event_send update_ok "Update von $NAME fertig" "Die Pakete sind auf dem neuesten Stand."
+  else
+    event_send update_failed "Update von $NAME fehlgeschlagen" "$error" high
+    [ "$NOTIFY" = off ] || notify_all "Update von $NAME fehlgeschlagen" "$error" alert high warning
+  fi
+  check_updates_locked || log "WARNUNG: Neue Prüfung nach dem Update fehlgeschlagen"
+  ls -1t "$PIDIR"/logs/updates/*.log 2>/dev/null | tail -n +11 | xargs -r -d '\n' rm -f
+  log "Ende: $status"
+}
+
+cmd_updates() {
+  load_conf "$1"
+  local state=""
+  if ! ( flock -n 7 ) 7>"$STATE/update.lock"; then
+    state=checking
+    [ -f "$STATE/upgrading" ] && state=upgrading
+  fi
+  echo "UPD_STATE=$state"
+  echo "UPDATES=$UPDATES"
+  [ -f "$STATE/updates" ] && cat "$STATE/updates"
+  [ -f "$STATE/update-last" ] && cat "$STATE/update-last"
+  [ -f "$STATE/updates.list" ] && sed 's/^/@@PKG /' "$STATE/updates.list"
+  [ "$state" = upgrading ] && [ -f "$STATE/update.tail" ] && sed 's/^/@@TAIL /' "$STATE/update.tail"
+  return 0
+}
+
+cmd_updates_due() {
+  local root=${1%/} conf now
+  now=$(date +%s)
+  while IFS= read -r conf; do
+    (
+      load_conf "$(dirname "$conf")"
+      UPD_TIME=0
+      [ -f "$STATE/updates" ] && . "$STATE/updates"
+      [ $((now - ${UPD_TIME:-0})) -ge $((12 * 3600)) ] || exit 0
+      ( flock -n 9 ) 9>"$LOCK" || exit 0
+      bash "$SCRIPT" check-updates "$PIDIR" >/dev/null 2>&1
+    )
+  done < <(find "$root" -mindepth 2 -name pi.conf -not -path '*/.state/*' -not -path '*/.engine/*')
+}
+
 cmd_summary() {
   local root=${1%/} conf
   printf 'DISK\t%s\t%s\n' "$(df -B1 --output=avail "$root" | tail -1 | tr -d ' ')" "$(df -B1 --output=size "$root" | tail -1 | tr -d ' ')"
@@ -730,8 +923,16 @@ cmd_summary() {
       done < <(ls -1 "$PIDIR/${NAME}_"*.img "$PIDIR/${NAME}_"*.img.xz "$PIDIR/${NAME}_"*.img.gz 2>/dev/null)
       mirror=0
       [ -f "$STATE/mirror.ext4" ] && mirror=$(du -B1 "$STATE/mirror.ext4" | cut -f1)
-      printf 'PI\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$PIDIR" "$running" "$LAST_STATUS" "$LAST_TIME" \
-        "${LAST_OK_TIME:-0}" "$count" "$bytes" "$mirror" "$SCHEDULE" "$newest" "$LAST_WARNINGS"
+      UPD_COUNT=-1 UPD_TIME=0 UPD_LAST_STATUS="" upd_state=""
+      [ -f "$STATE/updates" ] && . "$STATE/updates"
+      [ -f "$STATE/update-last" ] && . "$STATE/update-last"
+      if ! ( flock -n 7 ) 7>"$STATE/update.lock"; then
+        upd_state=checking
+        [ -f "$STATE/upgrading" ] && upd_state=upgrading
+      fi
+      printf 'PI\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$PIDIR" "$running" "$LAST_STATUS" \
+        "$LAST_TIME" "${LAST_OK_TIME:-0}" "$count" "$bytes" "$mirror" "$SCHEDULE" "$newest" "$LAST_WARNINGS" \
+        "$UPD_COUNT" "$UPD_TIME" "$upd_state" "$UPD_LAST_STATUS"
       for log in "$PIDIR"/logs/*.log; do
         [ -f "$log" ] || continue
         result=$(grep -a ' Ende: ' "$log" | tail -1 | sed 's/.* Ende: //')
@@ -751,7 +952,7 @@ cmd_api() {
   case "$verb" in
     inventory) cat "$root/inventory.json" 2>/dev/null; return 0 ;;
     summary) cmd_summary "$root"; return ;;
-    state|status|images|start|cancel|progress) ;;
+    state|status|images|start|cancel|progress|updates|check-updates|upgrade|upgrade-confirmed) ;;
     *) echo "Nicht erlaubt" >&2; exit 2 ;;
   esac
   dir=$(printf '%s' "$arg" | base64 -d 2>/dev/null)
@@ -763,6 +964,11 @@ cmd_api() {
     */../*|*/..) echo "Nicht erlaubt" >&2; exit 2 ;;
   esac
   [ -f "$dir/pi.conf" ] || { echo "Unbekannter Pi" >&2; exit 2; }
+  case "$verb" in
+    check-updates) setsid nohup bash "$SCRIPT" check-updates "$dir" >/dev/null 2>&1 </dev/null & echo "Prüfung gestartet"; return 0 ;;
+    upgrade) cmd_upgrade_start "$dir" 0; return ;;
+    upgrade-confirmed) cmd_upgrade_start "$dir" 1; return ;;
+  esac
   if [ "$verb" = progress ]; then
     log=$(ls -1t "$dir"/logs/*.log 2>/dev/null | head -1)
     [ -n "$log" ] || return 0
@@ -787,6 +993,7 @@ cmd_due() {
         *) exit 0 ;;
       esac
       [ "$hour" -ge "$HOUR" ] || exit 0
+      upgrading && exit 0
       LAST_OK_TIME=0
       [ -f "$STATE/last" ] && . "$STATE/last"
       age=$((now - ${LAST_OK_TIME:-0}))
@@ -801,9 +1008,13 @@ case "${1:-}" in
   backup|start|state|cancel|status|images|keygen) c=$1; shift; "cmd_$c" "$@" ;;
   install-key) shift; cmd_install_key "$@" ;;
   summary) shift; cmd_summary "$@" ;;
+  check-updates) shift; cmd_check_updates "$@" ;;
+  updates) shift; cmd_updates "$@" ;;
+  upgrade-run) shift; cmd_upgrade_run "$@" ;;
+  updates-due) shift; exec 8>/tmp/pi-wartung-updates-due.lock; flock -n 8 || exit 0; cmd_updates_due "$@" ;;
   api) cmd_api ;;
   ntfy-test) ntfy_send "Pi-Wartung" "Testnachricht: Benachrichtigungen kommen hier an." default white_check_mark ;;
   due) shift; exec 8>/tmp/pi-wartung-due.lock; flock -n 8 || exit 0; cmd_due "$@" ;;
   version) echo "$ENGINE_VERSION" ;;
-  *) sed -n '2,16p' "$SCRIPT"; exit 2 ;;
+  *) sed -n '2,20p' "$SCRIPT"; exit 2 ;;
 esac

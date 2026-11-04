@@ -67,6 +67,12 @@ data class PiRow(
     val online: Boolean?,
     val card: String,
     val temp: String,
+    /** Wartende Updates, -1 solange nie geprüft. */
+    val updates: Int = -1,
+    /** "upgrading", "checking" oder leer. */
+    val updateState: String = "",
+    /** "all", "single" oder "careful" (gesperrt, nur nach Eintippen des Namens). */
+    val updateMode: String = "single",
 ) {
     companion object {
         fun from(o: JSONObject) = PiRow(
@@ -82,9 +88,14 @@ data class PiRow(
             online = if (o.isNull("online")) null else o.optBoolean("online"),
             card = o.optString("card"),
             temp = o.optString("temp"),
+            updates = o.optInt("updates", -1),
+            updateState = o.optString("update_state"),
+            updateMode = o.optString("update_mode", "single"),
         )
     }
 }
+
+data class PiUpdateTarget(val id: String, val name: String, val updates: Int)
 
 data class PiAttention(val serious: Boolean, val pi: String, val text: String)
 data class PiError(val stamp: String, val pi: String, val message: String)
@@ -99,12 +110,32 @@ data class PiOverview(
     val running: Int,
     val attention: List<PiAttention>,
     val errors: List<PiError>,
+    val updatePis: Int = 0,
+    /** Was „Alle aktualisieren“ gerade nehmen würde; der Server prüft es beim Start noch einmal. */
+    val updateAll: List<PiUpdateTarget> = emptyList(),
 ) {
     val problems: Int get() = attention.count { it.serious }
 }
 
 data class PiImage(val file: String, val size: Long, val time: Long, val os: String)
 data class PiProgress(val step: String, val percent: Int, val detail: String)
+
+data class PiPackage(val name: String, val old: String, val new: String)
+
+data class PiSoftware(
+    val state: String,
+    val checked: Long,
+    val count: Int,
+    val installed: Int,
+    val lastApt: Long,
+    val reboot: Boolean,
+    val error: String,
+    val lastStatus: String,
+    val lastTime: Long,
+    val lastError: String,
+    val packages: List<PiPackage>,
+    val log: List<String>,
+)
 
 data class PiDetail(
     val row: PiRow,
@@ -115,6 +146,7 @@ data class PiDetail(
     val device: Map<String, String>,
     val imagesList: List<PiImage>,
     val progress: PiProgress?,
+    val software: PiSoftware?,
 )
 
 /** Spricht mit dem Pi-Wartung-Dienst auf dem Unraid (Basic Auth, Benutzername beliebig). */
@@ -145,6 +177,10 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
             errors = o.getJSONArray("errors").objects().map {
                 PiError(it.optString("stamp"), it.optString("pi"), it.optString("message"))
             },
+            updatePis = o.optInt("update_pis"),
+            updateAll = o.optJSONArray("update_all")?.objects()?.map {
+                PiUpdateTarget(it.getString("id"), it.optString("name"), it.optInt("updates"))
+            }.orEmpty(),
         )
     }
 
@@ -164,7 +200,38 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
             progress = o.optJSONObject("progress")?.let {
                 PiProgress(it.optString("step"), it.optInt("percent"), it.optString("detail"))
             },
+            software = o.optJSONObject("software")?.let { s ->
+                PiSoftware(
+                    state = s.optString("state"), checked = s.optLong("checked"), count = s.optInt("count", -1),
+                    installed = s.optInt("installed"), lastApt = s.optLong("last_apt"), reboot = s.optBoolean("reboot"),
+                    error = s.optString("error"), lastStatus = s.optString("last_status"), lastTime = s.optLong("last_time"),
+                    lastError = s.optString("last_error"),
+                    packages = s.optJSONArray("packages")?.objects()?.map {
+                        PiPackage(it.optString("name"), it.optString("old"), it.optString("new"))
+                    }.orEmpty(),
+                    log = s.optJSONArray("log")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty(),
+                )
+            },
         )
+    }
+
+    /** Ein gesperrter Pi braucht seinen Namen als [confirm]. */
+    suspend fun upgrade(id: String, confirm: String = "") {
+        request("POST", "api/pis/$id/upgrade", JSONObject().put("confirm", confirm).toString())
+    }
+
+    /** Startet die Updates der genannten Pis; liefert die Namen der gestarteten und Fehlermeldungen. */
+    suspend fun upgradeAll(ids: List<String>): Pair<List<String>, List<String>> {
+        val o = JSONObject(request("POST", "api/updates/all", JSONObject().put("ids", JSONArray(ids)).toString()))
+        val started = o.getJSONArray("started").let { a -> (0 until a.length()).map { a.getString(it) } }
+        val failed = o.getJSONArray("failed").objects().map { "${it.optString("name")}: ${it.optString("message")}" }
+        return started to failed
+    }
+
+    suspend fun checkUpdates(id: String) { request("POST", "api/pis/$id/check-updates") }
+
+    suspend fun setUpdateMode(id: String, mode: String) {
+        request("PUT", "api/pis/$id", JSONObject().put("updates", mode).toString())
     }
 
     suspend fun backup(id: String) { request("POST", "api/pis/$id/backup") }
