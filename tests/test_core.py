@@ -4,6 +4,7 @@ import http.client
 import io
 import json
 import os
+import re
 import struct
 import sys
 import tarfile
@@ -1019,6 +1020,43 @@ class Accounts(AccountBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Translations(unittest.TestCase):
+    def test_word_lists_are_merged_and_reread(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "en").mkdir()
+            Path(tmp, "en", "a.json").write_text('{"Anmelden": "Sign in"}')
+            Path(tmp, "en", "b.json").write_text('{"Abmelden": "Sign out"}')
+            with mock.patch.object(gateway, "I18N_DIR", tmp):
+                gateway._dictionaries.clear()
+                self.assertEqual(json.loads(gateway.dictionary("en")), {"Anmelden": "Sign in", "Abmelden": "Sign out"})
+                self.assertEqual(gateway.dictionary("fr"), b"{}")
+                Path(tmp, "en", "b.json").write_text('{"Abmelden": "Log out"}')
+                os.utime(Path(tmp, "en", "b.json"), (1, 1))
+                self.assertEqual(json.loads(gateway.dictionary("en"))["Abmelden"], "Log out")
+
+    def test_repo_word_lists_are_valid_and_keep_placeholders(self):
+        for path in sorted((ROOT / "i18n").glob("*/*.json")):
+            words = json.loads(path.read_text(encoding="utf-8"))
+            for german, english in words.items():
+                self.assertIsInstance(english, str, f"{path.name}: {german}")
+                self.assertEqual(sorted(re.findall(r"\{\d\}", german)), sorted(re.findall(r"\{\d\}", english)),
+                                 f"{path.name}: {german}")
+                # A template of placeholders and one short word ("{0} für {1}") would match unrelated texts
+                if re.fullmatch(r"\{\d\}.*\{\d\}", german):
+                    self.assertGreaterEqual(len(re.sub(r"\{\d\}|[\W\d_]", "", german)), 5, f"{path.name}: {german}")
+
+
+    def test_module_labels_have_english(self):
+        words = {}
+        for path in (ROOT / "i18n" / "en").glob("*.json"):
+            words.update(json.loads(path.read_text(encoding="utf-8")))
+        for path in sorted((ROOT / "modules").glob("*/module.json")):
+            info = json.loads(path.read_text(encoding="utf-8"))
+            for text in [info.get("description", "")] + [e.get("label", "") for e in info.get("events", [])]:
+                if text:
+                    self.assertIn(text, words, f"{path.parent.name}: {text}")
 
 
 class HomeNetworks(unittest.TestCase):

@@ -60,6 +60,7 @@ pre { background:var(--bg); border-radius:8px; padding:8px; font-size:12px; over
 <dialog id="dlg"><form id="form" method="dialog"></form></dialog>
 
 <script>
+const tr = text => (window.hnT ? window.hnT(text) : text);
 const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
 const app = document.getElementById("app"), dlg = document.getElementById("dlg"), form = document.getElementById("form");
 const STATES = { ok: ["Gesichert", "ok"], failed: ["Fehler", "bad"], cancelled: ["Abgebrochen", "warn"] };
@@ -92,16 +93,17 @@ async function overview() {
       tile("Probleme", serious, `${d.attention.length - serious} Hinweise`, serious ? "bad" : "ok"),
       tile("Updates", d.update_pis === 1 ? "1 Pi" : `${d.update_pis} Pis`, d.update_pis ? "haben Updates" : "alles aktuell", d.update_pis ? "warn" : "ok"))];
     if (d.update_all.length) parts.push($("div", { className: "actions" }, $("button", { className: "main", textContent: `Alle aktualisieren (${d.update_all.length})`, onclick: () => updateAll(d.update_all) })));
-    if (d.attention.length) parts.push($("h2", { textContent: "Braucht Aufmerksamkeit" }), $("div", { className: "card" }, ...d.attention.map(a => $("div", { className: a.serious ? "bad" : "", textContent: `${a.serious ? "Problem" : "Hinweis"} · ${a.pi}: ${a.text}` }))));
+    if (d.attention.length) parts.push($("h2", { textContent: "Braucht Aufmerksamkeit" }), $("div", { className: "card" }, ...d.attention.map(a => $("div", { className: a.serious ? "bad" : "", textContent: `${tr(a.serious ? "Problem" : "Hinweis")} · ${a.pi}: ${tr(a.text)}` }))));
     const groups = {};
     for (const p of d.pis) (groups[p.category || "Ohne Kategorie"] ||= []).push(p);
     for (const [cat, rows] of Object.entries(groups)) {
       parts.push($("h2", { textContent: cat }));
       for (const p of rows) {
         const [text, cls] = state(p);
-        const reach = (p.online === null ? "wird geprüft" : p.online ? `online${p.card ? ", Karte " + p.card : ""}` : "offline") + updateText(p);
+        const reach = [tr(p.online === null ? "wird geprüft" : p.online ? (p.card ? `online, Karte ${p.card}` : "online") : "offline"),
+          tr(`Backup ${when(p.ok_time)}`), tr(updateText(p))].filter(Boolean).join(" · ");
         parts.push($("div", { className: "card row", onclick: () => showPi(p.id) },
-          $("div", { className: "grow" }, $("div", { className: "name", textContent: p.name }), $("div", { className: "quiet", textContent: `${reach} · Backup ${when(p.ok_time)}` })),
+          $("div", { className: "grow" }, $("div", { className: "name", textContent: p.name }), $("div", { className: "quiet", textContent: reach })),
           $("div", { style: "text-align:right" }, $("div", { className: cls, textContent: text }), $("div", { className: "quiet", textContent: `${p.images} Images · ${size(p.bytes)}` }))));
       }
     }
@@ -114,11 +116,11 @@ async function overview() {
 
 const UPDATE_MODES = [["all", "Bei „Alle aktualisieren“ dabei"], ["single", "Nur einzeln aktualisieren"], ["careful", "Gesperrt, nur einzeln nach Eintippen des Namens"]];
 function updateText(p) {
-  if (p.update_state === "upgrading") return " · Update läuft";
-  return p.updates > 0 ? ` · ${p.updates} Updates` : "";
+  if (p.update_state === "upgrading") return "Update läuft";
+  return p.updates > 0 ? `${p.updates} Updates` : "";
 }
 async function updateAll(list) {
-  if (!confirm(`Diese Pis jetzt aktualisieren?\n\n${list.map(p => `${p.name}: ${p.updates} Updates`).join("\n")}\n\nDie Pis bleiben dabei erreichbar, ein Neustart erfolgt nicht.`)) return;
+  if (!confirm(`${tr("Diese Pis jetzt aktualisieren?")}\n\n${list.map(p => tr(`${p.name}: ${p.updates} Updates`)).join("\n")}\n\n${tr("Die Pis bleiben dabei erreichbar, ein Neustart erfolgt nicht.")}`)) return;
   try {
     const r = await api("api/updates/all", "POST", { ids: list.map(p => p.id) });
     if (r.failed.length) alert(r.failed.map(f => `${f.name}: ${f.message}`).join("\n"));

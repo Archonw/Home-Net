@@ -26,7 +26,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -431,12 +430,11 @@ fun DetailScreen(api: Api, mac: String, style: AppStyle, onBack: () -> Unit) {
             title = { Text("Wirklich sperren?") },
             text = {
                 Text(
-                    "Dieser Eintrag ist wahrscheinlich eine Repeater-Kopie von " +
-                        blocking.related.joinToString(", ") + ". " +
-                        if (blocking.ip.isBlank()) {
-                            "Ohne IP bewirkt die Sperre nichts."
+                    t("Dieser Eintrag ist wahrscheinlich eine Repeater-Kopie von {0}.", blocking.related.joinToString(", ")) +
+                        " " + if (blocking.ip.isBlank()) {
+                            t("Ohne IP bewirkt die Sperre nichts.")
                         } else {
-                            "Die Sperre gilt für die IP ${blocking.ip}, das kann auch das echte Gerät treffen."
+                            t("Die Sperre gilt für die IP {0}, das kann auch das echte Gerät treffen.", blocking.ip)
                         },
                 )
             },

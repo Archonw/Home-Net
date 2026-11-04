@@ -9,6 +9,7 @@ on:
     paths:
       - "modules/**"
       - "core/**"
+      - "i18n/**"
       - "tests/**"
       - "tools/**"
       - ".github/workflows/modules.yml"
@@ -16,6 +17,7 @@ on:
     paths:
       - "modules/**"
       - "core/**"
+      - "i18n/**"
       - "tests/**"
       - "tools/**"
       - ".github/workflows/modules.yml"

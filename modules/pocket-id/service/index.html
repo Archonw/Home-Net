@@ -74,8 +74,8 @@ async function show() {
   if (tab === "settings") return showSettings();
   try { data = await api("api/overview"); } catch (e) { app.replaceChildren($("p", { className: "err", textContent: e.message })); return; }
   if (!data.configured) {
-    app.replaceChildren($("div", { className: "card note" }, "Es fehlt noch der API-Schlüssel von Pocket ID. In Pocket ID unter Einstellungen → Admin → API-Schlüssel einen anlegen und hier unter ",
-      $("a", { href: "#", textContent: "Einstellungen", onclick: e => { e.preventDefault(); tab = "settings"; show(); } }), " eintragen."));
+    app.replaceChildren($("div", { className: "card note" }, "Es fehlt noch der API-Schlüssel von Pocket ID. In Pocket ID unter Einstellungen → Admin → API-Schlüssel einen anlegen. ",
+      $("a", { href: "#", textContent: "Jetzt unter Einstellungen eintragen.", onclick: e => { e.preventDefault(); tab = "settings"; show(); } })));
     return;
   }
   if (data.error) { app.replaceChildren($("p", { className: "err", textContent: data.error })); return; }
@@ -103,7 +103,7 @@ function showApps() {
     return $("div", { className: "card" }, $("div", { className: "name", textContent: a.label }),
       $("div", { className: "quiet", textContent: `Gruppe ${a.group_name} · ${users.length ? users.join(", ") : "niemand"}` }));
   });
-  const open = data.apps.open.length ? $("div", { className: "card note" }, "Ohne Einschränkung, für alle Benutzer: " + data.apps.open.join(", ")) : null;
+  const open = data.apps.open.length ? $("div", { className: "card note" }, `Ohne Einschränkung, für alle Benutzer: ${data.apps.open.join(", ")}`) : null;
   app.replaceChildren($("p", { className: "hint", textContent: "Welche Gruppe eine App freischaltet, stellst du in Pocket ID bei der App ein. Hier steht, wer sie nutzen darf." }), ...rows, open);
 }
 
@@ -167,7 +167,7 @@ function editUser(u) {
 function showInvite(name, invite) {
   const until = new Date(invite.expires * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
   const buttons = [$("button", { textContent: "Kopieren", onclick: e => { e.preventDefault(); navigator.clipboard.writeText(invite.link); e.target.textContent = "Kopiert"; } })];
-  if (navigator.share) buttons.push($("button", { textContent: "Teilen", onclick: e => { e.preventDefault(); navigator.share({ title: "Einladung", text: `Hallo ${name}, hier richtest du deinen Zugang ein:`, url: invite.link }).catch(() => {}); } }));
+  if (navigator.share) buttons.push($("button", { textContent: "Teilen", onclick: e => { e.preventDefault(); navigator.share({ title: (window.hnT || (s => s))("Einladung"), text: (window.hnT || (s => s))(`Hallo ${name}, hier richtest du deinen Zugang ein:`), url: invite.link }).catch(() => {}); } }));
   openDialog(`Einladung für ${name}`, [
     $("p", { textContent: `Mit diesem Link legt ${name} einmalig einen Passkey an. Er gilt bis ${until} und nur einmal.` }),
     $("div", { className: "link", textContent: invite.link }), $("div", { className: "actions" }, ...buttons),

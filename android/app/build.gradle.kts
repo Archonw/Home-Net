@@ -49,7 +49,17 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // Die Wörterbücher liegen für App und Server gemeinsam unter i18n/ im Repo und kommen als assets/i18n in die App
+    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/i18nAssets"))
 }
+
+val copyI18n by tasks.registering(Copy::class) {
+    from(rootProject.file("../i18n"))
+    include("**/*.json")
+    into(layout.buildDirectory.dir("generated/i18nAssets/i18n"))
+}
+tasks.named("preBuild") { dependsOn(copyI18n) }
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")

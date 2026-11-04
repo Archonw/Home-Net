@@ -13,7 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,13 +42,14 @@ private val NPM_GROUPS = listOf(
 fun proxyTileText(o: NpmOverview): String = when {
     !o.configured -> "Anmeldung fehlt"
     o.error.isNotBlank() -> o.error
-    else -> buildString {
-        append("${o.count("public") + o.count("password") + o.count("restricted")} öffentlich, ${o.count("internal")} intern")
+    else -> listOfNotNull(
+        t("{0} öffentlich, {1} intern", o.count("public") + o.count("password") + o.count("restricted"), o.count("internal")),
         when {
-            o.certsExpired > 0 -> append(", ${o.certsExpired} Zertifikat abgelaufen")
-            o.certsSoon > 0 -> append(", ${o.certsSoon} Zertifikat läuft bald ab")
-        }
-    }
+            o.certsExpired > 0 -> t("{0} Zertifikat abgelaufen", o.certsExpired)
+            o.certsSoon > 0 -> t("{0} Zertifikat läuft bald ab", o.certsSoon)
+            else -> null
+        },
+    ).joinToString(", ")
 }
 
 private fun formatDay(seconds: Long): String =
@@ -106,8 +106,8 @@ fun ProxyScreen(api: ProxyApi, onOpen: (String) -> Unit, onCerts: () -> Unit, on
                     if (data.certsExpired > 0 || data.certsSoon > 0) {
                         HubCard(onClick = onCerts) {
                             val parts = listOfNotNull(
-                                if (data.certsExpired > 0) "${data.certsExpired} Zertifikat${if (data.certsExpired > 1) "e" else ""} abgelaufen" else null,
-                                if (data.certsSoon > 0) "${data.certsSoon} ${if (data.certsSoon > 1) "laufen" else "läuft"} bald ab" else null,
+                                if (data.certsExpired > 0) t(if (data.certsExpired > 1) "{0} Zertifikate abgelaufen" else "{0} Zertifikat abgelaufen", data.certsExpired) else null,
+                                if (data.certsSoon > 0) t(if (data.certsSoon > 1) "{0} laufen bald ab" else "{0} läuft bald ab", data.certsSoon) else null,
                             )
                             Text(parts.joinToString(", "), color = if (data.certsExpired > 0) p.blocked else p.unknown, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         }
@@ -125,7 +125,7 @@ fun ProxyScreen(api: ProxyApi, onOpen: (String) -> Unit, onCerts: () -> Unit, on
                         HubCard {
                             data.streams.forEach { s ->
                                 val proto = listOfNotNull(if (s.tcp) "TCP" else null, if (s.udp) "UDP" else null).joinToString("/")
-                                InfoRow("Port ${s.port} $proto", s.target + if (s.enabled) "" else " (aus)")
+                                InfoRow("Port ${s.port} $proto", if (s.enabled) s.target else t("{0} (aus)", s.target))
                             }
                         }
                     }
@@ -145,7 +145,7 @@ private fun HostCard(h: NpmHost, onClick: () -> Unit) {
     val p = LocalPalette.current
     HubCard(onClick = onClick) {
         Text(h.domains.joinToString(", "), color = if (h.enabled) p.text else p.muted, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-        val kind = when (h.kind) { "redirect" -> "Weiterleitung · "; "404" -> "404-Seite · "; else -> "" }
+        val kind = when (h.kind) { "redirect" -> t("Weiterleitung") + " · "; "404" -> t("404-Seite") + " · "; else -> "" }
         Text(kind + h.target, color = p.muted, fontSize = 13.sp)
         if (h.enabled) {
             val ssl = h.ssl
@@ -269,7 +269,7 @@ private fun CertCard(c: NpmCert, onRenew: (() -> Unit)?) {
             Text(daysText(c.state, c.days), color = if (c.unused) p.muted else certColor(c.state), fontSize = 13.sp)
         }
         Text(
-            "bis ${formatDay(c.expires)} · " + if (c.provider == "letsencrypt") "Let's Encrypt, erneuert sich selbst" else "eigenes Zertifikat",
+            t("gültig bis {0}", formatDay(c.expires)) + " · " + t(if (c.provider == "letsencrypt") "Let's Encrypt, erneuert sich selbst" else "eigenes Zertifikat"),
             color = p.muted, fontSize = 13.sp,
         )
         if (c.hosts.isNotEmpty()) Text("Für ${c.hosts.joinToString(", ")}", color = p.muted, fontSize = 13.sp)

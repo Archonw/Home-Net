@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,8 +47,9 @@ fun wireGuardTileText(o: WgOverview): String = when {
     o.error.isNotBlank() -> o.error
     else -> {
         val online = o.clients.count { it.online }
-        "${o.clients.size} " + (if (o.clients.size == 1) "Zugang" else "Zugänge") +
-            if (online > 0) ", $online verbunden" else ""
+        val n = o.clients.size
+        if (online > 0) t(if (n == 1) "{0} Zugang, {1} verbunden" else "{0} Zugänge, {1} verbunden", n, online)
+        else t(if (n == 1) "{0} Zugang" else "{0} Zugänge", n)
     }
 }
 
@@ -116,7 +116,7 @@ fun WireGuardScreen(api: WireGuardApi, onOpen: (Int) -> Unit, onBack: () -> Unit
                     }
                     if (data.version.isNotBlank()) {
                         Text(
-                            "WireGuard-Easy ${data.version}" + if (data.update) " · Update auf ${data.latest} verfügbar" else "",
+                            if (data.update) t("WireGuard-Easy {0} · Update auf {1} verfügbar", data.version, data.latest) else "WireGuard-Easy ${data.version}",
                             color = p.muted, fontSize = 12.sp,
                         )
                     }

@@ -75,6 +75,7 @@ object Updater {
 /** Ergebnis der Installation; bei Bedarf zeigt Android hier den Bestätigungsdialog. */
 class InstallReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        I18n.init(context.applicationContext)
         when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")
@@ -84,7 +85,7 @@ class InstallReceiver : BroadcastReceiver() {
             PackageInstaller.STATUS_SUCCESS -> Unit // Android ersetzt die App und beendet sie dabei
             else -> {
                 val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "unbekannter Fehler"
-                Toast.makeText(context, "Update fehlgeschlagen: $message", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, t("Update fehlgeschlagen: {0}", t(message)), Toast.LENGTH_LONG).show()
             }
         }
     }

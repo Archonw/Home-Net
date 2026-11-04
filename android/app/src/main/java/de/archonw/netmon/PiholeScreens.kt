@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,7 +44,7 @@ private fun minutes(seconds: Int) = "${(seconds + 59) / 60} min"
 
 fun piholeTileText(o: PhOverview): String = when {
     !o.configured -> "Noch kein Pi-hole eingetragen"
-    o.blocking == "enabled" -> "Werbefilter an" + o.instances.count { !it.online }.let { if (it > 0) ", $it nicht erreichbar" else "" }
+    o.blocking == "enabled" -> o.instances.count { !it.online }.let { if (it > 0) t("Werbefilter an, {0} nicht erreichbar", it) else "Werbefilter an" }
     o.blocking == "disabled" -> o.instances.mapNotNull { it.timer }.maxOrNull()?.let { "Pausiert, noch ${minutes(it)}" } ?: "Pausiert ohne Ende"
     o.blocking == "mixed" -> "Nicht überall gleich"
     else -> "Kein Pi-hole erreichbar"
@@ -225,8 +224,8 @@ fun PiholeDetailScreen(api: PiholeApi, index: Int, onBack: () -> Unit) {
                 if (d.uptime > 0) InfoRow("Gerät läuft seit", duration(d.uptime))
                 if (d.ftlUptime > 0) InfoRow("Pi-hole läuft seit", duration(d.ftlUptime))
                 d.temp?.let { InfoRow("Temperatur", String.format(Locale.GERMANY, "%.1f °C", it)) }
-                if (d.cpus > 0) InfoRow("Prozessor", "${d.cpus} Kerne, Last " + d.load.joinToString(" / ") { String.format(Locale.GERMANY, "%.2f", it) })
-                if (d.ramTotal > 0) InfoRow("Arbeitsspeicher", "${gb(d.ramUsed)} von ${gb(d.ramTotal)}")
+                if (d.cpus > 0) InfoRow("Prozessor", t("{0} Kerne, Last {1}", d.cpus, d.load.joinToString(" / ") { String.format(Locale.GERMANY, "%.2f", it) }))
+                if (d.ramTotal > 0) InfoRow("Arbeitsspeicher", "${gb(d.ramUsed)} von ${gb(d.ramTotal)} belegt")
             }
             if (d.messages.isNotEmpty()) {
                 SectionTitle("Hinweise von Pi-hole")

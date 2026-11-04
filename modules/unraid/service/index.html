@@ -65,6 +65,7 @@ pre.log { background:var(--bg); border:1px solid var(--line); border-radius:8px;
 <dialog id="dlg"><form id="form" method="dialog"></form></dialog>
 
 <script>
+const tr = text => (window.hnT ? window.hnT(text) : text);
 const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
 const app = document.getElementById("app"), dlg = document.getElementById("dlg"), form = document.getElementById("form"), nav = document.getElementById("nav");
 const TABS = [["overview", "Übersicht"], ["shares", "Freigaben"], ["users", "Benutzer"], ["docker", "Docker"], ["vms", "VMs"], ["scripts", "Skripte"], ["files", "Dateien"], ["settings", "Einstellungen"]];
@@ -266,7 +267,7 @@ async function docker() {
   const list = $("div", { className: "card" });
   for (const c of d.containers) {
     const [text, cls] = STATE[c.state] || [c.state, "quiet"];
-    const act = (cmd, label) => $("button", { className: "small", textContent: label, onclick: () => confirmStep(`${c.name}: ${label}?`, `Den Container ${c.name} ${label.toLowerCase()}?`, () => api("api/docker", "POST", { id: c.id, command: cmd }), label) });
+    const act = (cmd, label) => $("button", { className: "small", textContent: label, onclick: () => confirmStep(`${c.name}: ${tr(label)}?`, `Den Container ${c.name} ${tr(label).toLowerCase()}?`, () => api("api/docker", "POST", { id: c.id, command: cmd }), label) });
     list.append($("div", { className: "line" },
       $("div", { className: "grow" }, $("div", { className: "name", textContent: c.name }), $("div", { className: "quiet", textContent: `${c.image}${c.status ? " · " + c.status : ""}` })),
       $("span", { className: cls, textContent: text }),
@@ -281,7 +282,7 @@ async function vms() {
   const list = $("div", { className: "card" });
   for (const v of d.vms) {
     const [text, cls] = STATE[v.state] || [v.state, "quiet"];
-    const act = (cmd, label) => $("button", { className: "small", textContent: label, onclick: () => confirmStep(`${v.name}: ${label}?`, `Die VM ${v.name} ${label.toLowerCase()}?`, () => api("api/vms", "POST", { id: v.id, command: cmd }), label) });
+    const act = (cmd, label) => $("button", { className: "small", textContent: label, onclick: () => confirmStep(`${v.name}: ${tr(label)}?`, `Die VM ${v.name} ${tr(label).toLowerCase()}?`, () => api("api/vms", "POST", { id: v.id, command: cmd }), label) });
     const buttons = v.state === "running" ? [act("stop", "Herunterfahren"), act("reboot", "Neu starten"), act("force", "Hart ausschalten")] : v.state === "paused" ? [act("resume", "Fortsetzen")] : [act("start", "Starten")];
     list.append($("div", { className: "line" }, $("div", { className: "grow name", textContent: v.name }), $("span", { className: cls, textContent: text }), $("span", { className: "actions", style: "margin:0" }, ...buttons)));
   }

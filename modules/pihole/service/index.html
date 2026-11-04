@@ -121,8 +121,9 @@ function showOverview(o) {
   if (manager) buttons.push($("button", { className: "danger", textContent: "Ohne Ende", onclick: () => confirm("Werbefilter ohne Ende pausieren? Er bleibt dann aus, bis jemand ihn wieder einschaltet.") && run("api/pause", {}) }));
   const rows = o.instances.map((i, n) => $("div", { className: "card click", onclick: () => showDetail(n) },
     $("div", { className: "name" }, i.name, $("span", { className: "quiet", textContent: ` · ${i.url.replace(/^https?:\/\//, "")}` })),
-    i.online ? $("div", { className: i.blocking === "enabled" ? "ok" : "warn",
-      textContent: (i.blocking === "enabled" ? "Filter an" : i.timer ? `Pausiert, noch ${Math.ceil(i.timer / 60)} min` : "Pausiert") + ((i.version || i.ftl) ? ` · Pi-hole ${i.version || "FTL " + i.ftl}` : "") + " ›" })
+    i.online ? $("div", { className: i.blocking === "enabled" ? "ok" : "warn" },
+      $("span", { textContent: i.blocking === "enabled" ? "Filter an" : i.timer ? `Pausiert, noch ${Math.ceil(i.timer / 60)} min` : "Pausiert" }),
+      ((i.version || i.ftl) ? ` · Pi-hole ${i.version || "FTL " + i.ftl}` : "") + " ›")
       : $("div", { className: "bad", textContent: i.error }),
     (i.updates || []).length ? $("div", { className: "quiet", textContent: "Update verfügbar: " + i.updates.map(u => `${u.part} ${u.available}`).join(", ") + " (auf dem Gerät mit „pihole -up“)" }) : null));
   app.replaceChildren(
