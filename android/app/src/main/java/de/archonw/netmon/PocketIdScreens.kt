@@ -44,7 +44,7 @@ fun pocketIdTileText(o: PidOverview): String = when {
     o.error.isNotBlank() -> o.error
     else -> {
         val waiting = o.users.count { !it.disabled && it.passkeys == 0 }
-        "${o.users.size} Benutzer" + if (waiting > 0) ", $waiting noch ohne Passkey" else ""
+        if (waiting > 0) t("{0} Benutzer, {1} noch ohne Passkey", o.users.size, waiting) else t("{0} Benutzer", o.users.size)
     }
 }
 
@@ -270,7 +270,7 @@ private fun InviteDialog(name: String, invite: PidInvite, onClose: () -> Unit) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
-    val text = "Hallo $name, mit diesem Link richtest du deinen Zugang ein (einmalig, gültig bis ${formatEpoch(invite.expires)}): ${invite.link}"
+    val text = t("Hallo {0}, mit diesem Link richtest du deinen Zugang ein (einmalig, gültig bis {1}): {2}", name, formatEpoch(invite.expires), invite.link)
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text("Einladung für $name") },
