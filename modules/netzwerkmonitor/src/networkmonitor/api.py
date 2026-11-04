@@ -20,7 +20,8 @@ from .auth import LoginGuard, client_ip, via_proxy
 from .config import EDITABLE, Settings, apply_overrides, coerce, public_view
 from .events import HubEvents
 from .fritzbox import FritzBox, Router
-from .monitor import BlockNotPossible, Monitor
+from .lanscan import LanScan
+from .monitor import BlockNotPossible, BlockNotSupported, Monitor
 from .store import Device, Status, Store
 
 log = logging.getLogger(__name__)
@@ -65,15 +66,22 @@ class Runtime:
 
     @property
     def fritzbox_missing(self) -> bool:
-        return self._fixed_router is None and not self.settings.fritz_password
+        return (
+            self._fixed_router is None
+            and self.settings.router == "fritzbox"
+            and not self.settings.fritz_password
+        )
 
     @staticmethod
     def _make_router(settings: Settings) -> Router:
+        if settings.router == "scan":
+            return LanScan()
         return FritzBox(settings.fritz_address, settings.fritz_user, settings.fritz_password)
 
     def reload(self, settings: Settings) -> None:
         old = self.settings
-        fritz_changed = (old.fritz_address, old.fritz_user, old.fritz_password) != (
+        fritz_changed = (old.router, old.fritz_address, old.fritz_user, old.fritz_password) != (
+            settings.router,
             settings.fritz_address,
             settings.fritz_user,
             settings.fritz_password,
@@ -269,7 +277,7 @@ def create_app(
 
     @app.get("/api/me", dependencies=[Depends(require_login)])
     def me(request: Request) -> dict:
-        return {"can_manage": may_manage(request)}
+        return {"can_manage": may_manage(request), "can_block": monitor.can_block}
 
     @app.get("/api/devices/{mac}", dependencies=[Depends(require_login)])
     def get_device(mac: str) -> dict:
@@ -285,7 +293,7 @@ def create_app(
     def _set(mac: str, new_status: Status) -> dict:
         try:
             device = monitor.set_status(mac, new_status)
-        except BlockNotPossible as exc:
+        except (BlockNotPossible, BlockNotSupported) as exc:
             raise HTTPException(409, str(exc)) from exc
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(502, f"FritzBox-Fehler: {exc}") from exc

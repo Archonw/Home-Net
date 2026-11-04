@@ -31,6 +31,19 @@ class BlockNotPossible(Exception):
         )
 
 
+NO_BLOCKING = (
+    "Ohne FritzBox kann der Monitor Geräte nur melden, nicht vom Internet trennen. "
+    "Sperren geht mit einer FritzBox (Einstellungen)."
+)
+
+
+class BlockNotSupported(Exception):
+    """Die Geräteliste kommt nicht von einer FritzBox; Sperren ist nicht möglich."""
+
+    def __init__(self) -> None:
+        super().__init__(NO_BLOCKING)
+
+
 class Monitor:
     def __init__(self, router: Router, store: Store, settings: Settings) -> None:
         self.router = router
@@ -106,9 +119,13 @@ class Monitor:
             return not self.settings.quarantine_unknown
         return True
 
+    @property
+    def can_block(self) -> bool:
+        return getattr(self.router, "can_block", True)
+
     def enforce(self, device: Device) -> None:
         """Bringt die Internet-Sperre der FritzBox mit dem Gerätestatus in Einklang."""
-        if not device.ip:
+        if not device.ip or not self.can_block:
             return
         wanted = self.should_have_internet(device)
         try:
@@ -123,6 +140,8 @@ class Monitor:
             self.store.add_event(device.mac, "internet_on" if wanted else "internet_off", device.ip)
 
     def set_status(self, mac: str, status: Status) -> Device | None:
+        if status == Status.BLOCKED and not self.can_block:
+            raise BlockNotSupported()
         device = self.store.set_status(mac, status)
         if device and device.online and device.ip:
             self.enforce(device)

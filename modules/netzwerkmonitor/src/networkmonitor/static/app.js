@@ -257,7 +257,10 @@ const NM = (() => {
 
   // Untere Leiste „Geräte“ / „Einstellungen“
   function tabbar(active) {
-    api("/api/me").then(me => document.body.classList.toggle("view-only", !me.can_manage)).catch(() => {});
+    api("/api/me").then(me => {
+      document.body.classList.toggle("view-only", !me.can_manage);
+      document.body.classList.toggle("no-block", me.can_block === false);
+    }).catch(() => {});
     // Unter Home-Net führen Knöpfe in der Kopfzeile, wie auf den anderen Modulseiten
     if (prefs.style === "home") return;
     const nav = document.createElement("nav");

@@ -12,8 +12,13 @@ def _bool(value: str | None, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "ja", "on"}
 
 
+ROUTERS = ("fritzbox", "scan")
+
+
 @dataclass(frozen=True)
 class Settings:
+    # fritzbox: Geräte und Sperren über TR-064; scan: Geräte selbst im Heimnetz suchen, ohne Sperren
+    router: str = "fritzbox"
     fritz_address: str = "192.168.178.1"
     fritz_user: str = ""
     fritz_password: str = ""
@@ -27,6 +32,7 @@ class Settings:
     def from_env(cls) -> Settings:
         env = os.environ
         return cls(
+            router=env.get("ROUTER", cls.router) if env.get("ROUTER") in ROUTERS else cls.router,
             fritz_address=env.get("FRITZ_ADDRESS", cls.fritz_address),
             fritz_user=env.get("FRITZ_USER", ""),
             fritz_password=env.get("FRITZ_PASSWORD", ""),
@@ -40,6 +46,7 @@ class Settings:
 
 # Felder, die über die Einstellungsseite geändert werden dürfen (Feld → Art)
 EDITABLE: dict[str, str] = {
+    "router": "choice",
     "fritz_address": "str",
     "fritz_user": "str",
     "fritz_password": "secret",
@@ -58,6 +65,10 @@ def coerce(field: str, value) -> object:
         if field == "poll_interval" and not 10 <= number <= 3600:
             raise ValueError("Abfrageintervall muss zwischen 10 und 3600 Sekunden liegen")
         return number
+    if kind == "choice":
+        if value not in ROUTERS:
+            raise ValueError(f"Unbekannte Auswahl: {value}")
+        return value
     if kind == "bool":
         return value if isinstance(value, bool) else _bool(str(value), False)
     return str(value).strip()

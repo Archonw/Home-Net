@@ -32,11 +32,18 @@
 
 <form id="form" autocomplete="off">
 <section class="group">
-  <h2>FritzBox</h2>
+  <h2>Router</h2>
   <div class="box">
+  <label class="field"><span>Geräte finden über</span><select name="router">
+    <option value="fritzbox">FritzBox (Geräte und Sperren)</option>
+    <option value="scan">Suche im Heimnetz (jeder Router, ohne Sperren)</option>
+  </select></label>
+  <div class="hint" id="scan-hint">Ohne FritzBox sucht der Monitor die Geräte selbst im Heimnetz. Er meldet neue Geräte, kann sie aber nicht vom Internet trennen.</div>
+  <div id="fritz-fields">
   <label class="field"><span>Adresse</span><input type="text" name="fritz_address"></label>
   <label class="field"><span>Benutzer</span><input type="text" name="fritz_user"></label>
   <label class="field"><span>Passwort</span><input type="password" name="fritz_password" data-secret></label>
+  </div>
   <button type="button" class="btn" data-test="fritzbox">Verbindung testen</button>
   <div class="result" id="test-fritzbox"></div>
   </div>
@@ -95,6 +102,7 @@ renderAppearance();
 NM.tabbar("settings");
 
 const form = document.getElementById("form");
+form.elements.router.addEventListener("change", showRouter);
 // Unter Home-Net gelten Anmeldung und Darstellung für alle Dienste, beides stellt man auf der Home-Net-Seite ein
 if (window.HOME_NET_PREFIX) {
   document.getElementById("password-group").remove();
@@ -122,6 +130,12 @@ function showResult(id, ok, text) {
   el.textContent = text;
 }
 
+function showRouter() {
+  const scan = form.elements.router.value === "scan";
+  document.getElementById("fritz-fields").hidden = scan;
+  document.getElementById("scan-hint").hidden = !scan;
+}
+
 function render(data) {
   loaded = data;
   for (const [name, value] of Object.entries(data.values)) {
@@ -129,6 +143,7 @@ function render(data) {
     if (!input) continue;
     if (input.type === "checkbox") input.checked = value; else input.value = value;
   }
+  showRouter();
   for (const input of form.querySelectorAll("[data-secret]")) {
     input.value = "";
     const isSet = data.secrets[input.name];

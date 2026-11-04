@@ -105,10 +105,10 @@ def test_plain_user_may_not_change_anything(client, method, path):
 def test_plain_user_may_look(client):
     assert client.get("/api/devices", auth=AUTH, headers=USER).status_code == 200
     assert client.get("/", auth=AUTH, headers=USER).status_code == 200
-    assert client.get("/api/me", auth=AUTH, headers=USER).json() == {"can_manage": False}
+    assert client.get("/api/me", auth=AUTH, headers=USER).json()["can_manage"] is False
 
 
 def test_owner_admin_and_standalone_may_manage(client):
     for headers in ({"X-Home-Net-Role": "owner"}, {"X-Home-Net-Role": "admin"}, {}):
         assert client.get("/api/settings", auth=AUTH, headers=headers).status_code == 200
-        assert client.get("/api/me", auth=AUTH, headers=headers).json() == {"can_manage": True}
+        assert client.get("/api/me", auth=AUTH, headers=headers).json()["can_manage"] is True

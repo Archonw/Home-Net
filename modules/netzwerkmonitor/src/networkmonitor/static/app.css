@@ -181,12 +181,12 @@ button:disabled { cursor: default; }
 .hint { color: var(--muted); font-size: 13px; margin: 4px 0 12px; }
 label.field { display: block; margin-bottom: 12px; }
 label.field > span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-input[type=text], input[type=password], input[type=number], input[type=url] {
+input[type=text], input[type=password], input[type=number], input[type=url], select {
   width: 100%; font: inherit; color: var(--text); background: var(--bg);
   border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px;
 }
 [data-style="tiles"] input[type=text], [data-style="tiles"] input[type=password],
-[data-style="tiles"] input[type=number], [data-style="tiles"] input[type=url] { border-radius: 10px; }
+[data-style="tiles"] input[type=number], [data-style="tiles"] input[type=url], [data-style="tiles"] select { border-radius: 10px; }
 input:focus { outline: none; border-color: var(--accent-text); }
 .check { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
 .check input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
@@ -329,7 +329,7 @@ button.text.danger { color: var(--danger); }
 
 /* Konten ohne Verwaltungsrecht: nur ansehen, der Server lehnt Änderungen ohnehin ab */
 .view-only .tab[href$="/settings"], .view-only [data-act="rename"], .view-only [data-act="watch"],
-.view-only [data-act="remove-offline"], .view-only #allow, .view-only #block { display: none; }
+.view-only [data-act="remove-offline"], .view-only #allow, .view-only #block, .no-block #block { display: none; }
 
 /* ---- Home-Net: gleiches Aussehen wie die anderen Modulseiten (Pi-Wartung, Pi-hole …) ---- */
 [data-style="home"] body { font: 15px/1.45 system-ui, sans-serif; }
@@ -406,7 +406,7 @@ h2.hn-h2 { margin: 20px 0 8px; }
 [data-style="home"] .group > h2 { font-size: 13px; color: var(--muted); font-weight: 650; margin: 20px 0 8px; }
 [data-style="home"] .group > .box { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
 [data-style="home"] input[type=text], [data-style="home"] input[type=password],
-[data-style="home"] input[type=number], [data-style="home"] input[type=url] { border-radius: 8px; padding: 7px 9px; }
+[data-style="home"] input[type=number], [data-style="home"] input[type=url], [data-style="home"] select { border-radius: 8px; padding: 7px 9px; }
 [data-style="home"] .btn { border-radius: 9px; padding: 7px 13px; background: var(--card); }
 [data-style="home"] .btn.primary { background: var(--accent); }
 [data-style="home"] .save-bar { bottom: 0; }
