@@ -223,8 +223,9 @@ fun HomeScreen(
                 try {
                     val devices = api.devices()
                     val unknown = devices.count { it.status == "unknown" }
-                    network = "${devices.count { it.online }} von ${devices.size} online" +
-                        if (unknown > 0) ", $unknown unbekannt" else ""
+                    val online = devices.count { it.online }
+                    network = if (unknown > 0) t("{0} von {1} online, {2} unbekannt", online, devices.size, unknown)
+                    else t("{0} von {1} online", online, devices.size)
                     networkAlert = unknown > 0
                 } catch (e: ApiException) {
                     network = e.message ?: "Nicht erreichbar"
@@ -236,9 +237,9 @@ fun HomeScreen(
             launch {
                 try {
                     val o = settings.piApi().overview()
-                    pi = "${o.pis.size} Pis, ${o.images} Images" + when {
-                        o.running > 0 -> ", ${o.running} läuft"
-                        o.problems > 0 -> ", ${o.problems} Probleme"
+                    pi = t("{0} Pis, {1} Images", o.pis.size, o.images) + when {
+                        o.running > 0 -> ", " + t("{0} läuft", o.running)
+                        o.problems > 0 -> ", " + t("{0} Probleme", o.problems)
                         else -> ""
                     }
                     piAlert = o.problems > 0
@@ -554,7 +555,7 @@ fun PiOverviewScreen(api: PiApi, onOpen: (String) -> Unit, onSetup: (() -> Unit)
                     HubCard {
                         o.attention.forEach {
                             Text(
-                                (if (it.serious) "Problem · " else "Hinweis · ") + it.pi + ": " + it.text,
+                                t(if (it.serious) "Problem" else "Hinweis") + " · " + it.pi + ": " + t(it.text),
                                 color = if (it.serious) p.blocked else p.text, fontSize = 14.sp,
                             )
                         }
@@ -586,9 +587,8 @@ fun PiOverviewScreen(api: PiApi, onOpen: (String) -> Unit, onSetup: (() -> Unit)
             title = { Text("Alle aktualisieren?") },
             text = {
                 Text(
-                    list.joinToString("\n") { "${it.name}: ${it.updates} Updates" } +
-                        "\n\nPis, die für Updates gesperrt sind oder nur einzeln aktualisiert werden, bleiben unberührt. " +
-                        "Ein Neustart erfolgt nicht."
+                    list.joinToString("\n") { t("{0}: {1} Updates", it.name, it.updates) } + "\n\n" +
+                        t("Pis, die für Updates gesperrt sind oder nur einzeln aktualisiert werden, bleiben unberührt. Ein Neustart erfolgt nicht.")
                 )
             },
             confirmButton = {
@@ -620,16 +620,16 @@ private fun PiRowCard(row: PiRow, onClick: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text(row.name, color = p.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "${state.label} · ${row.images} Images · ${formatBytes(row.bytes)}",
+                    t(state.label) + " · " + t("{0} Images", row.images) + " · " + formatBytes(row.bytes),
                     color = state.color, fontSize = 13.sp,
                 )
                 val reach = when (row.online) {
-                    true -> "Online" + (if (row.card.isNotBlank()) ", Karte ${row.card}" else "")
+                    true -> if (row.card.isNotBlank()) t("Online, Karte {0}", row.card) else "Online"
                     false -> "Offline"
                     null -> "Wird geprüft"
                 }
                 Text(
-                    "$reach · Backup ${formatEpoch(row.okTime)}" + piUpdateLabel(row).let { if (it.isEmpty()) "" else " · $it" },
+                    listOf(t(reach), t("Backup {0}", formatEpoch(row.okTime)), t(piUpdateLabel(row))).filter { it.isNotEmpty() }.joinToString(" · "),
                     color = p.muted, fontSize = 12.sp,
                 )
             }
@@ -749,8 +749,7 @@ fun PiDetailScreen(api: PiApi, id: String, onBack: () -> Unit) {
                         InfoRow("Zuletzt apt", formatEpoch(sw.lastApt))
                         if (sw.lastStatus.isNotBlank()) {
                             InfoRow(
-                                "Letztes Update", (if (sw.lastStatus == "ok") "erfolgreich, " else "fehlgeschlagen, ") +
-                                    formatEpoch(sw.lastTime),
+                                "Letztes Update", t(if (sw.lastStatus == "ok") "erfolgreich, {0}" else "fehlgeschlagen, {0}", formatEpoch(sw.lastTime)),
                             )
                         }
                         if (careful) {
@@ -838,8 +837,8 @@ fun PiDetailScreen(api: PiApi, id: String, onBack: () -> Unit) {
             title = { Text(if (unlock) "Sperre aufheben?" else "Einstellung ändern?") },
             text = {
                 Text(
-                    (if (unlock) "Dieser Pi ist für Updates gesperrt, weil ein Update seine Software kaputt machen kann. " else "") +
-                        "Neu: ${PI_UPDATE_MODES.first { it.first == mode }.second}."
+                    (if (unlock) t("Dieser Pi ist für Updates gesperrt, weil ein Update seine Software kaputt machen kann.") + " " else "") +
+                        t("Neu: {0}.", t(PI_UPDATE_MODES.first { it.first == mode }.second))
                 )
             },
             confirmButton = {
