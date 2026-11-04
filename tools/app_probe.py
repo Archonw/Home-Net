@@ -48,6 +48,8 @@ def english(text):
         match = regex.fullmatch(text)
         if match:
             return re.sub(r"\{(\d)\}", lambda m: english(match.group(f"p{m.group(1)}")), target)
+    if "\n" in text:
+        return "\n".join(english(line) for line in text.split("\n"))
     return text
 
 

@@ -43,6 +43,8 @@
         return v === undefined ? all : lookup(v, depth + 1);
       });
     }
+    // Mehrzeilige Meldungen Zeile für Zeile
+    if (text.includes("\n")) return text.split("\n").map(line => lookup(line, depth)).join("\n");
     return text;
   }
 

@@ -27,6 +27,7 @@ class I18nTest {
         assertEquals("3 of 7 devices", I18n.translate("3 von 7 Geräten"))
         assertEquals("Unbekannt bleibt", I18n.translate("Unbekannt bleibt"))
         assertEquals("Backup of Pi running", t("Sicherung von {0} läuft", "Pi"))
+        assertEquals("Cancel\nBackup of Pi running\nfrei", I18n.translate("Abbrechen\nSicherung von Pi läuft\nfrei"))
     }
 
     @Test

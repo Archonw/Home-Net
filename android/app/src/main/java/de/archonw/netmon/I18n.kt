@@ -104,6 +104,8 @@ object I18n {
             }
             return out
         }
+        // Mehrzeilige Meldungen (z. B. "Name: …\nVerbindung: …") Zeile für Zeile
+        if ('\n' in text) return text.split('\n').joinToString("\n") { lookup(it, depth) }
         return text
     }
 }
