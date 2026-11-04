@@ -208,7 +208,8 @@ def update_from_github(
     return f"Neue Version {saved.version} geladen"
 
 
-DEFAULT_REPO = "Archonw/Home-Net"
+# The repository this installation comes from (set by the core), so a fork gets its own app
+DEFAULT_REPO = os.environ.get("HOME_NET_REPO") or "Archonw/Home-Net"
 CHECK_INTERVAL = 60 * 60
 # A manual check right after a successful one reuses its answer, that spares requests to GitHub
 MANUAL_CHECK_PAUSE = 60

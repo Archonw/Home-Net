@@ -67,6 +67,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Ein Fork veröffentlicht unter seinem eigenen Namen; ghcr.io verlangt Kleinbuchstaben
+      - run: echo "REGISTRY=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.image.context }}
@@ -74,8 +76,8 @@ jobs:
           platforms: ${{ matrix.image.platforms }}
           push: true
           tags: |
-            ghcr.io/archonw/home-net/${{ matrix.image.name }}:${{ needs.prepare.outputs.tag }}
-            ghcr.io/archonw/home-net/${{ matrix.image.name }}:latest
+            ${{ env.REGISTRY }}/${{ matrix.image.name }}:${{ needs.prepare.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ matrix.image.name }}:latest
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.prepare.outputs.tag }}

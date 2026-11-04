@@ -1,0 +1,14 @@
+<p>Home-Net ist die App zu einem selbst betriebenen Baukasten für das Heimnetz. Der Server läuft mit Docker auf einem eigenen Rechner, zum Beispiel einem Unraid-Server; die App spricht nur mit diesem Server, nicht mit einer Cloud.</p>
+<p>Module, je nachdem, was auf dem Server installiert ist:</p>
+<ul>
+<li><b>Netzwerk</b>: neue Geräte im Heimnetz melden, erlauben oder sperren (FritzBox)</li>
+<li><b>Pi-Wartung</b>: Raspberry Pis als Images sichern und Updates einspielen</li>
+<li><b>PC-Sicherung</b>: ganze PCs samt Windows und Linux über den Netzwerkstart sichern und wiederherstellen</li>
+<li><b>Unraid</b>: Freigaben, Benutzer, Docker, VMs und User Scripts</li>
+<li><b>Pi-hole</b>: Werbefilter aller Pi-holes kurz pausieren, Statistiken</li>
+<li><b>WireGuard</b>: VPN-Zugänge anlegen und als QR-Code zeigen</li>
+<li><b>Proxy Manager</b>: was von außen erreichbar ist, Zertifikate</li>
+<li><b>Pocket ID</b>: Benutzer einladen und Apps zuordnen</li>
+</ul>
+<p>Meldungen kommen direkt vom eigenen Server aufs Handy. Von unterwegs verlangt Home-Net zusätzlich einen Passkey.</p>
+<p>Die App braucht einen Home-Net-Server. Anleitung und Quellcode: https://github.com/Archonw/Home-Net</p>

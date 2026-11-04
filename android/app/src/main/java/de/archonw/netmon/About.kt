@@ -21,7 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-const val SOURCE_URL = "https://github.com/Archonw/Home-Net"
+val SOURCE_URL: String = BuildConfig.SOURCE_URL
 
 /** Bibliotheken, die in der App stecken; alle unter der Apache-Lizenz 2.0. */
 private val LIBRARIES = listOf(
