@@ -75,6 +75,15 @@
     {
       "id": "card_full",
       "label": "Karte im Pi fast voll"
+    },
+    {
+      "id": "update_failed",
+      "label": "Update eines Pi fehlgeschlagen"
+    },
+    {
+      "id": "update_ok",
+      "label": "Update eines Pi fertig",
+      "default": false
     }
   ]
 }

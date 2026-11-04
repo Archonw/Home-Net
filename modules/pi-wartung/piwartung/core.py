@@ -73,6 +73,9 @@ class Pi:
     hour: int = 3
     notify: str = "errors"       # errors, always or off
     notes: str = ""
+    # all: part of "update all", single: only on its own, careful: only on its own after typing the name.
+    # Pis from before this setting count as single; the engine treats a pi.conf without it as careful.
+    updates: str = "single"
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     def conf_text(self):
@@ -82,7 +85,7 @@ class Pi:
             "FORMAT": self.format, "EXPAND": int(self.expand), "EXCLUDES": self.excludes,
             "BWLIMIT": self.bwlimit, "COMPRESS": int(self.compress), "PRE_CMD": self.pre_cmd,
             "POST_CMD": self.post_cmd, "SCHEDULE": self.schedule, "HOUR": self.hour,
-            "NOTIFY": self.notify,
+            "NOTIFY": self.notify, "UPDATES": self.updates,
         }
         lines = ["# Von Pi-Wartung erzeugt, Änderungen bitte in der App vornehmen."]
         lines += [f"{k}={shlex.quote(str(v))}" for k, v in values.items()]
@@ -142,6 +145,9 @@ def parse_summary(text):
             out["pis"][f[1]] = {"running": f[2] == "1", "status": f[3], "time": int(f[4] or 0), "ok_time": int(f[5] or 0),
                                 "count": int(f[6]), "bytes": int(f[7]), "mirror": int(f[8]), "schedule": f[9],
                                 "newest": int(f[10]), "warnings": f[11] if len(f) > 11 else ""}
+            if len(f) > 15:
+                out["pis"][f[1]].update(upd_count=int(f[12] or -1), upd_time=int(f[13] or 0), upd_state=f[14],
+                                        upd_last=f[15])
         elif f[0] == "RUN" and len(f) >= 4:
             out["runs"].append({"dir": f[1], "stamp": f[2], "status": f[3], "error": f[4] if len(f) > 4 else ""})
     return out
@@ -166,6 +172,8 @@ def attention_items(inventory_pis, dirs, summary, devices, now, disk_warn_pct=85
             items.append((1, pi.name, "Kein Zeitplan aktiv"))
         if row.get("warnings"):
             items.append((1, pi.name, row["warnings"]))
+        if row.get("upd_last") == "failed" and row.get("upd_state") != "upgrading":
+            items.append((1, pi.name, "Letztes Update ist fehlgeschlagen"))
         if dev:
             parts = dev.get("disk", "").split()
             pct = parts[2].rstrip("%") if len(parts) == 3 else ""

@@ -164,6 +164,7 @@ class Store:
         rows = []
         for p in sorted(pis, key=lambda x: (x.category.casefold(), x.name.casefold())):
             rows.append(pi_row(p, s["pis"].get(dirs[p.id], {}), devices.get(p.id)))
+        ready = [r for r in rows if update_all_ready(r)]
         names = {dirs[p.id]: p.name for p in pis}
         failed = sorted((r for r in s["runs"] if r["status"] == "failed" and r["dir"] in names),
                         key=lambda r: r["stamp"], reverse=True)
@@ -180,6 +181,8 @@ class Store:
             "errors": [{"stamp": r["stamp"], "pi": names.get(r["dir"], ""), "message": r["error"] or "Unbekannt"}
                        for r in failed[:10]],
             "devices_checked": int(checked),
+            "update_pis": sum(1 for r in rows if r["updates"] > 0),
+            "update_all": [{"id": r["id"], "name": r["name"], "updates": r["updates"]} for r in ready],
         }
 
     def inventory(self):
@@ -215,12 +218,14 @@ class Store:
         self.save_inventory(set(categories) | ({pi.category} if pi.category else set()), pis + [pi])
         return pi
 
-    def update_pi(self, pi_id, form, scopes=("*",)):
+    def update_pi(self, pi_id, form, scopes=("*",), manager=True):
         categories, pis = self.inventory()
         old = next((p for p in pis if p.id == pi_id and category_allowed(p.category, scopes)), None)
         if not old:
             raise LookupError
         new = pi_from_form(form, old)
+        if new.updates != old.updates and not manager:
+            raise PermissionError("Wann ein Pi aktualisiert wird, darf nur ein Admin ändern.")
         require_category(new.category, scopes)
         self.check_free(new, pis)
         if self.pidir(old) != self.pidir(new):
@@ -276,6 +281,32 @@ class Store:
         text = "".join(f"{k}={shlex.quote(v)}\n" for k, v in pairs)
         self.backend.admin(verb="put-file", path=f"{ROOT}/.engine/ntfy.conf", text=text)
 
+    def upgrade(self, pi, confirm=""):
+        """Starts the update of one Pi. A careful Pi needs its name typed as confirmation."""
+        if pi.updates == "careful" and confirm.strip() != pi.name:
+            raise ValueError(f"Zur Bestätigung bitte den Namen „{pi.name}“ genau eintippen.")
+        # The engine decides from pi.conf as well, so it must match the inventory.
+        self.write_conf(pi)
+        self.backend.host_call("upgrade-confirmed" if pi.updates == "careful" else "upgrade", self.pidir(pi))
+        self.invalidate()
+
+    def upgrade_all(self, ids, scopes=("*",)):
+        """Updates the Pis the caller saw in the list, as long as they are still ready for "update all"."""
+        rows = {r["id"]: r for r in self.overview(scopes)["pis"]}
+        started, failed = [], []
+        for pi in [p for p in list(self.pis) if p.id in ids and category_allowed(p.category, scopes)]:
+            row = rows.get(pi.id)
+            if not row or not update_all_ready(row):
+                continue
+            try:
+                self.write_conf(pi)
+                self.backend.host_call("upgrade", self.pidir(pi))
+                started.append(pi.name)
+            except BackendError as exc:
+                failed.append({"name": pi.name, "message": str(exc)})
+        self.invalidate()
+        return {"started": started, "failed": failed}
+
     def find(self, pi_id, scopes=("*",)):
         self.refresh()
         with self.lock:
@@ -295,6 +326,7 @@ class Store:
         state = parse_shell_kv(self.backend.host_call("state", d))
         running = state.get("RUNNING") == "1"
         out = pi_row(pi, row, device)
+        out["software"] = parse_updates(self.backend.host_call("updates", d))
         out.update(running=running, images_list=images, error=state.get("LAST_ERROR", ""),
                    warnings=state.get("LAST_WARNINGS", ""), notes=pi.notes, device=device or {},
                    progress=parse_progress(self.backend.host_call("progress", d)) if running else None,
@@ -305,9 +337,9 @@ class Store:
 EDITABLE = {"name": str, "category": str, "host": str, "port": int, "user": str, "key": str, "jump": str,
             "jump_port": int, "keep": int, "format": str, "expand": bool, "excludes": str, "bwlimit": int,
             "compress": bool, "pre_cmd": str, "post_cmd": str, "schedule": str, "hour": int, "notify": str,
-            "notes": str}
+            "notes": str, "updates": str}
 CHOICES = {"format": ("xz", "gz", "img"), "schedule": ("off", "daily", "weekly", "monthly"),
-           "notify": ("errors", "always", "off")}
+           "notify": ("errors", "always", "off"), "updates": ("all", "single", "careful")}
 
 
 def spool_event(spool, event):
@@ -407,6 +439,41 @@ def pi_row(pi, row, device):
         "bytes": row.get("bytes", 0), "schedule": row.get("schedule", pi.schedule),
         "online": None if device is None else bool(device),
         "card": parts[2] if len(parts) == 3 else "", "temp": device.get("temp", "") if device else "",
+        "updates": row.get("upd_count", -1), "update_checked": row.get("upd_time", 0),
+        "update_state": row.get("upd_state", ""), "update_last": row.get("upd_last", ""), "update_mode": pi.updates,
+    }
+
+
+def update_all_ready(row):
+    """Whether "update all" takes this Pi: only when its setting says so and nothing else is going on."""
+    return (row["update_mode"] == "all" and row["updates"] > 0 and not row["running"] and not row["update_state"]
+            and row["online"] is not False)
+
+
+def parse_updates(text):
+    """Output of the engine's updates command: last check, last update and the waiting packages."""
+    values, packages, log = {}, [], []
+    for line in text.splitlines():
+        if line.startswith("@@PKG "):
+            parts = line[6:].split(" ")
+            if len(parts) == 3:
+                packages.append({"name": parts[0], "old": parts[1], "new": parts[2]})
+        elif line.startswith("@@TAIL "):
+            log.append(line[7:])
+        else:
+            values.update(parse_shell_kv(line))
+
+    def num(key, default=0):
+        try:
+            return int(values.get(key, default))
+        except ValueError:
+            return default
+    return {
+        "state": values.get("UPD_STATE", ""), "checked": num("UPD_TIME"), "count": num("UPD_COUNT", -1),
+        "installed": num("UPD_INSTALLED"), "last_apt": num("UPD_LAST_APT"), "reboot": values.get("UPD_REBOOT") == "1",
+        "error": values.get("UPD_ERROR", ""), "last_status": values.get("UPD_LAST_STATUS", ""),
+        "last_time": num("UPD_LAST_TIME"), "last_error": values.get("UPD_LAST_ERROR", ""),
+        "packages": packages, "log": log,
     }
 
 
@@ -519,6 +586,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(502, {"detail": str(exc)})
         except ValueError as exc:
             self.send_json(400, {"detail": str(exc)})
+        except PermissionError as exc:
+            self.send_json(403, {"detail": str(exc)})
         except LookupError:
             self.send_json(404, {"detail": "Nicht gefunden"})
 
@@ -534,6 +603,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def is_manager(self):
         return self.headers.get("X-Home-Net-Role", "owner") in ("owner", "admin")
+
+    def require_manager(self):
+        if not self.is_manager():
+            raise PermissionError("Updates darf nur ein Admin starten.")
 
     def send_page(self):
         with open(PAGE, "rb") as f:
@@ -555,7 +628,14 @@ class Handler(BaseHTTPRequestHandler):
             self.store.check_devices(force=True)
             self.send_json(200, {"ok": True})
             return
-        match = re.fullmatch(r"/api/pis/([0-9a-f]{1,64})(/backup|/cancel)?", path)
+        if method == "POST" and path == "/api/updates/all":
+            self.require_manager()
+            ids = self.body.get("ids")
+            if not isinstance(ids, list):
+                raise ValueError("Welche Pis aktualisiert werden sollen, fehlt.")
+            self.send_json(202, self.store.upgrade_all({str(i) for i in ids}, self.scopes()))
+            return
+        match = re.fullmatch(r"/api/pis/([0-9a-f]{1,64})(/backup|/cancel|/upgrade|/check-updates)?", path)
         if not match:
             self.send_json(404, {"detail": "Nicht gefunden"})
             return
@@ -573,6 +653,13 @@ class Handler(BaseHTTPRequestHandler):
         elif method == "POST" and action == "/cancel":
             self.store.backend.host_call("cancel", self.store.pidir(pi))
             self.store.invalidate()
+            self.send_json(202, {"ok": True})
+        elif method == "POST" and action == "/upgrade":
+            self.require_manager()
+            self.store.upgrade(pi, str(self.body.get("confirm", "")))
+            self.send_json(202, {"ok": True})
+        elif method == "POST" and action == "/check-updates":
+            self.store.backend.host_call("check-updates", self.store.pidir(pi))
             self.send_json(202, {"ok": True})
         else:
             self.send_json(405, {"detail": "Nicht erlaubt"})
@@ -611,7 +698,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise LookupError
                 self.send_json(200, asdict(pi))
             elif method == "PUT" and not part:
-                store.update_pi(pi_id, self.body, self.scopes())
+                store.update_pi(pi_id, self.body, self.scopes(), self.is_manager())
                 self.send_json(200, {"ok": True})
             elif method == "DELETE" and not part:
                 store.delete_pi(pi_id, bool(self.body.get("data")), self.scopes())

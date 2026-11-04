@@ -46,7 +46,8 @@ Monitor gibt es ans Handy weiter. Paketkennung `de.archonw.netmon` und Signiersc
 
 Der Kern (`core/`) baut aus den `module.json` der Module die Compose-Datei und die Liste für den Zugang. Auf Unraid hält er dabei den Ordner „Home-Net“ des Plugins folder.view2 (`/boot/config/plugins/folder.view2/docker.json`) auf genau den Containern von Home-Net. Die Sicherung von
 Pi-Wartung läuft im Container `pi-wartung-engine`, der Dienst `pi-wartung-service` spricht sie über einen Socket an. Nur die
-Sicherung hat erhöhte Rechte. Der Ordner `modules/pi-wartung/piwartung` enthält die alte GTK-App, sie wird vom Dienst nur noch
+Sicherung hat erhöhte Rechte. Paket-Updates der Pis laufen ebenfalls über die Engine (`cmd_upgrade_*` in `pi-backup.sh`); die Stufe
+`updates` jedes Pi steht in Inventar und `pi.conf`, gesperrte Pis (`careful`) brauchen den eingetippten Namen. Der Ordner `modules/pi-wartung/piwartung` enthält die alte GTK-App, sie wird vom Dienst nur noch
 wegen `core.py` gebraucht.
 
 Der Zugang erkennt Zugriffe von außen am Header `X-Forwarded-For` oder an einer öffentlichen Absenderadresse. Konten, Passkeys und Geräte liegen in `security.json` im Gateway-Ordner, das Protokoll in `audit.jsonl`. Module erfahren Benutzer, Rolle und erlaubte Kategorien über die Header `X-Home-Net-*`, die nur der Zugang setzt; Module müssen diese Rechte selbst anwenden. Module dürfen darum nur über den Zugang erreichbar sein. Im Monitor dürfen nur Eigentümer und Admins ändern (`require_manager`), Benutzer sehen nur an. Ein Modul im Host-Netz wie der Monitor nennt in `module.json` dafür `api.socket` statt eines Ports: Es lauscht auf einer Socket-Datei, deren Ordner sich der Zugang mit ihm teilt. Ohne `LISTEN_SOCKET` öffnet der Monitor wie zuvor Port 8085, das gilt nur für den Betrieb allein.

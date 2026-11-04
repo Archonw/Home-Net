@@ -17,6 +17,7 @@ ENGINE = "/app/pi-backup.sh"
 SOCKET = os.environ.get("ENGINE_SOCKET", "/run/pi-wartung/engine.sock")
 ROOT = os.environ.get("PIW_ROOT", "/data/pi-wartung/images")
 SCHEDULE_SECONDS = 3600
+UPDATES_FIRST_SECONDS = 300
 
 
 def inside_root(path):
@@ -128,11 +129,20 @@ def scheduler():
         subprocess.run(["bash", ENGINE, "due", ROOT], check=False)
 
 
+def updates_scheduler():
+    """Asks every Pi about waiting updates twice a day, apart from the backups, which can run for hours."""
+    time.sleep(UPDATES_FIRST_SECONDS)
+    while True:
+        subprocess.run(["bash", ENGINE, "updates-due", ROOT], check=False)
+        time.sleep(SCHEDULE_SECONDS)
+
+
 def main():
     os.makedirs(os.path.dirname(SOCKET), exist_ok=True)
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
     threading.Thread(target=scheduler, daemon=True).start()
+    threading.Thread(target=updates_scheduler, daemon=True).start()
     with Server(SOCKET, Handler) as server:
         os.chmod(SOCKET, 0o660)
         server.serve_forever()

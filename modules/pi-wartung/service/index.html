@@ -88,7 +88,9 @@ async function overview() {
       tile("Images", d.images, size(d.images_bytes)),
       tile("Spiegel", size(d.mirror_bytes), "für schnelle Folgesicherungen"),
       tile("Speicher frei", size(d.avail_bytes), `von ${size(d.total_bytes)}`),
-      tile("Probleme", serious, `${d.attention.length - serious} Hinweise`, serious ? "bad" : "ok"))];
+      tile("Probleme", serious, `${d.attention.length - serious} Hinweise`, serious ? "bad" : "ok"),
+      tile("Updates", d.update_pis === 1 ? "1 Pi" : `${d.update_pis} Pis`, d.update_pis ? "haben Updates" : "alles aktuell", d.update_pis ? "warn" : "ok"))];
+    if (d.update_all.length) parts.push($("div", { className: "actions" }, $("button", { className: "main", textContent: `Alle aktualisieren (${d.update_all.length})`, onclick: () => updateAll(d.update_all) })));
     if (d.attention.length) parts.push($("h2", { textContent: "Braucht Aufmerksamkeit" }), $("div", { className: "card" }, ...d.attention.map(a => $("div", { className: a.serious ? "bad" : "", textContent: `${a.serious ? "Problem" : "Hinweis"} · ${a.pi}: ${a.text}` }))));
     const groups = {};
     for (const p of d.pis) (groups[p.category || "Ohne Kategorie"] ||= []).push(p);
@@ -96,7 +98,7 @@ async function overview() {
       parts.push($("h2", { textContent: cat }));
       for (const p of rows) {
         const [text, cls] = state(p);
-        const reach = p.online === null ? "wird geprüft" : p.online ? `online${p.card ? ", Karte " + p.card : ""}` : "offline";
+        const reach = (p.online === null ? "wird geprüft" : p.online ? `online${p.card ? ", Karte " + p.card : ""}` : "offline") + updateText(p);
         parts.push($("div", { className: "card row", onclick: () => showPi(p.id) },
           $("div", { className: "grow" }, $("div", { className: "name", textContent: p.name }), $("div", { className: "quiet", textContent: `${reach} · Backup ${when(p.ok_time)}` })),
           $("div", { style: "text-align:right" }, $("div", { className: cls, textContent: text }), $("div", { className: "quiet", textContent: `${p.images} Images · ${size(p.bytes)}` }))));
@@ -107,6 +109,46 @@ async function overview() {
     app.replaceChildren(...parts);
     schedule(overview, 30000);
   } catch (e) { fail(e); }
+}
+
+const UPDATE_MODES = [["all", "Bei „Alle aktualisieren“ dabei"], ["single", "Nur einzeln aktualisieren"], ["careful", "Gesperrt, nur einzeln nach Eintippen des Namens"]];
+function updateText(p) {
+  if (p.update_state === "upgrading") return " · Update läuft";
+  return p.updates > 0 ? ` · ${p.updates} Updates` : "";
+}
+async function updateAll(list) {
+  if (!confirm(`Diese Pis jetzt aktualisieren?\n\n${list.map(p => `${p.name}: ${p.updates} Updates`).join("\n")}\n\nDie Pis bleiben dabei erreichbar, ein Neustart erfolgt nicht.`)) return;
+  try {
+    const r = await api("api/updates/all", "POST", { ids: list.map(p => p.id) });
+    if (r.failed.length) alert(r.failed.map(f => `${f.name}: ${f.message}`).join("\n"));
+  } catch (e) { alert(e.message); }
+  overview();
+}
+async function upgradePi(d) {
+  const sw = d.software;
+  if (d.update_mode === "careful") {
+    const typed = prompt(`ACHTUNG: ${d.name} ist für Updates gesperrt, weil ein Update seine Software kaputt machen kann.\n\nWenn du es trotzdem willst, tippe den Namen „${d.name}“ ein.`);
+    if (typed === null) return;
+    return api(`api/pis/${d.id}/upgrade`, "POST", { confirm: typed });
+  }
+  if (!confirm(`${d.name} jetzt aktualisieren? ${sw.count} Pakete werden installiert. Ein Neustart erfolgt nicht.`)) return;
+  return api(`api/pis/${d.id}/upgrade`, "POST", {});
+}
+function softwareCard(d) {
+  const sw = d.software, dev = d.device || {}, dl = $("dl");
+  const status = sw.state === "upgrading" ? "Update läuft …" : sw.state === "checking" ? "Wird geprüft …"
+    : sw.count < 0 ? "Noch nicht geprüft" : sw.count === 0 ? "Alles aktuell" : `${sw.count} Updates verfügbar`;
+  const last = sw.last_status ? `${sw.last_status === "ok" ? "erfolgreich" : "fehlgeschlagen"}, ${when(sw.last_time)}` : "–";
+  for (const [l, v] of [["Stand", status], ["System", dev.os || "–"], ["Kernel", dev.kernel || "–"], ["Installierte Pakete", sw.installed || "–"],
+    ["Zuletzt apt benutzt", when(sw.last_apt)], ["Geprüft", when(sw.checked)], ["Letztes Update hier", last]]) dl.append($("dt", { textContent: l }), $("dd", { textContent: v }));
+  const kids = [dl];
+  if (d.update_mode === "careful") kids.push($("div", { className: "bad", textContent: "Für Updates gesperrt: ein Update kann die Software dieses Pi kaputt machen." }));
+  if (sw.error) kids.push($("div", { className: "warn", textContent: sw.error }));
+  if (sw.last_status === "failed" && sw.last_error) kids.push($("div", { className: "bad", textContent: sw.last_error }));
+  if (sw.reboot) kids.push($("div", { className: "warn", textContent: "Nach dem letzten Update ist ein Neustart nötig." }));
+  if (sw.log.length) kids.push($("pre", { textContent: sw.log.join("\n") }));
+  if (sw.packages.length) kids.push($("details", {}, $("summary", { textContent: `Pakete anzeigen (${sw.packages.length})` }), $("pre", { textContent: sw.packages.map(p => `${p.name}  ${p.old} → ${p.new}`).join("\n") })));
+  return $("div", { className: "card" }, ...kids);
 }
 
 async function showPi(id) {
@@ -120,6 +162,7 @@ async function showPi(id) {
       $("button", { textContent: "Zurück", onclick: overview }),
       d.running ? act("Abbrechen", () => confirm("Sicherung abbrechen? Vorhandene Images bleiben.") ? api(`api/pis/${id}/cancel`, "POST") : null)
                 : act("Jetzt sichern", () => api(`api/pis/${id}/backup`, "POST"), "main"),
+      d.software.count > 0 && !d.software.state && !d.running ? act("Aktualisieren", () => upgradePi(d), d.update_mode === "careful" ? "danger" : "") : null,
       $("button", { textContent: "Konfiguration", onclick: () => editPi(id) }),
       $("button", { textContent: "Neuer Schlüssel", onclick: () => keyDialog(id, d) })),
       $("div", { className: "card" }, $("div", { className: "name", style: "font-size:20px", textContent: d.name }),
@@ -133,12 +176,13 @@ async function showPi(id) {
       for (const [k, l] of [["model","Modell"],["os","System"],["kernel","Kernel"],["hostname","Hostname"],["disk","Karte"],["temp","Temperatur"],["mem","Arbeitsspeicher"],["uptime","Laufzeit"],["reboot","Neustart nötig"]]) dl.append($("dt", { textContent: l }), $("dd", { textContent: dev[k] || "–" }));
       parts.push($("h2", { textContent: "Zustand" }), $("div", { className: "card" }, dl));
     } else if (d.online === false) parts.push($("div", { className: "bad", textContent: "Der Pi ist gerade nicht erreichbar." }));
+    parts.push($("h2", {}, "Software ", $("button", { textContent: "Updates prüfen", style: "font-size:12px;padding:2px 8px;margin-left:6px", disabled: !!d.software.state, onclick: async () => { try { await api(`api/pis/${id}/check-updates`, "POST"); } catch (e) { alert(e.message); } setTimeout(() => showPi(id), 1500); } })), softwareCard(d));
     parts.push($("h2", { textContent: "Images" }), $("div", { className: "card" }, ...(d.images_list.length ? d.images_list.map(i => $("div", { className: "image" },
       $("div", { style: "flex:1;min-width:0" }, $("div", { textContent: i.file, style: "overflow-wrap:anywhere" }), $("div", { className: "quiet", textContent: `${when(i.time)} · ${size(i.size)}${i.os ? " · " + i.os : ""}` })),
       $("button", { className: "danger", textContent: "Löschen", onclick: async () => { if (confirm(`${i.file} wirklich löschen?`)) { await api(`api/pis/${id}/images/${encodeURIComponent(i.file)}`, "DELETE"); showPi(id); } } }))) : [$("div", { className: "quiet", textContent: "Noch keine Images" })])));
     if (d.notes) parts.push($("h2", { textContent: "Notizen" }), $("div", { className: "card", textContent: d.notes }));
     app.replaceChildren(...parts);
-    schedule(() => showPi(id), d.running ? 5000 : 30000);
+    schedule(() => showPi(id), d.running || d.software.state ? 5000 : 30000);
   } catch (e) { fail(e); }
 }
 
@@ -181,6 +225,7 @@ function piFields(p, isNew) {
     check("expand", "Beim ersten Start auf die ganze SD-Karte vergrößern", p.expand ?? true),
     $("div", { className: "two" }, choice("schedule", "Zeitplan", p.schedule ?? "off", [["off","Aus"],["daily","Täglich"],["weekly","Wöchentlich"],["monthly","Monatlich"]]), field("hour", "Frühestens ab Stunde", p.hour ?? 3, "number")),
     choice("notify", "Benachrichtigung", p.notify ?? "errors", [["errors","Nur bei Fehlern"],["always","Auch bei Erfolg"],["off","Aus"]]),
+    choice("updates", "Updates", p.updates ?? (isNew ? "all" : "single"), UPDATE_MODES),
     field("excludes", "Ausschlüsse", p.excludes, "textarea", "Ein rsync-Muster je Zeile, zusätzlich zu Swap, Caches und /tmp."),
     field("pre_cmd", "Befehl vorher", p.pre_cmd), field("post_cmd", "Befehl nachher", p.post_cmd))];
   return b;

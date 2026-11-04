@@ -86,6 +86,20 @@ Nachricht beim ersten Fehler, dann höchstens eine pro Tag und eine, sobald es w
 Zusätzlich kann die App über einen eigenen ntfy-Server benachrichtigen. Server, Thema und optional ein Token stehen unter
 **Einstellungen**, dort gibt es auch eine Testnachricht. Das Thema musst du einmal in der ntfy-App abonnieren.
 
+## Updates
+
+Zweimal am Tag fragt der Dienst jeden Pi, welche Pakete ein `apt full-upgrade` installieren würde. Die Detailseite zeigt
+den Software-Stand und die wartenden Pakete, die Übersicht wie viele Pis Updates haben. Pro Pi gibt es drei Stufen:
+
+- **Bei „Alle aktualisieren“ dabei:** der Knopf in der Übersicht nimmt diesen Pi mit.
+- **Nur einzeln aktualisieren:** nur über den Knopf auf seiner Detailseite. So steht jeder Pi, bis die Einstellung
+  einmal gespeichert wurde.
+- **Gesperrt:** nur einzeln, nachdem der Name des Pi eingetippt wurde. Die Prüfung lädt dort nicht einmal die
+  Paketlisten neu. Die Engine verweigert ein Update auch selbst, wenn `pi.conf` keine Stufe nennt.
+
+apt läuft abgelöst auf dem Pi (`/var/tmp/pi-wartung-update.*`), eine abreißende Verbindung bricht es also nicht ab.
+Sicherung und Update schließen sich gegenseitig aus, neu gestartet wird der Pi nie. Updates starten dürfen nur Admins.
+
 ## Handy-Dienst
 
 `service/install.sh` installiert auf dem Unraid den Container `pi-wartung-service` (Port 8092) für die App

@@ -24,11 +24,19 @@ SUMMARY = ("DISK\t100\t1000\n"
 class FakeBackend:
     def __init__(self):
         self.calls = []
+        self.inventory = INVENTORY
+        self.summary = SUMMARY
+
+    def admin(self, timeout=120, **request):
+        self.calls.append(("admin", request.get("verb"), request.get("path")))
+        return ""
 
     def host_call(self, verb, arg=None, timeout=60):
         self.calls.append((verb, arg))
         return {
-            "inventory": INVENTORY, "summary": SUMMARY,
+            "inventory": self.inventory, "summary": self.summary,
+            "updates": "UPD_STATE=\nUPD_COUNT=2\nUPD_ERROR=''\n@@PKG bluez 5.66-1 5.66-2\n@@PKG neu neu 1.0\n",
+            "upgrade": "/log", "upgrade-confirmed": "/log", "check-updates": "ok",
             "status": "disk=9G 10G 90%\ntemp=50 °C\nsudo=ok\nrsync=ok\n",
             "images": "Fenster_1.img.xz\t300\t40\tos=Debian\x1e\n",
             "state": "RUNNING=1\nLAST_ERROR=Fehler\\ X\n",
@@ -169,6 +177,64 @@ class Service(unittest.TestCase):
     def test_ntfy_needs_manager(self):
         self.set_password("geheim")
         self.assertEqual(self.scoped("/api/ntfy", ["*"], role="user")[0], 403)
+
+    def with_updates(self):
+        """Fenster in update all, Wohnzimmer careful, Kueche single; all three have updates waiting."""
+        self.backend.inventory = json.dumps({"pis": [
+            {"id": ID, "name": "Fenster", "category": "Familie", "host": "h", "updates": "all"},
+            {"id": "def456", "name": "Wohnzimmer", "category": "Familie", "host": "h", "updates": "careful"},
+            {"id": "aaa111", "name": "Kueche", "category": "Familie", "host": "h"}]})
+        line = "PI\t/r/Familie/{}\t0\tok\t50\t40\t2\t300\t77\tdaily\t40\t\t{}\t60\t\t\n"
+        self.backend.summary = ("DISK\t100\t1000\n" + line.format("Fenster", 58) + line.format("Wohnzimmer", 12)
+                                + line.format("Kueche", 29))
+        self.set_password("geheim")
+
+    def test_update_all_only_takes_pis_set_to_all(self):
+        self.with_updates()
+        code, data = self.call("/api/overview")
+        self.assertEqual((code, data["update_pis"]), (200, 3))
+        self.assertEqual([p["name"] for p in data["update_all"]], ["Fenster"])
+        self.assertEqual({p["name"]: p["update_mode"] for p in data["pis"]},
+                         {"Fenster": "all", "Wohnzimmer": "careful", "Kueche": "single"})
+        code, data = self.scoped("/api/updates/all", ["*"], "POST", role="owner", body={"ids": [ID, "def456", "aaa111"]})
+        self.assertEqual((code, data["started"]), (202, ["Fenster"]))
+        upgrades = [c for c in self.backend.calls if c[0].startswith("upgrade")]
+        self.assertEqual(upgrades, [("upgrade", "/r/Familie/Fenster")])
+
+    def test_update_all_skips_pis_the_caller_did_not_see(self):
+        self.with_updates()
+        code, data = self.scoped("/api/updates/all", ["*"], "POST", role="owner", body={"ids": []})
+        self.assertEqual((code, data["started"]), (202, []))
+        self.assertFalse([c for c in self.backend.calls if c[0].startswith("upgrade")])
+
+    def test_careful_pi_needs_its_name_typed(self):
+        self.with_updates()
+        for body in ({}, {"confirm": "ja"}, {"confirm": "wohnzimmer"}):
+            code, data = self.scoped("/api/pis/def456/upgrade", ["*"], "POST", role="owner", body=body)
+            self.assertEqual(code, 400)
+            self.assertIn("Wohnzimmer", data["detail"])
+        self.assertFalse([c for c in self.backend.calls if c[0].startswith("upgrade")])
+        code, _ = self.scoped("/api/pis/def456/upgrade", ["*"], "POST", role="owner", body={"confirm": "Wohnzimmer"})
+        self.assertEqual(code, 202)
+        self.assertIn(("upgrade-confirmed", "/r/Familie/Wohnzimmer"), self.backend.calls)
+        self.assertIn(("admin", "put-file", "/r/Familie/Wohnzimmer/pi.conf"), self.backend.calls)
+
+    def test_single_pi_update_and_software_in_detail(self):
+        self.with_updates()
+        code, data = self.call("/api/pis/aaa111")
+        self.assertEqual((code, data["software"]["count"]), (200, 2))
+        self.assertEqual(data["software"]["packages"][0], {"name": "bluez", "old": "5.66-1", "new": "5.66-2"})
+        self.assertEqual(self.scoped("/api/pis/aaa111/upgrade", ["*"], "POST", role="owner", body={})[0], 202)
+        self.assertIn(("upgrade", "/r/Familie/Kueche"), self.backend.calls)
+        self.assertEqual(self.call("/api/pis/aaa111/check-updates", "POST")[0], 202)
+
+    def test_updates_need_manager(self):
+        self.with_updates()
+        self.assertEqual(self.scoped(f"/api/pis/{ID}/upgrade", ["*"], "POST", body={})[0], 403)
+        self.assertEqual(self.scoped("/api/updates/all", ["*"], "POST", body={"ids": [ID]})[0], 403)
+        code, data = self.scoped("/api/pis/def456", ["*"], "PUT", body={"updates": "all"})
+        self.assertEqual(code, 403)
+        self.assertFalse([c for c in self.backend.calls if c[0].startswith("upgrade") or c[0] == "admin"])
 
     def test_unknown_and_wrong_method(self):
         self.set_password("geheim")

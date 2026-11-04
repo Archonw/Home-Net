@@ -138,6 +138,16 @@ class Dashboard(unittest.TestCase):
         self.assertEqual(s["runs"][0]["error"], "Kaputt")
         self.assertEqual(s["runs"][1]["error"], "")
 
+    def test_parse_update_fields(self):
+        s = core.parse_summary("PI\t/r/A/x\t0\tok\t50\t10\t2\t300\t40\toff\t10\t\t58\t60\tupgrading\tfailed\n")
+        row = s["pis"]["/r/A/x"]
+        self.assertEqual((row["upd_count"], row["upd_time"], row["upd_state"], row["upd_last"]), (58, 60, "upgrading", "failed"))
+        self.assertNotIn("upd_count", core.parse_summary(self.TEXT)["pis"]["/r/A/x"])
+
+    def test_old_pi_is_not_in_update_all_and_conf_names_setting(self):
+        self.assertEqual(Pi(name="x").updates, "single")
+        self.assertIn("UPDATES=careful", Pi(name="x", updates="careful").conf_text())
+
     def test_attention(self):
         pi = Pi(name="x")
         s = core.parse_summary(self.TEXT)
