@@ -43,7 +43,7 @@ IPv6 oder einen Tunnel.
 | TCP 443 | HTTPS-Port des Proxys | Zugriff |
 | TCP 80 | HTTP-Port des Proxys | nur für das Let's-Encrypt-Zertifikat |
 
-Port 8085 (Monitor) und 8091 (ntfy) werden **nicht** freigegeben.
+Port 8085 (Monitor) wird **nicht** freigegeben.
 
 Falls der FRITZ!Box-Fernzugang selbst Port 443 nutzt (*Internet → Freigaben → FRITZ!Box-Dienste*),
 muss er auf einen anderen Port oder ausgeschaltet werden.
@@ -78,32 +78,10 @@ Dann führen die Links in den Benachrichtigungen auch unterwegs zum Gerät.
 Die App probiert zuerst die Adresse, die zuletzt funktioniert hat, und weicht bei Bedarf auf die
 andere aus. Unterwegs dauert die allererste Anfrage deshalb ein paar Sekunden länger.
 
-## 6. Benachrichtigungen unterwegs (ntfy)
+## 6. Benachrichtigungen unterwegs
 
-ntfy läuft nur im Heimnetz, deshalb kommen Pushs unterwegs nicht an. Damit das klappt:
-
-1. Zweiten Proxy-Host für ntfy anlegen (z. B. `ntfy.example.de` → `192.168.178.20:8091`,
-   mit Websockets-Unterstützung an).
-2. ntfy absichern, damit niemand Fremdes mitliest oder Nachrichten schickt (`server.yml`):
-
-   ```yaml
-   base-url: "https://ntfy.example.de"
-   behind-proxy: true
-   auth-file: "/var/lib/ntfy/user.db"
-   auth-default-access: "deny-all"
-   ```
-
-3. Im ntfy-Container einen Benutzer und ein Token anlegen:
-
-   ```sh
-   ntfy user add handy
-   ntfy access handy netzwerkmonitor rw
-   ntfy token add handy
-   ```
-
-4. Im Monitor unter *Einstellungen* das Token bei ntfy unter **Zugriffstoken** eintragen.
-5. In der ntfy-App auf dem Handy den Server `https://ntfy.example.de` mit Benutzer `handy` hinzufügen
-   und das Thema `netzwerkmonitor` dort abonnieren.
+Meldungen kommen über Home-Net in die App, unterwegs über dieselbe Adresse wie die App selbst.
+Ein eigener Dienst dafür ist nicht nötig.
 
 ## 7. Prüfen
 

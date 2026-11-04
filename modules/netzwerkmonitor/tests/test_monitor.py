@@ -159,26 +159,18 @@ def test_single_device_page(client):
     assert c.get("/api/devices/00:00:00:00:00:00", auth=auth).status_code == 404
 
 
-def test_new_devices_trigger_notifiers():
+def test_new_devices_go_to_home_net(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVENTS_DIR", str(tmp_path))
     router = FakeRouter([PHONE])
-    sent = []
-
-    class Recorder:
-        def new_device(self, device):
-            sent.append(device.mac)
-
     app = create_app(
-        Settings(db_path=":memory:"),
-        router=router,
-        store=Store(":memory:"),
-        start_poller=False,
-        notifiers=[Recorder()],
+        Settings(db_path=":memory:"), router=router, store=Store(":memory:"), start_poller=False
     )
     app.state.monitor.poll_once()
     router.hosts.append(STRANGER)
     result = app.state.monitor.poll_once()
     app.state.notify_new(result.new_devices)
-    assert sent == ["DE:AD:BE:EF:00:03"]
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1 and "DE:AD:BE:EF:00:03" in files[0].read_text()
 
 
 def test_remove_offline_keeps_blocked_and_reports_on_return():
@@ -320,7 +312,7 @@ def test_api_names_related_devices_only_for_random_mac():
     router = FakeRouter([REAL])
     store = Store(":memory:")
     settings = Settings(db_path=":memory:", ui_password="geheimnis1")
-    app = create_app(settings, router=router, store=store, start_poller=False, notifiers=[])
+    app = create_app(settings, router=router, store=store, start_poller=False)
     app.state.monitor.poll_once()
     store.record_sighting(COPY.mac, ip="", hostname="", interface="", online=False)
     client = TestClient(app)

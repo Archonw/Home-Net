@@ -208,7 +208,7 @@ fun HomeScreen(
     var order by remember { mutableStateOf(settings.homeTiles) }
     var arranging by remember { mutableStateOf(false) }
 
-    AppUpdatePrompt(api, settings)
+    settings.updateApi()?.let { AppUpdatePrompt(it, settings) }
 
     LaunchedEffect(Unit) {
         if (settings.isHubConfigured) {

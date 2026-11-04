@@ -2,7 +2,7 @@
 
 Überwacht das Heimnetz über die FritzBox, erkennt neue Geräte und lässt sie erlauben oder sperren.
 
-Plan und Architektur: [docs/PLAN.md](docs/PLAN.md) · Zugriff von unterwegs: [docs/FERNZUGRIFF.md](docs/FERNZUGRIFF.md) · App-Updates: [docs/APP-UPDATES.md](docs/APP-UPDATES.md)
+Plan und Architektur: [docs/PLAN.md](docs/PLAN.md) · Zugriff von unterwegs: [docs/FERNZUGRIFF.md](docs/FERNZUGRIFF.md) · App-Updates: [docs/APP-UPDATES.md](../../docs/APP-UPDATES.md)
 
 ## Stand
 
@@ -39,7 +39,6 @@ oder in `modules/netzwerkmonitor` mit `docker compose up -d --build`. Die Schrit
 2. Ein eigenes Passwort festlegen (mindestens 8 Zeichen). Vorher ist nichts anderes erreichbar, auch nicht für die App.
 3. Der Browser fragt erneut: jetzt mit dem neuen Passwort anmelden.
 4. Auf der Einstellungsseite den FritzBox-Zugang aus Schritt 1 eintragen, „Verbindung testen“, speichern. Erst dann beginnt die Überwachung; der erste Scan übernimmt die vorhandenen Geräte als erlaubt.
-5. Optional Benachrichtigungen einrichten (siehe unten) und „Testnachricht senden“.
 
 Einstellungen liegen in der Datenbank unter `/data`. Wer den Container neu anlegt und `/data` behält, muss nichts erneut einrichten. Werte aus einer `.env` (siehe `.env.example`) sind weiterhin möglich und dienen als Startwerte; in der Weboberfläche gespeicherte Werte haben Vorrang.
 
@@ -54,32 +53,11 @@ Zeigt Modell und FritzOS-Version, ob Hostliste und Internet-Sperre funktionieren
 
 ## 4. Benachrichtigungen
 
-**Alles aus diesem Abschnitt lässt sich auch in der Weboberfläche unter „Einstellungen“ (`/settings`) eintragen**, inklusive FritzBox-Zugang, Abfrageintervall und UI-Passwort. Dort gespeicherte Werte gelten sofort und haben Vorrang vor der `.env`; die `.env` liefert nur die Startwerte.
-
-In der `.env` mit `NOTIFY` wählen: `ntfy`, `telegram`, `homeassistant` oder mehrere mit Komma (z. B. `ntfy,homeassistant`). Leer = aus. Danach den Container neu starten.
-
-**Telegram** (mit Buttons „Erlauben“/„Sperren“ direkt in der Nachricht):
-1. In Telegram mit `@BotFather` einen Bot anlegen (`/newbot`), Token in `TELEGRAM_BOT_TOKEN` eintragen.
-2. Dem neuen Bot eine beliebige Nachricht schicken.
-3. `https://api.telegram.org/bot<TOKEN>/getUpdates` im Browser öffnen und die Zahl bei `"chat":{"id":` in `TELEGRAM_CHAT_ID` eintragen.
-
-Nur Klicks aus diesem Chat werden ausgeführt.
-
-**Home Assistant** (Nachricht mit „Öffnen“-Knopf zur Weboberfläche):
-1. In Home Assistant unter Profil → Sicherheit ein langlebiges Zugriffstoken erstellen → `HA_TOKEN`.
-2. `HA_URL` auf die Adresse von Home Assistant setzen.
-3. `HA_NOTIFY_SERVICE` auf den notify-Dienst der Companion-App setzen (Entwicklerwerkzeuge → Aktionen, `notify.mobile_app_…`).
-
-**ntfy + Android-App** (Fingerabdruck, dann nur das eine Gerät mit „Erlauben“/„Sperren“):
-1. Einen eigenen ntfy-Server starten, z. B. auf Port 8090:
-   `docker run -d --name ntfy --restart unless-stopped -p 8090:80 -v /mnt/user/appdata/ntfy:/var/cache/ntfy binwiederhier/ntfy serve --cache-file /var/cache/ntfy/cache.db`
-2. In der `.env`: `NOTIFY=ntfy` (oder zusätzlich zu anderen), `NTFY_URL=http://192.168.178.20:8090`, `NTFY_TOPIC=netzwerkmonitor`.
-3. Auf dem Handy die **ntfy-App** installieren (Play Store oder F-Droid), Standardserver auf `http://192.168.178.20:8090` setzen und das Thema `netzwerkmonitor` abonnieren.
-4. Die **Netzwerkmonitor-App** installieren (siehe unten). Antippen der ntfy-Nachricht öffnet sie über `netmon://device/<MAC>`.
-
-Test: `docker exec networkmonitor networkmonitor-notify-test` schickt eine Testnachricht an alle eingestellten Kanäle.
+Meldungen über neue Geräte, Geräte im Blick und eine nicht erreichbare FritzBox kommen über Home-Net in die App. Welche du bekommst, wählst du auf der Home-Net-Seite unter „Mein Konto“. Eigene Kanäle wie ntfy, Telegram oder Home Assistant hat der Monitor nicht mehr.
 
 ## 5. Android-App
+
+Die App-Updates verteilt Home-Net selbst, auch ohne den Netzwerkmonitor. GitHub-Repository und Token stellst du auf der Home-Net-Seite unter „Einstellungen“ ein.
 
 Die App heißt jetzt **Home-Net** und hat ein [eigenes Repository](https://github.com/Archonw/Home-Net). Dort baut GitHub Actions bei jedem Push die APK; nach einem Push auf `main` liegt sie unter **Releases** als `netzwerkmonitor.apk`.
 

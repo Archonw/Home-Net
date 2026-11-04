@@ -91,8 +91,6 @@ USER = {"X-Home-Net-Role": "user"}
         ("get", "/api/settings"),
         ("put", "/api/settings"),
         ("post", "/api/settings/test-fritzbox"),
-        ("post", "/api/settings/test-notify"),
-        ("post", "/api/app/check"),
         ("post", "/api/devices/remove-offline"),
         ("post", "/api/devices/aa:bb:cc:dd:ee:ff/allow"),
         ("post", "/api/devices/aa:bb:cc:dd:ee:ff/block"),

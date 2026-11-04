@@ -295,8 +295,7 @@ class Install:
                                                      state.get("lan")),
                                       indent=2) + "\n")
         self.write_private(self.data / "gateway" / "auth.json", json.dumps(state["auth"]) + "\n")
-        if "netzwerkmonitor" in state["modules"]:
-            self.set_monitor_links()
+        self.move_app_settings()
         if "pi-wartung" in state["modules"]:
             (self.data / "pi-wartung" / "ssh").mkdir(parents=True, exist_ok=True, mode=0o700)
             Path(state["images"]).mkdir(parents=True, exist_ok=True)
@@ -345,15 +344,41 @@ class Install:
             self.write_private(login, json.dumps({"url": "http://wireguard-server:51821", "username": "home-net",
                                                   "password": password}) + "\n")
 
-    def set_monitor_links(self):
-        """Links in notifications of the monitor lead through the gateway, once its outside address is known."""
-        security = self.data / "gateway" / "security.json"
-        outside = json.loads(security.read_text()).get("external_url") if security.exists() else ""
-        if not outside:
+    def move_app_settings(self):
+        """App updates moved from the network monitor into the gateway: take over its repository, token and APK once."""
+        target = self.data / "gateway" / "app.json"
+        if target.exists():
             return
-        path = self.data / "netzwerkmonitor.env"
-        lines = [l for l in path.read_text().splitlines() if not l.startswith("PUBLIC_URL=")]
-        self.write_private(path, "\n".join(lines + [f"PUBLIC_URL={outside}/m/netzwerkmonitor/"]) + "\n")
+        found = {}
+        env = self.data / "netzwerkmonitor.env"
+        if env.exists():
+            for line in env.read_text().splitlines():
+                key, _, value = line.partition("=")
+                if key in ("APP_UPDATE_REPO", "APP_UPDATE_TOKEN") and value.strip():
+                    found[key[11:].lower()] = value.strip()
+        db = self.data / "netzwerkmonitor" / "networkmonitor.db"
+        if db.exists():
+            try:
+                import sqlite3
+                con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+                try:
+                    rows = con.execute("SELECT key, value FROM meta WHERE key IN "
+                                       "('cfg.app_update_repo', 'cfg.app_update_token')").fetchall()
+                finally:
+                    con.close()
+                for key, value in rows:
+                    found[key[15:]] = json.loads(value)
+            except Exception as exc:  # the update must go on; the setting can be entered again on the page
+                print(f"Hinweis: App-Einstellungen des Monitors nicht übernommen ({exc}). "
+                      "Repository und Token bitte auf der Home-Net-Seite unter Einstellungen eintragen.")
+        apks = sorted((self.data / "netzwerkmonitor" / "app").glob("netzwerkmonitor-*.apk"), key=lambda p: p.stat().st_mtime)
+        if apks and not any((self.data / "gateway" / "app").glob("*.apk")):
+            (self.data / "gateway" / "app").mkdir(parents=True, exist_ok=True)
+            shutil.copy2(apks[-1], self.data / "gateway" / "app" / apks[-1].name)
+        if found:
+            settings = {"repo": found.get("repo", "Archonw/Home-Net"), "token": found.get("token", "")}
+            self.write_private(target, json.dumps(settings) + "\n")
+            print("App-Updates: Einstellungen aus dem Netzwerkmonitor übernommen.")
 
     def compose(self, *args, check=True):
         return subprocess.run(["docker", "compose", "--env-file", str(self.env_file), "-f", str(self.compose_file),

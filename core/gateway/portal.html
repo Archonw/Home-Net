@@ -205,7 +205,6 @@ async function showUsers() {
     const data = await call("auth/users");
     let categories = [];
     if (data.modules.some(m => m.id === "pi-wartung")) categories = (await call("m/pi-wartung/api/inventory").catch(() => ({ categories: [] }))).categories;
-    const url = el("input", { value: me.external_url, placeholder: "https://name.example.de" });
     const modName = id => data.modules.find(m => m.id === id)?.name || id;
     const rightsText = x => `${x.modules.length ? x.modules.map(modName).join(", ") : "keine Dienste"} · ${x.categories.includes("*") ? "alle Kategorien" : x.categories.join(", ") || "keine Kategorien"}`;
     const groupNames = u => data.groups.filter(g => u.groups.includes(g.id)).map(g => g.name);
@@ -220,10 +219,41 @@ async function showUsers() {
       ...(data.groups.length ? data.groups.map(g => el("div", { className: "box line", style: "cursor:pointer", onclick: () => groupDialog(g, data, categories) },
         el("div", { className: "grow" }, el("div", { className: "name", textContent: g.name }), el("div", { className: "desc", textContent: `${memberNames(g)} · ${rightsText(g)}` }))))
         : [el("div", { className: "box desc", textContent: "Noch keine Gruppen. Eine Gruppe gibt allen Mitgliedern dieselben Dienste und Pi-Kategorien, z. B. „Schule“." })]),
-      el("h2", { textContent: "Adresse für unterwegs" }),
-      el("div", { className: "box line" }, el("div", { className: "grow" }, url), el("button", { textContent: "Speichern", onclick: async () => { try { await call("auth/external", "POST", { url: url.value }); await loadMe(); alert("Gespeichert."); } catch (e) { alert(e.message); } } })),
       el("h2", { textContent: "Alle Passkeys" }), el("div", { className: "box" }, ...items(data.items.passkeys, "passkeys")),
       el("h2", { textContent: "Alle gekoppelten Geräte" }), el("div", { className: "box" }, ...items(data.items.devices, "devices")));
+  } catch (e) { fail(e); }
+}
+async function showSettings() {
+  try {
+    const data = await call("auth/app");
+    const url = el("input", { value: me.external_url, placeholder: "https://name.example.de" });
+    const repo = el("input", { value: data.repo, placeholder: "Archonw/Home-Net" });
+    const token = el("input", { type: "password", autocomplete: "off", placeholder: data.token_set ? "gespeichert, leer lassen, um es zu behalten" : "nicht gesetzt" });
+    const drop = el("input", { type: "checkbox" });
+    const status = el("div", { className: "desc", style: "white-space:pre-line;margin-top:8px" });
+    const download = `${location.origin}/app`;
+    const show = r => { status.className = r.ok === false ? "warn" : "desc"; status.textContent = [r.version ? `Bereitgestellt: Version ${r.version}` : "Noch keine App bereitgestellt", r.message].filter(Boolean).join("\n"); };
+    const save = async () => {
+      const saved = await call("auth/app", "PUT", { repo: repo.value.trim(), token: token.value, clear_token: drop.checked });
+      token.value = ""; drop.checked = false;
+      token.placeholder = saved.token_set ? "gespeichert, leer lassen, um es zu behalten" : "nicht gesetzt";
+      return saved;
+    };
+    show(data.status);
+    view.replaceChildren(
+      el("h2", { textContent: "Adresse für unterwegs" }),
+      el("div", { className: "box" }, el("div", { className: "line" }, el("div", { className: "grow" }, url), el("button", { textContent: "Speichern", onclick: async () => { try { await call("auth/external", "POST", { url: url.value }); await loadMe(); alert("Gespeichert."); } catch (e) { alert(e.message); } } })),
+        el("div", { className: "desc", textContent: "Die Adresse, unter der Home-Net über den Reverse Proxy von außen erreichbar ist. Sie gilt für Passkeys, die App und Links in Meldungen." })),
+      el("h2", { textContent: "Android-App" }),
+      el("div", { className: "box" },
+        el("div", { className: "desc" }, "Home-Net stellt die App unter ", el("a", { href: download, textContent: download }), " bereit. Diese Adresse in Obtainium als Quelle eintragen, dann kommen Updates automatisch aufs Handy. Neue Versionen holt sich Home-Net jede Stunde aus den GitHub-Releases."),
+        el("label", { textContent: "GitHub-Repository (leer = nicht automatisch suchen)" }), repo,
+        el("label", { textContent: "GitHub-Token (freiwillig: hebt das Abfrage-Limit von 60 auf 5000 pro Stunde; bei einem privaten Repository Pflicht, Rechte: Contents lesen)" }), token,
+        data.token_set ? el("label", { className: "check" }, drop, "Token entfernen") : null,
+        el("div", { className: "foot" },
+          el("button", { textContent: "Speichern", onclick: async () => { try { await save(); status.className = "desc"; status.textContent = "Gespeichert."; } catch (e) { status.className = "warn"; status.textContent = e.message; } } }),
+          el("button", { className: "main", textContent: "Jetzt nach Update suchen", onclick: async () => { status.className = "desc"; status.textContent = "Suche läuft …"; try { await save(); show(await call("api/app/check", "POST")); } catch (e) { status.className = "warn"; status.textContent = e.message; } } })),
+        status));
   } catch (e) { fail(e); }
 }
 async function showAudit() {
@@ -247,9 +277,9 @@ function showLook() {
 const RAW_ICONS = "https://raw.githubusercontent.com/Archonw/Home-Net/main/assets/icons/";
 const CLASSIC = { netzwerkmonitor: "netzwerk.png", pihole: "pihole.png", wireguard: "wireguard.png", unraid: "unraid.png" };
 let page = "modules";
-const PAGES = { modules: ["Dienste", showModules], account: ["Mein Konto", showAccount], look: ["Aussehen", showLook], users: ["Benutzer", showUsers], audit: ["Protokoll", showAudit] };
+const PAGES = { modules: ["Dienste", showModules], account: ["Mein Konto", showAccount], look: ["Aussehen", showLook], users: ["Benutzer", showUsers], settings: ["Einstellungen", showSettings], audit: ["Protokoll", showAudit] };
 function render() {
-  nav.replaceChildren(...Object.entries(PAGES).filter(([k]) => me?.can_manage || !["users", "audit"].includes(k)).map(([k, [t]]) => el("button", { textContent: t, className: k === page ? "on" : "", onclick: () => { page = k; render(); } })));
+  nav.replaceChildren(...Object.entries(PAGES).filter(([k]) => me?.can_manage || !["users", "settings", "audit"].includes(k)).map(([k, [t]]) => el("button", { textContent: t, className: k === page ? "on" : "", onclick: () => { page = k; render(); } })));
   PAGES[page][1]();
 }
 async function loadMe() {
