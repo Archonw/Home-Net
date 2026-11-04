@@ -80,7 +80,7 @@ Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sond
 | `modules/ntfy/` | Eigener Server für Benachrichtigungen |
 | `tools/` | Hilfsprogramme, zum Beispiel die Sicherung der Einstellungen |
 | `assets/icons/` | Logos |
-| `docs/` | Plan und Anleitung zur Neuinstallation |
+| `docs/` | Plan und Bilder der App |
 
 ## Android-App: Installation und Updates
 
@@ -91,7 +91,13 @@ Damit Updates ankommen, muss im Networkmonitor unter *Einstellungen* das Reposit
 `Archonw/Home-Net` stehen. Die Versionsnummern laufen oberhalb der alten Releases weiter.
 
 Signiert wird mit den Secrets `NETMON_KEYSTORE_BASE64`, `NETMON_KEYSTORE_PASSWORD`, `NETMON_KEY_ALIAS` und
-`NETMON_KEY_PASSWORD`.
+`NETMON_KEY_PASSWORD`. Den Signierschlüssel und sein Passwort sicher aufbewahren: Ohne sie gehen Updates der App nur
+per Neuinstallation.
+
+## Umzug auf einen neuen Rechner
+
+`./home-net backup` sichert Einstellungen und Geheimnisse, `./home-net restore <archiv>` spielt sie auf dem neuen Rechner
+ein. Die Images der Pis und die PC-Sicherungen liegen in ihren eigenen Ordnern und brauchen eine eigene Kopie.
 
 ## Logos
 

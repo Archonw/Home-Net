@@ -179,7 +179,7 @@ class Install:
         self.write_private(self.state_file, json.dumps(state, indent=2) + "\n")
         self.write_private(self.env_file, f"DATA_DIR={self.data}\nIMAGES_DIR={state['images']}\n"
                                           f"PC_DIR={pc_dir(state)}\n"
-                                          f"GATEWAY_PORT={state['port']}\nTZ={state.get('tz', 'Europe/Berlin')}\n"
+                                          f"GATEWAY_PORT={state['port']}\nTZ={state.get('tz') or host_timezone()}\n"
                                           f"POCKET_ID_DATA={pool_path(self.data) / 'pocket-id-server' / 'data'}\n"
                                           f"WG_EASY_DATA={pool_path(self.data) / 'wireguard-server' / 'data'}\n")
         document = compose_document(modules, state["modules"], repo)
@@ -287,10 +287,32 @@ def pc_dir(state):
     return state.get("pc_dir") or str(Path(state["images"]).parent / "PC-Sicherung")
 
 
-def new_state(data, images, chosen, port, password, tz="Europe/Berlin", owner="admin"):
+def host_timezone(etc=Path("/etc"), unraid_ident=Path("/boot/config/ident.cfg")):
+    """The time zone of this computer, e.g. Europe/Berlin; UTC if none can be found."""
+    if os.environ.get("TZ") and "/" in os.environ["TZ"]:
+        return os.environ["TZ"]
+    try:
+        name = (etc / "timezone").read_text().strip()
+        if name:
+            return name
+    except OSError:
+        pass
+    link = etc / "localtime"
+    if link.is_symlink() and "zoneinfo/" in os.readlink(link):
+        return os.readlink(link).split("zoneinfo/", 1)[1]
+    try:
+        for line in unraid_ident.read_text().splitlines():
+            if line.startswith("timeZone="):
+                return line.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    return "UTC"
+
+
+def new_state(data, images, chosen, port, password, tz=None, owner="admin"):
     upstream = {m: secrets.token_urlsafe(24) for m in chosen if m != "ntfy"}
     return {"modules": list(chosen), "images": str(images or Path(data) / "pi-wartung" / "images"), "port": port,
-            "tz": tz, "owner": owner, "auth": password_record(password), "upstream": upstream}
+            "tz": tz or host_timezone(), "owner": owner, "auth": password_record(password), "upstream": upstream}
 
 
 def usable(module):
