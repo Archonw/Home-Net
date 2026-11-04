@@ -37,6 +37,7 @@
  "Code ausgestellt": "Code issued",
  "Code holen": "Get code",
  "Codes für dieses Konto": "Codes for this account",
+ "Danach hält sich die App selbst aktuell.": "After that the app keeps itself up to date.",
  "Darstellung": "Appearance",
  "Das Passwort braucht mindestens 8 Zeichen": "The password needs at least 8 characters",
  "Das aktuelle Passwort stimmt nicht": "The current password is wrong",
@@ -71,7 +72,6 @@
  "Falsche Domain": "Wrong domain",
  "Falscher Vorgang": "Wrong operation",
  "Fehler {0}": "Error {0}",
- "Für automatische Updates diese Seite in Obtainium als Quelle hinzufügen.": "For automatic updates, add this page as a source in Obtainium.",
  "Für diesen Dienst fehlt die Berechtigung": "You have no permission for this service",
  "Für dieses Konto ist noch kein Dienst freigegeben.": "No service has been shared with this account yet.",
  "Gekoppelte Geräte": "Paired devices",
@@ -165,10 +165,10 @@
  "Wird geladen …": "Loading …",
  "Zu groß": "Too large",
  "Zu viele Fehlversuche, bitte in 15 Minuten erneut versuchen": "Too many failed attempts, please try again in 15 minutes",
- "bereit. Diese Adresse in Obtainium als Quelle eintragen, dann kommen Updates automatisch aufs Handy. Neue Versionen holt sich Home-Net jede Stunde aus den GitHub-Releases.": ". Enter this address as a source in Obtainium and updates reach the phone automatically. Home-Net fetches new versions from the GitHub releases every hour.",
  "gespeichert, leer lassen, um es zu behalten": "saved, leave empty to keep it",
  "läuft": "running",
  "nicht gesetzt": "not set",
+ "zum Herunterladen bereit, das braucht man nur für die erste Installation auf einem neuen Handy. Danach fragt die App beim Start selbst nach einer neuen Version und installiert sie. Neue Versionen holt sich Home-Net jede Stunde aus den GitHub-Releases.": "for download; you only need it for the first installation on a new phone. After that the app checks for a new version on start and installs it itself. Home-Net fetches new versions from the GitHub releases every hour.",
  "{0} Fehlversuche von {1}, die Adresse ist für 15 Minuten gesperrt.": "{0} failed attempts from {1}, the address is locked for 15 minutes.",
  "{0} lehnt die Anmeldung des Gateways ab": "{0} rejects the gateway's credentials"
 }

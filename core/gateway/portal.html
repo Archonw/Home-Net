@@ -246,7 +246,7 @@ async function showSettings() {
         el("div", { className: "desc", textContent: "Die Adresse, unter der Home-Net über den Reverse Proxy von außen erreichbar ist. Sie gilt für Passkeys, die App und Links in Meldungen." })),
       el("h2", { textContent: "Android-App" }),
       el("div", { className: "box" },
-        el("div", { className: "desc" }, "Home-Net stellt die App unter ", el("a", { href: download, textContent: download }), " bereit. Diese Adresse in Obtainium als Quelle eintragen, dann kommen Updates automatisch aufs Handy. Neue Versionen holt sich Home-Net jede Stunde aus den GitHub-Releases."),
+        el("div", { className: "desc" }, "Home-Net stellt die App unter ", el("a", { href: download, textContent: download }), " zum Herunterladen bereit, das braucht man nur für die erste Installation auf einem neuen Handy. Danach fragt die App beim Start selbst nach einer neuen Version und installiert sie. Neue Versionen holt sich Home-Net jede Stunde aus den GitHub-Releases."),
         el("label", { textContent: "GitHub-Repository (leer = nicht automatisch suchen)" }), repo,
         el("label", { textContent: "GitHub-Token (freiwillig: hebt das Abfrage-Limit von 60 auf 5000 pro Stunde; bei einem privaten Repository Pflicht, Rechte: Contents lesen)" }), token,
         data.token_set ? el("label", { className: "check" }, drop, "Token entfernen") : null,
