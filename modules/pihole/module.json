@@ -51,6 +51,16 @@
       "id": "pihole_update",
       "label": "Update für Pi-hole verfügbar",
       "manager_only": true
+    },
+    {
+      "id": "pihole_updated",
+      "label": "Pi-hole wurde aktualisiert",
+      "manager_only": true
+    },
+    {
+      "id": "pihole_update_failed",
+      "label": "Update eines Pi-hole fehlgeschlagen",
+      "manager_only": true
     }
   ]
 }

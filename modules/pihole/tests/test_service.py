@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "service"))
 
 import pihole  # noqa: E402
 import server  # noqa: E402
+import updater  # noqa: E402
 
 PASSWORD = "geheim"
 
@@ -363,6 +364,109 @@ class WatcherTest(unittest.TestCase):
         self.assertEqual([t for k, t in self.sent() if k == "pihole_update"], [])
         _, out = None, self.watcher.piholes.overview()
         self.assertEqual(out["instances"][0]["updates"], [{"part": "Core", "installed": "v6.1.4", "available": "v6.2"}])
+
+
+class FakeRun:
+    """Stands in for subprocess.run: ssh-keygen writes a key, ssh answers as configured per host."""
+
+    def __init__(self):
+        self.calls = []
+        self.answers = {}
+        self.gate = threading.Event()
+        self.gate.set()
+
+    def __call__(self, cmd, **kwargs):
+        import subprocess
+        self.calls.append(cmd)
+        if cmd[0] == "ssh-keygen":
+            path = cmd[cmd.index("-f") + 1]
+            Path(path).write_text("PRIVATE")
+            Path(path + ".pub").write_text("ssh-ed25519 AAAATEST home-net-pihole\n")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        self.gate.wait(10)
+        code, out = self.answers.get(cmd[-2], (0, "\x1b[32m  [✓] Everything is up to date\x1b[0m\n"))
+        return subprocess.CompletedProcess(cmd, code, out, "")
+
+
+class UpdaterTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.run = FakeRun()
+        self.updater = updater.Updater(self.tmp.name, run=self.run)
+        self.updater.ensure_key()
+        self.items = [{"name": "Eins", "url": "http://192.168.1.2", "ssh_user": "root"},
+                      {"name": "Zwei", "url": "http://192.168.1.3:8080", "ssh_user": "pi", "ssh_port": 2222}]
+
+    def wait(self):
+        for _ in range(100):
+            if not self.updater.running():
+                return
+            time.sleep(0.05)
+        self.fail("Update endet nicht")
+
+    def test_key_line_allows_only_the_update(self):
+        line = self.updater.key_line()
+        self.assertTrue(line.startswith('command="case'))
+        self.assertIn("pihole -up", line)
+        self.assertIn("no-pty", line)
+        self.assertTrue(line.endswith("ssh-ed25519 AAAATEST home-net-pihole"))
+        self.assertEqual(oct(Path(self.tmp.name, "ssh").stat().st_mode)[-3:], "700")
+
+    def test_one_after_the_other_with_result(self):
+        self.run.answers["pi@192.168.1.3"] = (1, "Permission denied (publickey).")
+        done = []
+        self.updater.start(self.items, on_done=lambda i, ok, lines: done.append((i["name"], ok)))
+        self.wait()
+        self.assertEqual(done, [("Eins", True), ("Zwei", False)])
+        ssh = [c for c in self.run.calls if c[0] == "ssh"]
+        self.assertEqual([c[-2] for c in ssh], ["root@192.168.1.2", "pi@192.168.1.3"])
+        self.assertEqual(ssh[1][ssh[1].index("-p") + 1], "2222")
+        self.assertIn("BatchMode=yes", ssh[0])
+        self.assertEqual(self.updater.status("http://192.168.1.2")["log"], ["[✓] Everything is up to date"])
+        self.assertIn("noch nicht eingetragen", self.updater.status("http://192.168.1.3:8080")["log"][-1])
+
+    def test_only_one_run_at_a_time(self):
+        self.run.gate.clear()
+        self.updater.start(self.items[:1])
+        with self.assertRaises(RuntimeError):
+            self.updater.start(self.items[1:])
+        self.run.gate.set()
+        self.wait()
+
+
+class UpdateApiTest(ServiceTest):
+    """The endpoints, with the Fake ssh."""
+
+    def setUp(self):
+        super().setUp()
+        self.run = FakeRun()
+        server.ApiHandler.updater = updater.Updater(self.tmp.name, run=self.run)
+        server.ApiHandler.updater.ensure_key()
+        self.addCleanup(setattr, server.ApiHandler, "updater", None)
+
+    def test_update_endpoints(self):
+        self.assertEqual(self.call("POST", "/api/update", {}, role="user")[0], 403)
+        code, out = self.call("POST", "/api/instances/1/update", {})
+        self.assertEqual((code, out["started"]), (202, ["Zweiter"]))
+        for _ in range(100):
+            if not server.ApiHandler.updater.running():
+                break
+            time.sleep(0.05)
+        _, jobs = self.call("GET", "/api/update", role="user")
+        self.assertEqual([j["state"] for j in jobs["jobs"]], ["", "ok"])
+        _, d = self.call("GET", "/api/instances/1")
+        self.assertEqual(d["update_job"]["state"], "ok")
+        self.assertTrue(d["manager"])
+        _, settings = self.call("GET", "/api/settings")
+        self.assertIn("pihole -up", settings["key_line"])
+        self.assertEqual(settings["instances"][0]["ssh_user"], "root")
+
+    def test_ssh_settings_checked(self):
+        items = [{"name": "A", "url": "http://a", "ssh_user": "root; rm"}]
+        self.assertEqual(self.call("PUT", "/api/settings", {"instances": items})[0], 400)
+        items = [{"name": "A", "url": "http://a", "ssh_port": 70000}]
+        self.assertEqual(self.call("PUT", "/api/settings", {"instances": items})[0], 400)
 
 
 class VersionTest(unittest.TestCase):
