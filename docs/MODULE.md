@@ -47,6 +47,7 @@ Ein kleines, vollständiges Vorbild ist `modules/pihole`.
 | `api.health` | Pfad, den der Zugang für „läuft“ abfragt, Standard `/health` |
 | `api.public` | Pfade ohne Anmeldung, sparsam einsetzen |
 | `api.web` | `true`, wenn das Modul eine eigene Weboberfläche hat (Link auf der Startseite) |
+| `api.tile` | Optional: Pfad, unter dem das Modul seine Kachel für die App beschreibt (siehe unten) |
 | `services` | Container wie in Docker Compose. `build` ist relativ zum Repository; im Kanal `stabil` wird daraus das Image `ghcr.io/<repo>/<container>:<version>`, gebaut von `tools/release_images.py` für amd64 und arm64 |
 | `requires` | Optional: `{"path": "…", "message": "…"}` oder `{"arch": ["amd64"]}`. `home-net add` lehnt das Modul ab, wenn es nicht passt |
 | `events` | Arten von Meldungen. `manager_only` heißt: nur Eigentümer und Admins können sie wählen. Jedes `label` braucht eine englische Übersetzung |
@@ -98,6 +99,15 @@ dem Vorbild von `pihole`), damit Tests und `docker build` bei jeder Änderung la
 
 ## In der App
 
-Für die App kommt eine Kachel in `HomeScreen` (`android/.../PiScreens.kt`) dazu, die Schnittstelle in einer eigenen
-`<Name>Api.kt`, die Seiten in `<Name>Screens.kt`. Die App muss ohne das Modul und mit älteren Versionen des Moduls
-zurechtkommen.
+Jedes Modul erscheint in der App als Kachel, ohne dass die App dafür geändert werden muss:
+
+- **Name und Symbol** kommen aus `module.json`, die Zeile darunter ist die Beschreibung.
+- **Eigene Zeile:** Mit `"tile": "/api/tile"` unter `api` fragt die App beim Öffnen der Startseite
+  `GET /api/tile` ab (über den Zugang, mit den Rechten des Kontos). Die Antwort
+  `{"text": "3 Aufträge, 1 Fehler", "alert": true}` ersetzt die Beschreibung; `alert` färbt sie rot. Der Text wird wie
+  alle anderen übersetzt, wenn er in `i18n/en/<bereich>.json` steht.
+- **Antippen** öffnet die Weboberfläche des Moduls im Browser (bei `"web": true`). Dort meldet man sich wie am PC an.
+
+Wer eigene Seiten in der App möchte, schreibt sie in Kotlin: die Schnittstelle in einer eigenen `<Name>Api.kt`, die
+Seiten in `<Name>Screens.kt`, die Kachel in `HomeScreen` (`android/.../PiScreens.kt`), und trägt das Modul in
+`APP_MODULES` ein. Die App muss ohne das Modul und mit älteren Versionen des Moduls zurechtkommen.

@@ -543,6 +543,9 @@ class Handler(BaseHTTPRequestHandler):
             out["path"] = f"/m/{module['id']}"
             out["web"] = bool(module.get("web"))
             out["online"] = module_online(module)
+            if module.get("tile"):
+                # The module describes its own tile in the app: GET answers {"text": …, "alert": …}
+                out["tile"] = f"/m/{module['id']}{module['tile']}"
         else:
             out["external_port"] = module.get("external_port")
         return out

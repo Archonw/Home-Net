@@ -380,7 +380,7 @@ class Gateway(unittest.TestCase):
         port = self.up.server_address[1]
         modules = {"modules": [{"id": "demo", "name": "Demo", "description": "d", "icon": "i", "web": True,
                                 "upstream": f"http://127.0.0.1:{port}", "health": "/health",
-                                "public": ["/app"], "password": "modulpw"},
+                                "public": ["/app"], "password": "modulpw", "tile": "/api/tile"},
                                {"id": "ntfy", "name": "ntfy", "description": "n", "icon": "i", "external_port": 8091}]}
         modules["owner"] = "app"
         Path(self.dir.name, "gateway.json").write_text(json.dumps(modules))
@@ -487,6 +487,14 @@ class Gateway(unittest.TestCase):
         self.assertNotIn("password", data[0])
         self.assertNotIn("upstream", data[0])
         self.assertEqual(data[1]["external_port"], 8091)
+        # The app shows the module's own tile from this address
+        self.assertEqual(data[0]["tile"], "/m/demo/api/tile")
+        self.assertNotIn("tile", data[1])
+
+    def test_gateway_config_carries_tile(self):
+        modules = {"demo": {"name": "Demo", "description": "d", "icon": "i",
+                            "api": {"socket": "/run/demo/api.sock", "tile": "/api/tile"}}}
+        self.assertEqual(home_net.gateway_config(modules, ["demo"], {})["modules"][0]["tile"], "/api/tile")
 
     def test_unknown_module(self):
         self.assertEqual(self.call("/m/nix/")[0], 404)

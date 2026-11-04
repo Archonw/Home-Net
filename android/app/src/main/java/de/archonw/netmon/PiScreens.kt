@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -36,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -204,6 +206,10 @@ fun HomeScreen(
     var pihole by remember { mutableStateOf("Wird geladen …") }
     var piholeAlert by remember { mutableStateOf(false) }
     var installed by remember { mutableStateOf<Set<String>?>(null) }
+    // Module, die die App nicht kennt, mit eigener Kachel: Schlüssel „m:<id>“
+    var others by remember { mutableStateOf<List<HubModule>>(emptyList()) }
+    val otherTiles = remember { mutableStateMapOf<String, ModuleTile>() }
+    val uriHandler = LocalUriHandler.current
     var hubError by remember { mutableStateOf<String?>(null) }
     var order by remember { mutableStateOf(settings.homeTiles) }
     var arranging by remember { mutableStateOf(false) }
@@ -213,7 +219,9 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         if (settings.isHubConfigured) {
             try {
-                installed = hubModules(settings.hubUrl, settings.hubExternalUrl, settings.hubSecret).map { it.id }.toSet()
+                val modules = hubModules(settings.hubUrl, settings.hubExternalUrl, settings.hubSecret)
+                installed = modules.map { it.id }.toSet()
+                others = modules.filter { it.id !in APP_MODULES && (it.webPath.isNotEmpty() || it.tile.isNotEmpty()) }
             } catch (e: ApiException) {
                 hubError = e.message
             }
@@ -309,6 +317,17 @@ fun HomeScreen(
                 }
             }
         }
+        others.filter { it.tile.isNotEmpty() }.forEach { module ->
+            launch {
+                otherTiles[module.id] = try {
+                    moduleTile(settings.hubUrl, settings.hubExternalUrl, settings.hubSecret, module.tile)
+                } catch (e: ApiException) {
+                    ModuleTile(e.message ?: "Nicht erreichbar", true)
+                } catch (e: org.json.JSONException) {
+                    ModuleTile(module.description, false)
+                }
+            }
+        }
         if (installed?.contains("pihole") == true) {
             launch {
                 try {
@@ -328,6 +347,7 @@ fun HomeScreen(
             if (!arranging && installed != null) TextAction("Anordnen") { arranging = true }
         })
         // Pc-Sicherung und Unraid nur über den gemeinsamen Zugang, darum erst sichtbar, wenn der Server das Modul meldet
+        val otherKeys = others.map { MODULE_TILE + it.id }
         val visible = order.filter {
             when (it) {
                 "network" -> installed?.contains("netzwerkmonitor") != false
@@ -338,9 +358,10 @@ fun HomeScreen(
                 "proxy" -> installed?.contains("proxy-manager") == true
                 "wireguard" -> installed?.contains("wireguard") == true
                 "pihole" -> installed?.contains("pihole") == true
-                else -> false
+                else -> it in otherKeys
             }
-        }
+        } + otherKeys.filter { it !in order }
+        val labels = HOME_TILE_LABELS + others.associate { (MODULE_TILE + it.id) to it.name }
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -348,7 +369,7 @@ fun HomeScreen(
             hubError?.let { Text(it, color = p.blocked, fontSize = 14.sp) }
             if (arranging) {
                 ArrangeHint()
-                OrderList(visible, HOME_TILE_LABELS) { changed ->
+                OrderList(visible, labels) { changed ->
                     order = changed + order.filter { it !in changed }
                     settings.homeTiles = order
                 }
@@ -367,12 +388,31 @@ fun HomeScreen(
                         "proxy" -> ServiceTile("Proxy Manager", proxy, proxyAlert, "proxy", onProxy)
                         "wireguard" -> ServiceTile("WireGuard", wireGuard, wireGuardAlert, "wireguard", onWireGuard)
                         "pihole" -> ServiceTile("Pi-hole", pihole, piholeAlert, "pihole", onPihole)
+                        else -> others.firstOrNull { MODULE_TILE + it.id == tile }?.let { module ->
+                            val state = otherTiles[module.id]
+                            ServiceTile(
+                                module.name, state?.text?.ifBlank { null } ?: module.description, state?.alert == true,
+                                "module",
+                            ) {
+                                // Die Weboberfläche im Browser; dort meldet man sich wie am PC an
+                                if (module.webPath.isNotEmpty()) {
+                                    val base = PiApi.reached ?: settings.hubUrl
+                                    uriHandler.openUri(base.trimEnd('/') + module.webPath + "/")
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
+
+/** Module mit eigenen Seiten in der App; alle anderen bekommen eine Kachel, die das Modul selbst beschreibt. */
+val APP_MODULES = setOf(
+    "netzwerkmonitor", "pi-wartung", "pc-sicherung", "unraid", "pocket-id", "proxy-manager", "wireguard", "pihole",
+)
+const val MODULE_TILE = "m:"
 
 val HOME_TILES = listOf("network", "pi", "pc", "unraid", "pocketid", "wireguard", "pihole", "proxy")
 private val HOME_TILE_LABELS = mapOf(

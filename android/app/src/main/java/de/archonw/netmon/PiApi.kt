@@ -7,7 +7,19 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-data class HubModule(val id: String, val name: String, val online: Boolean?)
+data class HubModule(
+    val id: String,
+    val name: String,
+    val online: Boolean?,
+    val description: String = "",
+    /** Weg zur Weboberfläche des Moduls, z. B. /m/beispiel, wenn es eine hat. */
+    val webPath: String = "",
+    /** Weg, unter dem das Modul seine Kachel beschreibt ({"text": …, "alert": …}), sonst leer. */
+    val tile: String = "",
+)
+
+/** Kachel, die ein Modul selbst beschreibt. */
+data class ModuleTile(val text: String, val alert: Boolean)
 
 /** Fragt den gemeinsamen Zugang, welche Module installiert sind. */
 suspend fun hubModules(home: String, external: String, password: String): List<HubModule> {
@@ -15,8 +27,19 @@ suspend fun hubModules(home: String, external: String, password: String): List<H
     val arr = JSONObject(body).getJSONArray("modules")
     return (0 until arr.length()).map { i ->
         val o = arr.getJSONObject(i)
-        HubModule(o.getString("id"), o.optString("name"), if (o.has("online")) o.optBoolean("online") else null)
+        HubModule(
+            o.getString("id"), o.optString("name"), if (o.has("online")) o.optBoolean("online") else null,
+            description = o.optString("description"),
+            webPath = if (o.optBoolean("web")) o.optString("path") else "",
+            tile = o.optString("tile"),
+        )
     }
+}
+
+/** Die Kachel eines Moduls, das die App nicht selbst kennt. */
+suspend fun moduleTile(home: String, external: String, password: String, path: String): ModuleTile {
+    val o = JSONObject(PiApi(home, password, external).raw(path.trimStart('/')))
+    return ModuleTile(o.optString("text"), o.optBoolean("alert"))
 }
 
 /** Koppelt dieses Gerät mit dem Code von der Startseite; liefert seinen Geräteschlüssel. */
@@ -300,5 +323,8 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
     companion object {
         @Volatile
         private var lastWorking: String? = null
+
+        /** Die Adresse, die zuletzt geantwortet hat (Heimnetz oder unterwegs). */
+        val reached: String? get() = lastWorking
     }
 }

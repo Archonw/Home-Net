@@ -114,6 +114,13 @@ private val GLYPHS: Map<String, ModuleGlyph> by lazy {
                 "M3,12h18M12,3c2.4,2.5 3.7,5.6 3.7,9s-1.3,6.5 -3.7,9c-2.4,-2.5 -3.7,-5.6 -3.7,-9S9.6,5.5 12,3z"),
             0xFFFACC15, 0xFFEAB308, 0xFFA16207,
         ),
+        // Module, die die App nicht selbst kennt
+        "module" to ModuleGlyph(
+            R.drawable.ic_tile_module,
+            glyph("module", rect(4f, 4f, 7f, 7f, 1.5f), rect(13f, 4f, 7f, 7f, 1.5f), rect(4f, 13f, 7f, 7f, 1.5f),
+                rect(13f, 13f, 7f, 7f, 1.5f)),
+            0xFFCBD5E1, 0xFF64748B, 0xFF334155,
+        ),
     )
 }
 
