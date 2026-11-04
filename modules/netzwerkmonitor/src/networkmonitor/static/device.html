@@ -22,6 +22,10 @@ const $ = id => document.getElementById(id);
 const state = { device: null, error: null, message: null, busy: false };
 
 function renderTop() {
+  if (NM.prefs.style === "home") {
+    $("topbar").innerHTML = `<a class="back-link" href="/">${NM.icon("back")}Alle Geräte</a>`;
+    return;
+  }
   $("topbar").innerHTML = NM.prefs.style === "soft"
     ? `<a class="back-link" href="/">${NM.icon("back")}Alle Geräte</a>`
     : `<a class="icon-btn" href="/" aria-label="Zurück zu allen Geräten">${NM.icon("back")}</a>
@@ -46,7 +50,30 @@ function render() {
   const rename = `<button class="rename" data-act="rename">Umbenennen</button>
     <button class="rename" data-act="watch">${d.watched ? "Nicht mehr im Blick" : "Im Blick behalten"}</button>`;
   const msg = `<div class="msg" role="status">${NM.esc(state.message || "")}</div>`;
-  if (NM.prefs.style === "soft") {
+  if (NM.prefs.style === "home") {
+    const cls = { allowed: "allowed-c", unknown: "unknown-c", blocked: "blocked-c" }[d.status] || "";
+    const tile = (k, v, { mono = false, copy = false } = {}) =>
+      `<div class="hn-tile"><div class="k-row"><span class="label">${k}</span>${copy ? copyBtn(k, v) : ""}</div>
+        <b class="${mono ? "hn-mono" : ""}">${NM.esc(v)}</b></div>`;
+    $("main").innerHTML = `
+      <div class="topbar" style="padding-top:6px"><h1 class="hn-title">${name}</h1>
+        <span class="hn-actions-inline">
+          <button class="hn-btn" data-act="rename">Umbenennen</button>
+          <button class="hn-btn" data-act="watch">${d.watched ? "Nicht mehr im Blick" : "Im Blick behalten"}</button>
+        </span></div>
+      <div class="hn-quiet" style="font-size:14px"><span class="${cls}">${NM.statusLabel(d.status)}</span> · ${where}</div>
+      <h2 class="hn-h2">Details</h2>
+      <div class="hn-tiles hn-facts">
+        ${tile("IP-Adresse", d.ip || "–", { mono: true, copy: !!d.ip })}
+        ${tile("MAC-Adresse", d.mac, { mono: true, copy: true })}
+        ${tile("Verbindung", NM.ifaceLabel(d.interface))}
+        ${tile("Gerätename", d.hostname || "–")}
+        ${tile("Zuerst gesehen", NM.fmt(d.first_seen))}
+        ${tile("Zuletzt gesehen", NM.fmt(d.last_seen))}
+      </div>
+      ${d.random_mac ? `<p class="random-hint">Zufällige (private) MAC-Adresse: Das kann auch ein bekanntes Handy mit neuer Adresse sein.</p>` : ""}
+      ${msg}`;
+  } else if (NM.prefs.style === "soft") {
     const rows = [
       ["Gerätename", d.hostname || "–", false],
       ["IP-Adresse", d.ip || "–", !!d.ip],
