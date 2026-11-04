@@ -89,6 +89,12 @@ function renderTop() {
     }
     return;
   }
+  if (NM.prefs.style === "home") {
+    top.innerHTML = `<h1 class="hn-title">Netzwerkmonitor</h1>
+      <button class="hn-btn" data-act="search">${NM.icon("search")}Suchen</button>
+      <a class="hn-btn hn-settings" href="/settings">Einstellungen</a>${moreMenu()}`;
+    return;
+  }
   top.innerHTML = NM.prefs.style === "soft"
     ? `<button class="icon-btn" data-act="search" aria-label="Suchen">${NM.icon("search")}</button>
        <div class="grow brand">Netz<b>werk</b></div>${moreMenu()}`
@@ -113,6 +119,41 @@ function flatRow(d) {
     ${NM.icon("chevron", "chevron")}</a>`;
 }
 
+const STATE_CLASS = { allowed: "allowed-c", unknown: "unknown-c", blocked: "blocked-c" };
+function homeRow(d) {
+  return `<a class="hn-row" href="device/${encodeURIComponent(d.mac)}">
+    <span class="dot ${d.online ? "on" : ""} ${d.status}-c" title="${d.online ? "online" : "offline"}"></span>
+    <span class="row-main"><div class="row-title">${NM.esc(NM.title(d))}</div>
+      <div class="row-sub">${NM.esc(d.ip || "keine IP")} · ${d.online ? "online" : "offline"} · ${NM.esc(NM.ifaceLabel(d.interface))}</div></span>
+    <span class="hn-state ${STATE_CLASS[d.status] || ""}">${NM.statusLabel(d.status)}</span></a>`;
+}
+
+function renderHome(list, body) {
+  const total = (state.devices || []).length, f = NM.prefs.filter;
+  const tile = (k, label, value, sub, cls = "") =>
+    `<button class="hn-tile ${f === k ? "on" : ""}" data-act="filter:${k}" aria-pressed="${f === k}">
+      <span class="label">${label}</span><b class="${cls}">${value}</b><span class="hn-quiet">${sub}</span></button>`;
+  const unknown = count("unknown"), blocked = count("blocked");
+  const poll = state.health && state.health.last_poll
+    ? new Date(state.health.last_poll).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "–";
+  const fresh = (state.devices || []).filter(d => d.status === "unknown").sort(byName);
+  const label = { all: "Alle Geräte", online: "Online", unknown: "Unbekannt", blocked: "Gesperrt" }[f];
+  $("main").innerHTML = `
+    <div class="hn-tiles">
+      ${tile("all", "Geräte", total, `${count("online")} online`)}
+      ${tile("online", "Online", count("online"), `von ${total}`)}
+      ${tile("unknown", "Unbekannt", unknown, unknown ? "bitte prüfen" : "alles bekannt", unknown ? "unknown-c" : "allowed-c")}
+      ${tile("blocked", "Gesperrt", blocked, "ohne Internet", blocked ? "blocked-c" : "")}
+      <div class="hn-tile"><span class="label">Letzte Abfrage</span><b>${poll}</b><span class="hn-quiet">FritzBox</span></div>
+    </div>
+    ${messages()}
+    ${fresh.length && f === "all" && !state.query ? `<h2 class="hn-h2">Braucht Aufmerksamkeit</h2><div class="hn-card">${fresh.map(d =>
+      `<a href="device/${encodeURIComponent(d.mac)}"><span class="unknown-c">Unbekannt</span> · ${NM.esc(NM.title(d))}
+        <span class="hn-quiet">${NM.esc(d.ip || "keine IP")}</span></a>`).join("")}</div>` : ""}
+    <div class="hn-section"><h2>${label}</h2>${sortMenu()}</div>
+    ${body ?? `<div class="hn-list">${list.map(homeRow).join("")}</div>`}`;
+}
+
 function messages() {
   const err = state.error || (state.health && state.health.error ? "Fehler: " + state.health.error : null);
   return (err ? `<div class="error">${NM.esc(err)}</div>` : "") + (state.info ? `<div class="info">${NM.esc(state.info)}</div>` : "");
@@ -124,7 +165,8 @@ function renderMain() {
   const body = loading ? `<div class="loading"><div class="nm-spinner"></div></div>`
     : !list.length && state.devices ? `<div class="empty">Keine Geräte für diesen Filter.</div>` : null;
   const total = (state.devices || []).length;
-  if (NM.prefs.style === "soft") {
+  if (NM.prefs.style === "home") renderHome(list, body);
+  else if (NM.prefs.style === "soft") {
     $("main").innerHTML = `
       <section class="hero"><div>Dein Netzwerk${lastPoll() ? ` <span class="muted-hero">· ${lastPoll()}</span>` : ""}</div>
         <div class="stats">

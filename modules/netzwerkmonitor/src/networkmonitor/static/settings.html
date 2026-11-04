@@ -9,13 +9,14 @@
 </head>
 <body>
 <div class="page narrow">
+<a class="back-link" id="back" href="/" hidden></a>
 <h1 class="page-title">Einstellungen</h1>
 <section class="group" id="welcome" hidden>
   <h2>Fast geschafft</h2>
   <div class="box"><div class="hint" style="margin:0">Trage jetzt den FritzBox-Zugang ein und prüfe ihn mit „Verbindung testen“. Erst danach beginnt die Überwachung. Zum Schluss „Speichern“.</div></div>
 </section>
 
-<section class="group">
+<section class="group" id="style-group">
   <h2>Design</h2>
   <div class="segmented" id="style" role="radiogroup" aria-label="Design"></div>
 </section>
@@ -23,7 +24,7 @@
   <h2>Darstellung</h2>
   <div class="segmented" id="theme" role="radiogroup" aria-label="Darstellung"></div>
 </section>
-<section class="group">
+<section class="group" id="accent-group">
   <h2>Akzentfarbe</h2>
   <div class="swatches" id="accent" role="radiogroup" aria-label="Akzentfarbe"></div>
   <div class="hint" style="margin:8px 0 0" id="look-hint">Design, Darstellung und Farbe gelten für diesen Browser, wie in der App für dein Handy.</div>
@@ -76,7 +77,8 @@ function segmented(id, options, selected, onPick) {
   el.onclick = e => { const b = e.target.closest("[data-k]"); if (b) onPick(b.dataset.k); };
 }
 function renderAppearance() {
-  const styles = Object.fromEntries(Object.entries(NM.STYLES).map(([k, s]) => [k, s.label]));
+  if (NM.HOME_NET) return;
+  const styles = Object.fromEntries(Object.entries(NM.STYLES).filter(([k]) => k !== "home").map(([k, s]) => [k, s.label]));
   segmented("style", styles, NM.prefs.style, k => NM.set({ style: k }));
   const { light, dark, system } = NM.THEMES;
   segmented("theme", { light, dark, system }, NM.prefs.theme, k => NM.set({ theme: k }));
@@ -96,9 +98,11 @@ const form = document.getElementById("form");
 // Unter Home-Net gelten Anmeldung und Darstellung für alle Dienste, beides stellt man auf der Home-Net-Seite ein
 if (window.HOME_NET_PREFIX) {
   document.getElementById("password-group").remove();
-  document.getElementById("theme-group").remove();
-  document.getElementById("look-hint").textContent =
-    "Design und Farbe gelten für diesen Browser. Hell oder dunkel stellst du auf der Home-Net-Seite unter „Aussehen“ ein.";
+  // Aussehen wie die anderen Modulseiten; hell oder dunkel stellt man auf der Home-Net-Seite unter „Aussehen“ ein
+  for (const id of ["theme-group", "style-group", "accent-group"]) document.getElementById(id).remove();
+  const back = document.getElementById("back");
+  back.innerHTML = NM.icon("back") + "Geräte";
+  back.hidden = false;
 }
 const firstRun = new URLSearchParams(location.search).has("setup");
 document.getElementById("welcome").hidden = !firstRun;

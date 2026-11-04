@@ -12,7 +12,10 @@ const NM = (() => {
   const STYLES = {
     soft: { label: "Soft", accents: ["indigo", "petrol", "beere", "bernstein"] },
     tiles: { label: "Kacheln", accents: ["gruen", "blau", "violett", "orange"] },
+    // Unter dem Home-Net-Zugang: gleiches Aussehen wie die anderen Modulseiten (Pi-Wartung, Pi-hole …)
+    home: { label: "Home-Net", accents: ["indigo"] },
   };
+  const HOME_NET = !!window.HOME_NET_PREFIX;
   const THEMES = { light: "Hell", dark: "Dunkel", system: "Wie System" };
 
   // Einstellungen gelten je Browser, wie in der App je Handy
@@ -26,12 +29,19 @@ const NM = (() => {
   // Unter dem Zugang gilt die Darstellung für alle Home-Net-Seiten (Schlüssel aus core/gateway/theme.js).
   const SHARED_THEME = "hn.theme";
   try { const t = localStorage.getItem(SHARED_THEME); if (t in THEMES) prefs.theme = t; } catch { /* privates Fenster */ }
-  if (!STYLES[prefs.style]) prefs.style = DEFAULTS.style;
-  if (!STYLES[prefs.style].accents.includes(prefs.accent)) prefs.accent = STYLES[prefs.style].accents[0];
+  if (!STYLES[prefs.style] || prefs.style === "home") prefs.style = DEFAULTS.style;
+  // Soft/Kacheln bleiben für den Betrieb allein (wie die App); die gewählte Art wird nicht überschrieben.
+  const ownStyle = prefs.style;
+  const fixAccent = () => {
+    const accents = STYLES[HOME_NET ? ownStyle : prefs.style].accents;
+    if (!accents.includes(prefs.accent)) prefs.accent = accents[0];
+  };
+  fixAccent();
+  if (HOME_NET) prefs.style = "home";
 
   function save() {
     try {
-      localStorage.setItem(KEY, JSON.stringify(prefs));
+      localStorage.setItem(KEY, JSON.stringify({ ...prefs, style: HOME_NET ? ownStyle : prefs.style }));
       localStorage.setItem(SHARED_THEME, prefs.theme);
     } catch { /* privates Fenster */ }
   }
@@ -43,6 +53,18 @@ const NM = (() => {
   // Gleiche Farbwerte wie Theme.kt der App
   function palette(style, dark, accentHex) {
     const a = accentHex;
+    if (style === "home") {
+      // Farben wie in den Seiten der anderen Module; Akzent Indigo wie bisher beim Monitor
+      const c = dark
+        ? { bg: "#15171C", card: "#1F2229", text: "#ECEEF2", muted: "#9AA2AD", line: "#30343C", accent: "#7C86EF",
+            allowed: "#44B866", unknown: "#DD9140", blocked: "#EC6A6A" }
+        : { bg: "#F6F7F9", card: "#FFFFFF", text: "#1C1F26", muted: "#666E7A", line: "#E2E5EA", accent: "#4F5BD5",
+            allowed: "#1A7F37", unknown: "#B35A0A", blocked: "#C93A3A" };
+      return { ...c, "accent-text": c.accent, "accent-soft": mix(c.accent, c.bg, .82), "on-accent": "#FFFFFF",
+        "hero-start": c.bg, "hero-end": c.bg, "hero-text": c.text,
+        "allowed-bg": mix(c.allowed, c.card, .88), "unknown-bg": mix(c.unknown, c.card, .86),
+        "blocked-bg": mix(c.blocked, c.card, .88), danger: c.blocked };
+    }
     if (style === "soft") {
       if (dark) {
         const bg = "#0E1120";
@@ -102,7 +124,7 @@ const NM = (() => {
 
   function set(changes) {
     Object.assign(prefs, changes);
-    if (!STYLES[prefs.style].accents.includes(prefs.accent)) prefs.accent = STYLES[prefs.style].accents[0];
+    fixAccent();
     save();
     apply();
     document.dispatchEvent(new CustomEvent("nm:prefs"));
@@ -235,6 +257,9 @@ const NM = (() => {
 
   // Untere Leiste „Geräte“ / „Einstellungen“
   function tabbar(active) {
+    api("/api/me").then(me => document.body.classList.toggle("view-only", !me.can_manage)).catch(() => {});
+    // Unter Home-Net führen Knöpfe in der Kopfzeile, wie auf den anderen Modulseiten
+    if (prefs.style === "home") return;
     const nav = document.createElement("nav");
     nav.className = "tabbar";
     nav.setAttribute("aria-label", "Hauptnavigation");
@@ -243,8 +268,7 @@ const NM = (() => {
         ${id === active ? 'aria-current="page"' : ""}><span class="pill">${icon(id)}</span>${label}</a>`).join("");
     document.body.append(nav);
     document.body.classList.add("with-tabs");
-    api("/api/me").then(me => document.body.classList.toggle("view-only", !me.can_manage)).catch(() => {});
   }
 
-  return { prefs, set, icon, tabbar, ACCENTS, STYLES, THEMES, esc, api, statusLabel, ifaceLabel, title, fmt, copy, dialog, toast, pullToRefresh };
+  return { prefs, set, HOME_NET, icon, tabbar, ACCENTS, STYLES, THEMES, esc, api, statusLabel, ifaceLabel, title, fmt, copy, dialog, toast, pullToRefresh };
 })();
