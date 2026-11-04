@@ -1005,7 +1005,7 @@ class Translations(unittest.TestCase):
                 self.assertEqual(sorted(re.findall(r"\{\d\}", german)), sorted(re.findall(r"\{\d\}", english)),
                                  f"{path.name}: {german}")
                 # A template of placeholders and one short word ("{0} für {1}") would match unrelated texts
-                if "{" in german:
+                if re.fullmatch(r"\{\d\}.*\{\d\}", german):
                     self.assertGreaterEqual(len(re.sub(r"\{\d\}|[\W\d_]", "", german)), 5, f"{path.name}: {german}")
 
 

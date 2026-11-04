@@ -150,5 +150,17 @@
  "Kopplungscode (optional)": "Pairing code (optional)",
  "Gerät ist gekoppelt, neuer Code optional": "Device is paired, new code optional",
  "Die Adresse für unterwegs muss mit https:// beginnen.": "The address for use away from home must start with https://.",
- "Bitte den Kopplungscode aus Mein Konto eintragen.": "Please enter the pairing code from My account."
+ "Bitte den Kopplungscode aus Mein Konto eintragen.": "Please enter the pairing code from My account.",
+ "Übersicht": "Overview",
+ "Adresse": "Address",
+ "Statistik": "Statistics",
+ "Bitte warten …": "Please wait …",
+ "Wird geladen …": "Loading …",
+ "Stand": "As of",
+ "Modell": "Model",
+ "Temperatur": "Temperature",
+ "Arbeitsspeicher": "Memory",
+ "Prozessor": "Processor",
+ "Aktuell": "Up to date",
+ "Noch nichts": "Nothing yet"
 }
