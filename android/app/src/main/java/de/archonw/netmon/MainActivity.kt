@@ -75,6 +75,7 @@ class MainActivity : FragmentActivity() {
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var useBiometrics by mutableStateOf(false)
     private var appStyle by mutableStateOf(AppStyle.SOFT)
+    private var tileIcons by mutableStateOf(TileIconStyle.CLASSIC)
     private var accent by mutableStateOf(Accent.INDIGO)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -82,6 +83,7 @@ class MainActivity : FragmentActivity() {
         settings = Settings(this)
         themeMode = settings.themeMode
         appStyle = settings.appStyle
+        tileIcons = settings.tileIcons
         accent = settings.accent(appStyle)
         settings.migrateLockMode()
         useBiometrics = settings.useBiometrics
@@ -112,7 +114,7 @@ class MainActivity : FragmentActivity() {
             }
             val p = palette(appStyle, dark, accent)
             MaterialTheme(colorScheme = p.colorScheme()) {
-                CompositionLocalProvider(LocalPalette provides p) {
+                CompositionLocalProvider(LocalPalette provides p, LocalTileIconStyle provides tileIcons) {
                     if (!unlocked) {
                         LockedScreen(
                             useBiometrics = useBiometrics,
@@ -167,6 +169,11 @@ class MainActivity : FragmentActivity() {
                         onAccentChange = {
                             accent = it
                             settings.setAccent(appStyle, it)
+                        },
+                        tileIcons = tileIcons,
+                        onTileIconsChange = {
+                            tileIcons = it
+                            settings.tileIcons = it
                         },
                         useBiometrics = useBiometrics,
                         onLockModeChange = ::setLockMode,

@@ -369,6 +369,10 @@ fun TilesSettings(ui: SettingsUi) {
                 }
             }
         }
+        SectionLabel("Symbole auf der Startseite")
+        Box(Modifier.fillMaxWidth().clip(TileShape).background(p.card).padding(12.dp)) {
+            TileIconPicker(ui.tileIcons, ui.onTileIcons)
+        }
         if (ui.managedByHub) TilesLink("Benachrichtigungen", "Empfang und Auswahl", ui.onNotifications)
         TilesLink("Zugang", "Server, Konto und Kopplung", ui.onAccess)
         if (ui.configured && !ui.managedByHub) {
