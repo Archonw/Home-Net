@@ -231,6 +231,8 @@ def test_check_endpoint_reports_limit_and_reuses_recent_result(env, monkeypatch)
 
 def test_manual_check_right_after_success_asks_github_once(env, monkeypatch):
     c, folder = env
+    # Frisch gestarteter Rechner: die Uhr für Abstände steht noch nahe null
+    monkeypatch.setattr("networkmonitor.api.time.monotonic", lambda: 5.0)
     requests: list = []
     fake_github(monkeypatch, requests)
     assert c.post("/api/app/check", auth=AUTH).json()["message"] == "Neue Version 0.1.12 geladen"

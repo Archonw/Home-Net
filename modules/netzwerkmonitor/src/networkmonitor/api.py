@@ -134,16 +134,20 @@ def create_app(
     app_folder = AppFolder(settings.app_dir)
     app_state: dict = {"checked": None, "message": None, "ok": None}
     # Je Repository und Token eine eigene Ablage, ein neues Token hebt eine Sperre sofort auf
-    github: dict = {"key": None, "cache": ReleaseCache(), "last_ok": 0.0}
+    github: dict = {"key": None, "cache": ReleaseCache(), "last_ok": None}
 
     def check_app_update(manual: bool = False) -> dict:
         repo = rt.settings.app_update_repo
         token = rt.settings.app_update_token
         if (repo, token) != github["key"]:
-            github.update(key=(repo, token), cache=ReleaseCache(), last_ok=0.0)
+            github.update(key=(repo, token), cache=ReleaseCache(), last_ok=None)
         if not repo:
             app_state.update(ok=None, message="Automatische Suche aus")
-        elif manual and time.monotonic() - github["last_ok"] < MANUAL_CHECK_PAUSE:
+        elif (
+            manual
+            and github["last_ok"] is not None
+            and time.monotonic() - github["last_ok"] < MANUAL_CHECK_PAUSE
+        ):
             # Gerade erst gefragt: Ergebnis wiederverwenden, das spart Abfragen bei GitHub
             return app_status()
         else:
