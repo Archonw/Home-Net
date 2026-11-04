@@ -34,6 +34,7 @@ def load_words():
             parts = re.split(r"(\{\d\})", german)
             regex = "".join(f"(?P<p{p[1]}>.+?)" if re.fullmatch(r"\{\d\}", p) else re.escape(p) for p in parts)
             templates.append((re.compile(regex), english))
+    templates.sort(key=lambda t: -len(t[0].pattern))  # longest first, like the app
     return words, templates
 
 

@@ -63,6 +63,7 @@ ol { margin:6px 0; padding-left:20px; } li { margin:3px 0; }
 <dialog id="dlg"><form id="form" method="dialog"></form></dialog>
 
 <script>
+const tr = text => (window.hnT ? window.hnT(text) : text);
 const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
 const app = document.getElementById("app"), dlg = document.getElementById("dlg"), form = document.getElementById("form");
 const RESULTS = { ok: ["Gesichert", "ok"], failed: ["Fehler", "bad"], cancelled: ["Abgebrochen", "warn"], missed: ["Nicht gestartet", "warn"] };
@@ -115,7 +116,7 @@ async function overview() {
       parts.push($("h2", { textContent: "Wartende PCs (vom Stick gestartet)" }));
       for (const w of d.waiting) parts.push($("div", { className: "card row" },
         $("div", { className: "grow" }, $("div", { className: "name", textContent: w.pc_name || [w.vendor, w.product].filter(Boolean).join(" ") || "Unbekannter PC" }),
-          $("div", { className: "quiet", textContent: `${w.mac} · seit ${when(w.since)}${w.disks ? " · " + w.disks : ""}` })),
+          $("div", { className: "quiet", textContent: [w.mac, tr(`seit ${when(w.since)}`), w.disks].filter(Boolean).join(" · ") })),
         $("button", { className: "main", textContent: "Auftrag geben", onclick: () => assignDialog(w) }),
         $("button", { textContent: "Ignorieren", onclick: async () => { await api(`api/waiting/${w.id}`, "DELETE"); overview(); } })));
     }
@@ -127,7 +128,7 @@ async function overview() {
         const [text, cls] = status(p);
         parts.push($("div", { className: "card row", onclick: () => showPc(p.id) },
           $("div", { className: "grow" }, $("div", { className: "name", textContent: p.name }),
-            $("div", { className: "quiet", textContent: `Gesichert ${when(p.ok_time)} · ${p.next ? "nächste " + when(p.next) : "kein Zeitplan"}` })),
+            $("div", { className: "quiet", textContent: `${tr(`Gesichert ${when(p.ok_time)}`)} · ${tr(p.next ? `nächste ${when(p.next)}` : "kein Zeitplan")}` })),
           $("div", { style: "text-align:right" }, $("div", { className: cls, textContent: text }), $("div", { className: "quiet", textContent: size(p.bytes) }))));
       }
     }
@@ -169,7 +170,7 @@ async function showPc(id) {
       const hint = j.state === "armed" ? "Der PC wurde per Wake-on-LAN geweckt. Läuft er schon, bitte neu starten: Er startet dann übers Netz. Ohne Netzwerkstart den Stick einstecken." : null;
       parts.push($("div", { className: "card" }, $("div", { className: "name", textContent: p?.step || (j.action === "restore" ? `Wiederherstellung von ${j.run_label}` : "Sicherung") }),
         p ? $("progress", { max: 100, value: p.percent }) : null,
-        p ? $("div", { className: "quiet", textContent: `${p.percent} %${p.bytes ? " · " + size(p.bytes) + " gelesen" : ""}` }) : null,
+        p ? $("div", { className: "quiet", textContent: p.bytes ? `${p.percent} % · ${size(p.bytes)} gelesen` : `${p.percent} %` }) : null,
         hint ? $("div", { className: "quiet", textContent: hint }) : null,
         p?.log ? $("pre", { textContent: p.log }) : null));
     }
@@ -182,8 +183,8 @@ async function showPc(id) {
     if (d.history.length) parts.push($("h2", { textContent: "Verlauf" }), $("div", { className: "card" }, ...d.history.slice(0, 15).map(e => {
       const [t, c] = e.action === "restore" && e.result === "ok" ? ["Fertig", "ok"] : RESULTS[e.result] || [e.result, ""];
       const line = $("div", { className: "line" }, $("div", { className: "grow" },
-        $("div", {}, $("span", { className: c, textContent: `${e.action === "restore" ? "Wiederherstellung" : "Sicherung"}: ${t}` }), $("span", { className: "quiet", textContent: ` · ${when(e.end)} · ${Math.max(1, Math.round((e.end - e.start) / 60))} min${e.who ? " · " + e.who : ""}` })),
-        $("div", { className: "quiet", textContent: [e.message, e.action === "backup" && e.result === "ok" ? `gelesen ${size(e.processed)}, neu ${size(e.added)}` : ""].filter(Boolean).join(" · ") })));
+        $("div", {}, $("span", { className: c, textContent: `${tr(e.action === "restore" ? "Wiederherstellung" : "Sicherung")}: ${tr(t)}` }), $("span", { className: "quiet", textContent: ` · ${when(e.end)} · ${Math.max(1, Math.round((e.end - e.start) / 60))} min${e.who ? " · " + e.who : ""}` })),
+        $("div", { className: "quiet", textContent: [tr(e.message), e.action === "backup" && e.result === "ok" ? tr(`gelesen ${size(e.processed)}, neu ${size(e.added)}`) : ""].filter(Boolean).join(" · ") })));
       if (e.log) line.querySelector(".grow").append($("details", {}, $("summary", { className: "quiet", textContent: "Protokoll" }), $("pre", { textContent: e.log })));
       return line;
     })));
@@ -295,7 +296,7 @@ function restoreDialog(d, runId) {
     "Wiederherstellen", async fd => {
       const parts = fd.get("scope") === "some" ? fd.getAll("part") : [];
       if (fd.get("scope") === "some" && !parts.length) throw new Error("Bitte mindestens eine Partition wählen.");
-      if (!confirm(`Wirklich ${parts.length ? "die gewählten Partitionen" : "den ganzen PC"} ${d.name} überschreiben?`)) throw new Error("Nicht gestartet.");
+      if (!confirm(parts.length ? `Wirklich die gewählten Partitionen von ${d.name} überschreiben?` : `Wirklich den ganzen PC ${d.name} überschreiben?`)) throw new Error("Nicht gestartet.");
       await api(`api/pcs/${d.id}/restore`, "POST", { run: fd.get("run"), parts, after: fd.get("after") }); showPc(d.id);
     });
 }

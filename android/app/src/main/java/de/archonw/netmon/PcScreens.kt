@@ -88,12 +88,16 @@ private fun toneColor(tone: PcTone): Color {
 
 /** Fasst die PC-Sicherung für die Kachel auf der Startseite zusammen. */
 fun pcTileText(o: PcOverview): String =
-    (if (o.pcs.size == 1) "1 PC" else "${o.pcs.size} PCs") + ", ${formatBytes(o.bytes)}" + when {
-        o.waiting.isNotEmpty() -> ", ${o.waiting.size} wartet"
-        o.busy > 0 -> ", ${o.busy} in Arbeit"
-        o.problems > 0 -> ", ${o.problems} Probleme"
-        else -> ""
-    }
+    listOfNotNull(
+        if (o.pcs.size == 1) "1 PC" else t("{0} PCs", o.pcs.size),
+        formatBytes(o.bytes),
+        when {
+            o.waiting.isNotEmpty() -> t("{0} wartet", o.waiting.size)
+            o.busy > 0 -> t("{0} in Arbeit", o.busy)
+            o.problems > 0 -> t("{0} Probleme", o.problems)
+            else -> null
+        },
+    ).joinToString(", ")
 
 @Composable
 fun PcOverviewScreen(api: PcApi, onOpen: (String) -> Unit, onBack: () -> Unit) {
@@ -157,7 +161,7 @@ fun PcOverviewScreen(api: PcApi, onOpen: (String) -> Unit, onBack: () -> Unit) {
                         HubCard {
                             Text(w.label, color = p.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                             Text(
-                                "${w.mac} · seit ${formatEpoch(w.since)}" + (if (w.disks.isNotBlank()) " · ${w.disks}" else ""),
+                                listOf(w.mac, t("seit {0}", formatEpoch(w.since)), w.disks).filter { it.isNotBlank() }.joinToString(" · "),
                                 color = p.muted, fontSize = 12.sp,
                             )
                             if (o.manager) {
@@ -219,7 +223,7 @@ private fun PcRowCard(row: PcRow, onClick: () -> Unit) {
                 Text(row.name, color = p.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Text("$text · ${formatBytes(row.bytes)}", color = toneColor(tone), fontSize = 13.sp)
                 Text(
-                    "Gesichert ${formatEpoch(row.okTime)} · " + if (row.next > 0) "nächste ${formatEpoch(row.next)}" else "kein Zeitplan",
+                    t("Gesichert {0}", formatEpoch(row.okTime)) + " · " + if (row.next > 0) t("nächste {0}", formatEpoch(row.next)) else t("kein Zeitplan"),
                     color = p.muted, fontSize = 12.sp,
                 )
             }
@@ -310,7 +314,7 @@ fun PcDetailScreen(api: PcApi, id: String, onBack: () -> Unit) {
                                 trackColor = p.line,
                             )
                             Text(
-                                "${progress.percent} %" + if (progress.bytes > 0) " · ${formatBytes(progress.bytes)} gelesen" else "",
+                                if (progress.bytes > 0) t("{0} % · {1} gelesen", progress.percent, formatBytes(progress.bytes)) else "${progress.percent} %",
                                 color = p.muted, fontSize = 12.sp,
                             )
                         }
