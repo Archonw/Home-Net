@@ -136,7 +136,7 @@ async function showOverview(o) {
       $("p", { className: "hint", textContent: "Pausieren gilt für alle Pi-holes gleichzeitig. Danach schalten sie sich von selbst wieder ein." }),
       $("div", { className: "actions" }, ...buttons), msg),
     $("h2", { textContent: "Pi-holes" }), ...rows,
-    manager && (outdated || busy) ? $("div", { className: "actions" }, $("button", { className: "main", disabled: busy,
+    manager ? $("div", { className: "actions" }, $("button", { className: outdated ? "main" : "", disabled: busy,
       textContent: busy ? "Update läuft …" : "Alle aktualisieren", onclick: () => startUpdate("api/update", umsg, show) }), umsg) : null);
   if (o.blocking !== "enabled" || busy) timer = setTimeout(show, busy ? 5000 : 15000);
 }
@@ -150,7 +150,8 @@ function duration(s) {
 const JOB_TEXT = { waiting: "Wartet auf die anderen", running: "Wird gerade aktualisiert …", ok: "Update fertig", failed: "Update fehlgeschlagen" };
 const jobBusy = j => j && (j.state === "waiting" || j.state === "running");
 async function startUpdate(path, msg, again) {
-  if (!confirm("Pi-hole jetzt aktualisieren? Das dauert ein paar Minuten. Die Pi-holes werden nacheinander aktualisiert, damit die anderen weiter antworten.")) return;
+  const tr = window.hnT || (x => x);
+  if (!confirm(tr("Pi-hole jetzt aktualisieren? Das dauert ein paar Minuten. Die Pi-holes werden nacheinander aktualisiert, damit die anderen weiter antworten."))) return;
   try { await api(path, "POST"); again(); } catch (e) { msg.textContent = e.message; }
 }
 function jobBox(job) {
