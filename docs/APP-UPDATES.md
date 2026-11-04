@@ -4,7 +4,7 @@ Home-Net stellt die Android-App selbst zum Herunterladen bereit, auch ohne den N
 braucht das Handy keinen Zugang zu GitHub.
 
 ```
-GitHub-Release ──(jede Stunde)──▶ Home-Net (Zugang) ──▶ https://<home-net>/app ──▶ App / Obtainium / Browser
+GitHub-Release ──(jede Stunde)──▶ Home-Net (Zugang) ──▶ https://<home-net>/app ──▶ App (oder Browser beim ersten Mal)
 ```
 
 ## Woher Home-Net die App bekommt
@@ -26,23 +26,18 @@ Repository und Token stehen in `gateway/app.json`. Bei Installationen von vor di
 
 ## Auf dem Handy
 
-Die Seite `/app` (z. B. `https://home.example.de/app` oder `http://192.168.178.20:8093/app`) ist ohne Anmeldung
-erreichbar, damit Obtainium sie abfragen kann. Sie enthält nur die App, keine Zugangsdaten oder Gerätedaten.
-Alte Adressen unter `/m/netzwerkmonitor/app` funktionieren weiter.
+**Erste Installation:** Die Seite `/app` (z. B. `https://home.example.de/app` oder `http://192.168.178.20:8093/app`) ist
+ohne Anmeldung erreichbar und bietet die APK zum Herunterladen an. Sie enthält nur die App, keine Zugangsdaten oder
+Gerätedaten. Alte Adressen unter `/m/netzwerkmonitor/app` funktionieren weiter.
 
-**Obtainium:** *App hinzufügen* → URL `https://<home-net>/app` eintragen. Obtainium erkennt die Seite als
-HTML-Quelle, findet den Link auf die APK und meldet eine neue Version, sobald Home-Net eine neuere bereitstellt.
-Für eine schöne Versionsanzeige unter *Version Extraction* den Ausdruck `netzwerkmonitor-(.+)\.apk` mit
-*Match Group* `1` eintragen; dann passt die Version genau zu der in der App.
-
-**Ohne Obtainium:** Die App fragt beim Start Home-Net, ob dort eine neuere Version liegt, und bietet
-„Installieren“ an. Sie lädt die APK selbst und übergibt sie dem Android-Installer. Beim ersten Mal muss man ihr
-in den Android-Einstellungen erlauben, Apps zu installieren, und das Update einmal bestätigen. Hat sich die App
-einmal selbst aktualisiert, spielt Android ab Version 12 weitere Updates meist ohne Rückfrage ein (solange
-Obtainium nicht zuletzt installiert hat).
+**Updates:** Die App fragt beim Start Home-Net, ob dort eine neuere Version liegt, und bietet „Installieren“ an. Sie lädt
+die APK selbst und übergibt sie dem Android-Installer. Beim ersten Mal muss man ihr in den Android-Einstellungen erlauben,
+Apps zu installieren, und das Update einmal bestätigen. Danach spielt Android ab Version 12 weitere Updates meist ohne
+Rückfrage ein. Eine zusätzliche App wie Obtainium ist nicht nötig. Wer sie trotzdem nutzt, trägt `https://<home-net>/app`
+als Quelle ein (Version Extraction: `netzwerkmonitor-(.+)\.apk`, Match Group `1`).
 
 ## Andere Haushalte
 
 Jede Installation holt sich neue Versionen selbst von GitHub, so kommt ein Update dort an, ohne dass jemand etwas
 tun muss. Alle APKs sind mit demselben Schlüssel signiert, deshalb lässt sich jede neue Version über die alte
-installieren, egal ob sie aus GitHub, von Home-Net oder über Obtainium kommt.
+installieren, egal ob sie aus GitHub oder von Home-Net kommt.
