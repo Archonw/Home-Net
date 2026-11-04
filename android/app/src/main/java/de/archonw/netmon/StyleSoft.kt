@@ -387,6 +387,10 @@ fun SoftSettings(ui: SettingsUi) {
                 }
             }
         }
+        SoftCard {
+            CardTitle("Symbole auf der Startseite")
+            TileIconPicker(ui.tileIcons, ui.onTileIcons)
+        }
         if (ui.managedByHub) SoftLink("Benachrichtigungen", "Empfang und Auswahl", ui.onNotifications)
         SoftLink("Zugang", "Server, Konto und Kopplung", ui.onAccess)
         if (ui.configured && !ui.managedByHub) {

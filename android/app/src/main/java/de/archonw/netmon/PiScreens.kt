@@ -1,7 +1,5 @@
 package de.archonw.netmon
 
-import androidx.annotation.DrawableRes
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -362,14 +359,14 @@ fun HomeScreen(
             } else {
                 visible.forEach { tile ->
                     when (tile) {
-                        "network" -> ServiceTile("Netzwerk", network, networkAlert, R.drawable.ic_tile_network, onNetwork)
-                        "pi" -> ServiceTile("Pi-Wartung", pi, piAlert, R.drawable.ic_tile_pi, onPi)
-                        "pc" -> ServiceTile("PC-Sicherung", pc, pcAlert, R.drawable.ic_tile_pc, onPc)
-                        "unraid" -> ServiceTile("Unraid", unraid, unraidAlert, R.drawable.ic_tile_unraid, onUnraid)
-                        "pocketid" -> ServiceTile("Pocket ID", pocketId, pocketIdAlert, R.drawable.ic_tile_pocketid, onPocketId)
-                        "proxy" -> ServiceTile("Proxy Manager", proxy, proxyAlert, R.drawable.ic_tile_proxy, onProxy)
-                        "wireguard" -> ServiceTile("WireGuard", wireGuard, wireGuardAlert, R.drawable.ic_tile_wireguard, onWireGuard)
-                        "pihole" -> ServiceTile("Pi-hole", pihole, piholeAlert, R.drawable.ic_tile_pihole, onPihole)
+                        "network" -> ServiceTile("Netzwerk", network, networkAlert, "network", onNetwork)
+                        "pi" -> ServiceTile("Pi-Wartung", pi, piAlert, "pi", onPi)
+                        "pc" -> ServiceTile("PC-Sicherung", pc, pcAlert, "pc", onPc)
+                        "unraid" -> ServiceTile("Unraid", unraid, unraidAlert, "unraid", onUnraid)
+                        "pocketid" -> ServiceTile("Pocket ID", pocketId, pocketIdAlert, "pocketid", onPocketId)
+                        "proxy" -> ServiceTile("Proxy Manager", proxy, proxyAlert, "proxy", onProxy)
+                        "wireguard" -> ServiceTile("WireGuard", wireGuard, wireGuardAlert, "wireguard", onWireGuard)
+                        "pihole" -> ServiceTile("Pi-hole", pihole, piholeAlert, "pihole", onPihole)
                     }
                 }
             }
@@ -470,14 +467,11 @@ fun HubSetupScreen(settings: Settings, onSaved: () -> Unit, onBack: (() -> Unit)
 }
 
 @Composable
-private fun ServiceTile(title: String, status: String, alert: Boolean, @DrawableRes icon: Int, onClick: () -> Unit) {
+private fun ServiceTile(title: String, status: String, alert: Boolean, icon: String, onClick: () -> Unit) {
     val p = LocalPalette.current
     HubCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Image(
-                painterResource(icon), contentDescription = null,
-                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)),
-            )
+            ModuleIcon(icon)
             Spacer(Modifier.size(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, color = p.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)

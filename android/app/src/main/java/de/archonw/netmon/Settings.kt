@@ -161,6 +161,10 @@ class Settings(context: Context) {
     fun setAccent(style: AppStyle, accent: Accent) =
         prefs.edit().putString("accent_${style.name}", accent.name).apply()
 
+    var tileIcons: TileIconStyle
+        get() = enumOr(prefs.getString("tile_icons", null), TileIconStyle.CLASSIC)
+        set(value) = prefs.edit().putString("tile_icons", value.name).apply()
+
     var themeMode: ThemeMode
         get() = enumOr(prefs.getString("theme", null), ThemeMode.SYSTEM)
         set(value) = prefs.edit().putString("theme", value.name).apply()
