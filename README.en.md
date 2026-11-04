@@ -10,15 +10,18 @@ The web pages and the app are available in German and English; the app follows t
 
 ## Install
 
-On a Linux machine with Docker and Compose:
+On a Linux machine with Docker, Compose and Python 3, including Raspberry Pi and Unraid (web terminal; install the
+plugin "Docker Compose Manager" from **Apps** first):
 
 ```bash
-git clone https://github.com/Archonw/Home-Net.git
-cd Home-Net
-./home-net install
+curl -fsSL https://raw.githubusercontent.com/Archonw/Home-Net/main/install.sh | sh
 ```
 
-The installer asks for a data folder, the modules and a password. Afterwards everything runs at `http://<machine>:8093`.
+The script puts Home-Net into `/mnt/user/appdata/home-net` on Unraid, `/opt/home-net` as root elsewhere
+(`HOME_NET_DIR=<folder>` changes it), then asks for the modules, a user name and a password. Afterwards everything runs
+at `http://<machine>:8093`. Running it again only fetches the new version. Without questions:
+`… | sh -s -- --modules netzwerkmonitor,pihole --owner anna --password '…'`. The command `home-net` is then
+`<folder>/repo/home-net`.
 A fork installs from itself: updates, containers and the app then come from your fork
 ([docs/APP-UPDATES.md](docs/APP-UPDATES.md#eigener-fork)).
 

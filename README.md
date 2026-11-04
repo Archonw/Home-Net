@@ -7,15 +7,22 @@ welche Module du nutzt. Der Plan steht in [docs/PLAN.md](docs/PLAN.md).
 
 ## Installieren
 
-Auf einem Linux mit Docker und Compose:
+Auf einem Linux mit Docker, Compose und Python 3, auch auf einem Raspberry Pi oder auf Unraid (im Web-Terminal, vorher
+unter **Apps** das Plugin „Docker Compose Manager“ installieren):
 
 ```bash
-git clone https://github.com/Archonw/Home-Net.git
-cd Home-Net
-./home-net install
+curl -fsSL https://raw.githubusercontent.com/Archonw/Home-Net/main/install.sh | sh
 ```
 
-Das Programm fragt nach Datenordner, Modulen und Passwort. Danach läuft alles unter `http://<rechner>:8093`, mit einer Anmeldung für alle Module.
+Das Skript legt Home-Net auf Unraid unter `/mnt/user/appdata/home-net` ab, als root sonst unter `/opt/home-net`
+(`HOME_NET_DIR=<ordner>` ändert das), und fragt dann nach Modulen, Benutzername und Passwort. Danach läuft alles unter
+`http://<rechner>:8093`, mit einer Anmeldung für alle Module. Ein zweiter Aufruf holt nur die neue Version.
+
+Ohne Fragen, z. B. für eine Automatisierung: `… | sh -s -- --modules netzwerkmonitor,pihole --owner anna --password '…'`.
+Wer lieber mit Git arbeitet: `git clone https://github.com/Archonw/Home-Net.git && cd Home-Net && ./home-net install`.
+
+Den Befehl `home-net` gibt es danach unter `<ordner>/repo/home-net`; die Beispiele unten schreiben ihn kurz als
+`./home-net`.
 
 Aus einem eigenen Fork installiert, holt Home-Net Updates, Container und App aus diesem Fork (siehe
 [docs/APP-UPDATES.md](docs/APP-UPDATES.md#eigener-fork)).

@@ -79,6 +79,32 @@ class Modules(unittest.TestCase):
         self.assertNotIn("ports", doc["services"]["networkmonitor"])
 
 
+class OneLineInstall(unittest.TestCase):
+    """install.sh as in `curl … | sh`: download, then home-net install with the data beside the program."""
+
+    def test_installs_into_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            bin_dir = tmp / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "docker").write_text("#!/bin/sh\nexit 0\n")
+            # curl hands out this checkout as the GitHub archive would, with one folder around it
+            (bin_dir / "curl").write_text(
+                f"#!/bin/sh\ncd {ROOT.parent} && exec tar -cz --exclude=.git --exclude=android {ROOT.name}\n")
+            for f in bin_dir.iterdir():
+                f.chmod(0o755)
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", HOME=str(tmp / "home"),
+                       HOME_NET_DIR=str(tmp / "hn"), HOME_NET_REPO="anna/home-net")
+            with open(ROOT / "install.sh", "rb") as script:
+                result = subprocess.run(
+                    ["sh", "-s", "--", "--modules", "pihole", "--owner", "anna", "--password", "geheim-geheim-123",
+                     "--channel", "main", "--no-start"], stdin=script, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertTrue((tmp / "hn" / "repo" / "home-net").exists())
+            state = json.loads((tmp / "hn" / "data" / "home-net.json").read_text())
+            self.assertEqual((state["repo"], state["modules"]), ("anna/home-net", ["pihole"]))
+
+
 class ProgramUpdate(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
