@@ -77,8 +77,8 @@ async function show() {
   if (tab === "settings") return showSettings();
   try { data = await api("api/overview"); } catch (e) { app.replaceChildren($("p", { className: "err", textContent: e.message })); return; }
   if (!data.configured) {
-    app.replaceChildren($("div", { className: "card note" }, "Es fehlt noch die Anmeldung für WireGuard-Easy. Bitte unter ",
-      $("a", { href: "#", textContent: "Einstellungen", onclick: e => { e.preventDefault(); tab = "settings"; show(); } }), " eintragen."));
+    app.replaceChildren($("div", { className: "card note" }, "Es fehlt noch die Anmeldung für WireGuard-Easy. ",
+      $("a", { href: "#", textContent: "Jetzt unter Einstellungen eintragen.", onclick: e => { e.preventDefault(); tab = "settings"; show(); } })));
     return;
   }
   if (data.error) { app.replaceChildren($("p", { className: "err", textContent: data.error })); return; }
@@ -99,7 +99,7 @@ function showClients() {
   const list = data.clients.map(c => $("div", { className: "card click", onclick: () => openClient(c) },
     $("div", { className: "row" }, $("div", { className: "grow name", textContent: c.name }), state(c)),
     $("div", { className: "quiet", textContent: [c.address, c.rx || c.tx ? `↓ ${size(c.tx)} ↑ ${size(c.rx)}` : ""].filter(Boolean).join(" · ") })));
-  const version = data.version ? $("p", { className: "hint", textContent: `WireGuard-Easy ${data.version}` + (data.update ? ` · Update auf ${data.latest} verfügbar` : "") }) : null;
+  const version = data.version ? $("p", { className: "hint", textContent: data.update ? `WireGuard-Easy ${data.version} · Update auf ${data.latest} verfügbar` : `WireGuard-Easy ${data.version}` }) : null;
   app.replaceChildren($("div", { className: "actions" }, $("button", { className: "main", textContent: "Neuer Zugang", onclick: newClient })),
     ...(list.length ? list : [$("p", { className: "quiet", textContent: "Noch keine Zugänge." })]), version);
 }
