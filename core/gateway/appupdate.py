@@ -2,7 +2,7 @@
 
 Once an hour (or when asked) it looks for the release with the highest number in the GitHub repository and keeps
 its APK as ``netzwerkmonitor-<version>.apk`` in ``<config>/app``. Repository and token live in ``<config>/app.json``.
-The app and Obtainium fetch it from ``/app`` without logging in; the APK holds no secrets.
+The app (and Obtainium, if someone uses it) fetch it from ``/app`` without logging in; the APK holds no secrets.
 """
 
 from __future__ import annotations
@@ -304,7 +304,7 @@ class AppUpdates:
             name = html.escape(latest.filename)
             body = (
                 f'<p><a href="/app/{name}">{name}</a></p>'
-                "<p>Für automatische Updates diese Seite in Obtainium als Quelle hinzufügen.</p>"
+                "<p>Danach hält sich die App selbst aktuell.</p>"
             )
         return (
             '<!doctype html><html lang="de"><head><meta charset="utf-8">'
