@@ -1,0 +1,14 @@
+name: Wunsch / Feature request
+description: Eine Idee für Home-Net oder ein neues Modul / An idea or a new module
+labels: [enhancement]
+body:
+  - type: textarea
+    id: wunsch
+    attributes:
+      label: Was möchtest du erreichen? / What do you want to achieve?
+    validations:
+      required: true
+  - type: textarea
+    id: idee
+    attributes:
+      label: Wie könnte es aussehen? / How could it work?

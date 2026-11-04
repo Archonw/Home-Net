@@ -3,6 +3,8 @@
 Ein Baukasten für Dienste im Heimnetz, lauffähig auf jedem Linux mit Docker. Du wählst bei der Installation oder später,
 welche Module du nutzt. Der Plan steht in [docs/PLAN.md](docs/PLAN.md).
 
+*English: see [README.en.md](README.en.md).*
+
 ## Installieren
 
 Auf einem Linux mit Docker und Compose:
@@ -91,7 +93,7 @@ Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sond
 | --- | --- |
 | `core/` | Installationsprogramm und gemeinsamer Zugang |
 | `android/` | Android-App, zeigt eine Kachel je Modul |
-| `modules/netzwerkmonitor/` | Überwacht die Geräte im Netz |
+| `modules/netzwerkmonitor/` | Überwacht die Geräte im Netz, mit FritzBox auch Sperren, siehe [README](modules/netzwerkmonitor/README.md) |
 | `modules/pi-wartung/` | Sichert Raspberry Pis als Images, die sich auf SD-Karten schreiben lassen |
 | `modules/pc-sicherung/` | Sichert ganze PCs (Windows, Linux, beides) über den Netzwerkstart und stellt sie wieder her, siehe [README](modules/pc-sicherung/README.md) |
 | `modules/unraid/` | Verwaltet den Unraid-Server: Freigaben, Benutzer, Einstellungen, Docker, VMs und User Scripts, siehe [README](modules/unraid/README.md) |
@@ -109,10 +111,8 @@ Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sond
 ## Android-App: Installation und Updates
 
 GitHub Actions baut bei jedem Push die APK. Nach einem Push auf `main` liegt sie unter **Releases** als
-`netzwerkmonitor.apk`. Der Dateiname bleibt, weil der Monitor neue Versionen darüber erkennt und ans Handy weitergibt.
-
-Damit Updates ankommen, muss im Networkmonitor unter *Einstellungen* das Repository für App-Updates auf
-`Archonw/Home-Net` stehen. Die Versionsnummern laufen oberhalb der alten Releases weiter.
+`netzwerkmonitor.apk`. Home-Net holt neue Versionen selbst und bietet sie unter `https://<home-net>/app` und in der App
+an, auch ohne Netzwerkmonitor. Details, Obtainium und eigene Forks: [docs/APP-UPDATES.md](docs/APP-UPDATES.md).
 
 Signiert wird mit den Secrets `NETMON_KEYSTORE_BASE64`, `NETMON_KEYSTORE_PASSWORD`, `NETMON_KEY_ALIAS` und
 `NETMON_KEY_PASSWORD`. Den Signierschlüssel und sein Passwort sicher aufbewahren: Ohne sie gehen Updates der App nur
@@ -137,7 +137,12 @@ Release mit den Änderungen seit der letzten Version. Die Pakete auf ghcr.io mü
 ## Ein Modul hinzufügen
 
 Ein Modul ist ein Ordner unter `modules/` mit einer `module.json`: Name, Logo, Container, Rechte und Schnittstelle. Der Kern
-baut daraus die Installation und den Zugang. Für die App kommt eine Kachel in `HomeScreen` dazu.
+baut daraus die Installation und den Zugang. Die Anleitung steht in [docs/MODULE.md](docs/MODULE.md).
+
+## Mitmachen und Sicherheit
+
+Fehler und Wünsche gern als Issue, Änderungen als Pull Request: [CONTRIBUTING.md](CONTRIBUTING.md). Sicherheitslücken
+bitte vertraulich melden, siehe [SECURITY.md](SECURITY.md).
 
 ## Lizenz
 
