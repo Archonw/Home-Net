@@ -1,7 +1,9 @@
 name: Module
 
 on:
+  # Zweige prüft der PR; push nur für main, sonst läuft alles doppelt
   push:
+    branches: [main]
     paths:
       - "modules/**"
       - "core/**"
