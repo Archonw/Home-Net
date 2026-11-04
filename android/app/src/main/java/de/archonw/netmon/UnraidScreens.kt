@@ -51,13 +51,13 @@ fun unraidTileText(o: UnraidOverview): String {
     if (!o.available) return "Keine Daten von Unraid"
     val array = when {
         !o.started -> "Array gestoppt"
-        o.check.running -> "Prüfung ${o.check.percent?.let { "%.0f %%".format(it) } ?: "läuft"}"
+        o.check.running -> o.check.percent?.let { t("Prüfung {0}", "%.0f %%".format(it)) } ?: "Prüfung läuft"
         else -> "Array läuft"
     }
-    return array + when {
-        o.problems > 0 -> ", ${o.problems} Probleme"
-        o.warnings > 0 -> ", ${o.warnings} Platte warm"
-        else -> ", alle Platten in Ordnung"
+    return t(array) + ", " + when {
+        o.problems > 0 -> t("{0} Probleme", o.problems)
+        o.warnings > 0 -> t("{0} Platte warm", o.warnings)
+        else -> t("alle Platten in Ordnung")
     }
 }
 
@@ -199,11 +199,11 @@ fun UnraidOverviewScreen(
                                     )
                                 } else {
                                     Text(
-                                        if (c.last > 0) "Zuletzt ${formatEpoch(c.last)}: " + when {
-                                            c.lastExit != 0 -> "abgebrochen"
-                                            c.lastErrors > 0 -> "${c.lastErrors} Fehler"
-                                            else -> "keine Fehler"
-                                        } else "Noch keine Prüfung",
+                                        if (c.last > 0) t("Zuletzt {0}: {1}", formatEpoch(c.last), when {
+                                            c.lastExit != 0 -> t("abgebrochen")
+                                            c.lastErrors > 0 -> t("{0} Fehler", c.lastErrors)
+                                            else -> t("keine Fehler")
+                                        }) else "Noch keine Prüfung",
                                         color = if (c.lastErrors > 0) p.blocked else p.text, fontSize = 14.sp,
                                     )
                                 }
