@@ -142,8 +142,8 @@ fun PiholeScreen(api: PiholeApi, onStats: () -> Unit, onOpen: (Int) -> Unit, onB
                             }
                         }
                     }
-                    if (data.manager && data.instances.any { it.updates.isNotEmpty() }) {
-                        PillButton("Alle aktualisieren", strong = true) { confirmUpdate = true }
+                    if (data.manager) {
+                        PillButton("Alle aktualisieren", strong = data.instances.any { it.updates.isNotEmpty() }) { confirmUpdate = true }
                     }
                     Spacer(Modifier.height(16.dp))
                 }
