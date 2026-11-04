@@ -134,18 +134,47 @@ async function showAccount() {
   } catch (e) { fail(e); }
 }
 
+function rightsBoxes(item, data, categories, note) {
+  const mods = data.modules.map(m => { const c = el("input", { type: "checkbox", checked: !!item && (item.modules.includes("*") || item.modules.includes(m.id)) }); c.dataset.id = m.id; return c; });
+  const allCats = el("input", { type: "checkbox", checked: !!item && item.categories.includes("*") });
+  const cats = categories.map(n => { const c = el("input", { type: "checkbox", checked: !!item && item.categories.includes(n) }); c.dataset.id = n; return c; });
+  const box = el("div", {}, el("h2", { textContent: "Dienste" }), ...data.modules.map((m, i) => el("label", { className: "check" }, mods[i], m.name)),
+    el("h2", { textContent: "Pi-Wartung: Kategorien" }), el("label", { className: "check" }, allCats, "Alle Kategorien"),
+    ...categories.map((n, i) => el("label", { className: "check" }, cats[i], n)), el("div", { className: "desc", textContent: note }));
+  const value = () => ({ modules: mods.filter(c => c.checked).map(c => c.dataset.id), categories: allCats.checked ? ["*"] : cats.filter(c => c.checked).map(c => c.dataset.id) });
+  return { box, value };
+}
+function groupDialog(group, data, categories) {
+  const isNew = !group;
+  const name = el("input", { value: group?.name || "" });
+  const members = data.users.map(u => { const c = el("input", { type: "checkbox", checked: !!group && group.members.includes(u.id) }); c.dataset.id = u.id; return c; });
+  const rights = rightsBoxes(group, data, categories, "Wer in der Gruppe ist, bekommt diese Dienste und Kategorien zusätzlich zu den eigenen. Eine Kategorie schließt ihre Unterkategorien mit ein.");
+  const err = el("div", { className: "err" });
+  const extra = isNew ? [] : [el("button", { type: "button", className: "danger", textContent: "Löschen", style: "margin-right:auto", onclick: async () => {
+    if (confirm(`Gruppe ${group.name} löschen? Die Mitglieder verlieren die Rechte der Gruppe.`)) { try { await call(`auth/groups/${group.id}`, "DELETE"); dlg.close(); render(); } catch (e) { err.textContent = e.message; } }
+  } })];
+  form.replaceChildren(el("h3", { textContent: isNew ? "Gruppe anlegen" : `Gruppe ${group.name}`, style: "margin:0" }),
+    el("label", { textContent: "Name der Gruppe" }), name,
+    el("h2", { textContent: "Mitglieder" }), ...data.users.map((u, i) => el("label", { className: "check" }, members[i], u.role === "user" ? u.name : `${u.name} (${ROLES[u.role]}, sieht ohnehin alles)`)),
+    rights.box, err, el("div", { className: "foot" }, ...extra, el("button", { type: "button", textContent: "Abbrechen", onclick: () => dlg.close() }), el("button", { className: "main", type: "submit", textContent: isNew ? "Anlegen" : "Speichern" })));
+  form.onsubmit = async ev => {
+    ev.preventDefault(); err.textContent = "";
+    const body = { name: name.value, members: members.filter(c => c.checked).map(c => c.dataset.id), ...rights.value() };
+    try { if (isNew) await call("auth/groups", "POST", body); else await call(`auth/groups/${group.id}`, "PUT", body); dlg.close(); render(); }
+    catch (e) { err.textContent = e.message; }
+  };
+  dlg.showModal();
+}
 function userDialog(user, data, categories) {
   const isNew = !user;
   const name = el("input", { name: "name", value: user?.name || "", autocapitalize: "none" });
   const pw = el("input", { type: "password", autocomplete: "new-password" });
   const role = el("select", {}, ...Object.entries(ROLES).filter(([k]) => me.role === "owner" || k === "user").map(([k, t]) => el("option", { value: k, textContent: t, selected: (user?.role || "user") === k })));
   const active = el("input", { type: "checkbox", checked: user ? user.active : true });
-  const mods = data.modules.map(m => { const c = el("input", { type: "checkbox", checked: !!user && (user.modules.includes("*") || user.modules.includes(m.id)) }); c.dataset.id = m.id; return c; });
-  const allCats = el("input", { type: "checkbox", checked: !!user && user.categories.includes("*") });
-  const cats = categories.map(n => { const c = el("input", { type: "checkbox", checked: !!user && user.categories.includes(n) }); c.dataset.id = n; return c; });
-  const rights = el("div", {}, el("h2", { textContent: "Dienste" }), ...data.modules.map((m, i) => el("label", { className: "check" }, mods[i], m.name)),
-    el("h2", { textContent: "Pi-Wartung: Kategorien" }), el("label", { className: "check" }, allCats, "Alle Kategorien"),
-    ...categories.map((n, i) => el("label", { className: "check" }, cats[i], n)), el("div", { className: "desc", textContent: "Eine Kategorie schließt ihre Unterkategorien mit ein. Eigentümer und Admins sehen immer alles." }));
+  const groupBoxes = data.groups.map(g => { const c = el("input", { type: "checkbox", checked: !!user && user.groups.includes(g.id) }); c.dataset.id = g.id; return c; });
+  const own = rightsBoxes(user, data, categories, "Diese Rechte gelten zusätzlich zu denen der Gruppen. Eine Kategorie schließt ihre Unterkategorien mit ein. Eigentümer und Admins sehen immer alles.");
+  const rights = el("div", {}, data.groups.length ? el("h2", { textContent: "Gruppen" }) : null,
+    ...data.groups.map((g, i) => el("label", { className: "check" }, groupBoxes[i], g.name)), own.box);
   const err = el("div", { className: "err" });
   const save = el("button", { className: "main", type: "submit", textContent: isNew ? "Anlegen" : "Speichern" });
   const refresh = () => { rights.hidden = role.value !== "user"; };
@@ -163,7 +192,7 @@ function userDialog(user, data, categories) {
     err, el("div", { className: "foot" }, ...extra, el("button", { type: "button", textContent: "Abbrechen", onclick: () => dlg.close() }), save)].filter(Boolean));
   form.onsubmit = async ev => {
     ev.preventDefault(); err.textContent = "";
-    const body = { name: name.value, role: role.value, active: active.checked, modules: mods.filter(c => c.checked).map(c => c.dataset.id), categories: allCats.checked ? ["*"] : cats.filter(c => c.checked).map(c => c.dataset.id) };
+    const body = { name: name.value, role: role.value, active: active.checked, groups: groupBoxes.filter(c => c.checked).map(c => c.dataset.id), ...own.value() };
     if (pw.value) body.password = pw.value;
     try { if (isNew) await call("auth/users", "POST", body); else await call(`auth/users/${user.id}`, "PUT", body); dlg.close(); render(); }
     catch (e) { err.textContent = e.message; }
@@ -176,12 +205,20 @@ async function showUsers() {
     let categories = [];
     if (data.modules.some(m => m.id === "pi-wartung")) categories = (await call("m/pi-wartung/api/inventory").catch(() => ({ categories: [] }))).categories;
     const url = el("input", { value: me.external_url, placeholder: "https://name.example.de" });
-    const describe = u => u.role !== "user" ? "alle Dienste" : `${u.modules.length ? u.modules.join(", ") : "keine Dienste"} · ${u.categories.includes("*") ? "alle Kategorien" : u.categories.join(", ") || "keine Kategorien"}`;
+    const modName = id => data.modules.find(m => m.id === id)?.name || id;
+    const rightsText = x => `${x.modules.length ? x.modules.map(modName).join(", ") : "keine Dienste"} · ${x.categories.includes("*") ? "alle Kategorien" : x.categories.join(", ") || "keine Kategorien"}`;
+    const groupNames = u => data.groups.filter(g => u.groups.includes(g.id)).map(g => g.name);
+    const describe = u => u.role !== "user" ? "alle Dienste" : (groupNames(u).length ? `Gruppen: ${groupNames(u).join(", ")} · ` : "") + rightsText(u);
+    const memberNames = g => data.users.filter(u => g.members.includes(u.id)).map(u => u.name).join(", ") || "keine Mitglieder";
     view.replaceChildren(
       el("div", { className: "foot", style: "margin:0 0 10px" }, el("button", { className: "main", textContent: "Konto anlegen", onclick: () => userDialog(null, data, categories) })),
       ...data.users.map(u => el("div", { className: "box line", style: "cursor:pointer", onclick: () => userDialog(u, data, categories) },
         el("div", { className: "grow" }, el("div", { className: "name", textContent: u.name }), el("div", { className: "desc", textContent: `${ROLES[u.role]} · ${describe(u)}` })),
         u.active ? null : el("span", { className: "warn", textContent: "gesperrt" }))),
+      el("div", { className: "line", style: "margin:22px 0 8px" }, el("h2", { className: "grow", textContent: "Gruppen", style: "margin:0" }), el("button", { textContent: "Gruppe anlegen", onclick: () => groupDialog(null, data, categories) })),
+      ...(data.groups.length ? data.groups.map(g => el("div", { className: "box line", style: "cursor:pointer", onclick: () => groupDialog(g, data, categories) },
+        el("div", { className: "grow" }, el("div", { className: "name", textContent: g.name }), el("div", { className: "desc", textContent: `${memberNames(g)} · ${rightsText(g)}` }))))
+        : [el("div", { className: "box desc", textContent: "Noch keine Gruppen. Eine Gruppe gibt allen Mitgliedern dieselben Dienste und Pi-Kategorien, z. B. „Schule“." })]),
       el("h2", { textContent: "Adresse für unterwegs" }),
       el("div", { className: "box line" }, el("div", { className: "grow" }, url), el("button", { textContent: "Speichern", onclick: async () => { try { await call("auth/external", "POST", { url: url.value }); await loadMe(); alert("Gespeichert."); } catch (e) { alert(e.message); } } })),
       el("h2", { textContent: "Alle Passkeys" }), el("div", { className: "box" }, ...items(data.items.passkeys, "passkeys")),

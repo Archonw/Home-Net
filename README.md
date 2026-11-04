@@ -73,6 +73,7 @@ Jeder meldet sich mit Benutzername und Passwort an. Im Heimnetz reicht das, von 
   `./home-net heimnetz 192.168.1.0/24,10.8.0.0/24` setzt sie, `auto` erkennt sie neu.
 
 - **Rollen:** Der Eigentümer darf alles. Admins verwalten Benutzer. Benutzer sehen nur die Dienste und Pi-Kategorien, die ihnen freigegeben sind.
+- **Gruppen:** Unter **Benutzer → Gruppen** fasst du Konten zusammen, z. B. „Schule“. Jedes Mitglied bekommt die Dienste und Pi-Kategorien der Gruppe zusätzlich zu seinen eigenen; wer die Gruppe verlässt, verliert sie sofort wieder.
 - **Passkey einrichten:** Unter **Benutzer** die Adresse für unterwegs speichern, unter **Mein Konto** einen Code holen und auf dieser Adresse `/login` öffnen. Die Wiederherstellungscodes aufbewahren.
 - **Benachrichtigungen:** Jedes Konto wählt unter **Mein Konto** oder in der App unter **Einstellungen → Benachrichtigungen**, welche Meldungen es möchte. Es bekommt nur Meldungen zu Diensten und Pi-Kategorien, die es sehen darf. Die gekoppelte App empfängt sie über eine Verbindung im Hintergrund direkt vom eigenen Server, ohne Dienste von Google; ntfy ist dafür nicht nötig. Hat das Handy Internet, der Server aber 15 Minuten lang nicht geantwortet, warnt die App von selbst, sofern eine Adresse für unterwegs eingetragen ist.
 - **App koppeln:** Unter **Mein Konto** einen Kopplungscode holen und in der App unter **Einstellungen → Zugang** eintragen. Geräte lassen sich einzeln entfernen.

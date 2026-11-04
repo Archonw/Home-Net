@@ -965,6 +965,45 @@ class Accounts(AccountBase):
         self.assertEqual(self.call("/auth/users", {"name": "../x", "password": "geheim456"}, external=False, cookie=cookie)[0], 400)
         self.assertEqual(self.call("/auth/users", {"name": "kurzpw", "password": "kurz"}, external=False, cookie=cookie)[0], 400)
 
+    def test_group_members_get_group_services_and_categories(self):
+        cookie = self.lan_login()
+        anna = self.make(cookie, name="anna", modules=["netz"], categories=["Familie"])
+        ben = self.make(cookie, name="ben")
+        status, group, _ = self.call("/auth/groups", {"name": "Schule", "modules": ["pi"], "categories": ["Schule"],
+                                                      "members": [anna["id"], ben["id"]]}, external=False, cookie=cookie)
+        self.assertEqual(status, 201, group)
+        listing = self.call("/auth/users", external=False, cookie=cookie)[1]
+        self.assertEqual(listing["groups"][0]["members"], [anna["id"], ben["id"]])
+        self.assertEqual(next(u for u in listing["users"] if u["name"] == "anna")["modules"], ["netz"])
+        session = self.lan_login("anna", "geheim456")
+        names = [m["id"] for m in self.call("/api/modules", external=False, cookie=session)[1]["modules"]]
+        self.assertEqual(names, ["netz", "pi"])
+        self.assertEqual(self.call("/m/pi/api", external=False, cookie=session)[0], 200)
+        self.assertEqual(json.loads(base64.b64decode(HeaderUpstream.seen["x-home-net-categories"])), ["Familie", "Schule"])
+        # Leaving the group takes the rights away at once.
+        self.assertEqual(self.call(f"/auth/groups/{group['id']}", {"members": [ben["id"]]}, method="PUT",
+                                   external=False, cookie=cookie)[0], 200)
+        self.assertEqual(self.call("/m/pi/api", external=False, cookie=session)[0], 403)
+        ben_session = self.lan_login("ben", "geheim456")
+        self.assertEqual(self.call("/m/pi/api", external=False, cookie=ben_session)[0], 200)
+        self.assertEqual(json.loads(base64.b64decode(HeaderUpstream.seen["x-home-net-categories"])), ["Schule"])
+        self.assertEqual(self.call(f"/auth/groups/{group['id']}", method="DELETE", external=False, cookie=cookie)[0], 200)
+        self.assertEqual(self.call("/m/pi/api", external=False, cookie=ben_session)[0], 403)
+        self.assertEqual([u.get("groups") for u in self.store.load()["users"] if u["name"] == "ben"], [[]])
+
+    def test_groups_via_account_and_checks(self):
+        cookie = self.lan_login()
+        group = self.call("/auth/groups", {"name": "Schule", "modules": ["pi"]}, external=False, cookie=cookie)[1]
+        self.assertEqual(self.call("/auth/groups", {"name": "schule"}, external=False, cookie=cookie)[0], 400)
+        self.assertEqual(self.call("/auth/users", {"name": "x1", "password": "geheim456", "groups": ["nope"]},
+                                   external=False, cookie=cookie)[0], 400)
+        user = self.make(cookie, name="gast", groups=[group["id"]])
+        self.assertEqual(user["groups"], [group["id"]])
+        guest = self.lan_login("gast", "geheim456")
+        self.assertEqual(self.call("/m/pi/api", external=False, cookie=guest)[0], 200)
+        self.assertEqual(self.call("/auth/groups", {"name": "Eigene"}, external=False, cookie=guest)[0], 403)
+        self.assertEqual(self.call(f"/auth/groups/{group['id']}", method="DELETE", external=False, cookie=guest)[0], 403)
+
     def test_audit_records_logins_changes_and_module_writes_without_secrets(self):
         cookie = self.lan_login()
         self.make(cookie, name="gast", modules=["pi"])

@@ -372,6 +372,7 @@ class Handler(BaseHTTPRequestHandler):
         manager = actor["role"] in ("owner", "admin")
         item = re.fullmatch(r"/auth/(passkeys|devices)/([A-Za-z0-9_-]+)", path)
         account = re.fullmatch(r"/auth/users/([0-9a-f]+)", path)
+        group = re.fullmatch(r"/auth/groups/([0-9a-f]+)", path)
         if path == "/auth/me" and method == "GET":
             self.reply_json(200, store.account(actor))
         elif path == "/auth/me" and method == "POST":
@@ -408,7 +409,7 @@ class Handler(BaseHTTPRequestHandler):
             store.audit(actor["name"], "Adresse für unterwegs geändert", "", ip)
             self.reply_json(200, {"ok": True})
         elif path == "/auth/users" and method == "GET":
-            self.reply_json(200, {"users": store.users(), "items": store.all_items(),
+            self.reply_json(200, {"users": store.users(), "groups": store.groups(), "items": store.all_items(),
                                   "modules": [{"id": m["id"], "name": m["name"]} for m in self.modules()]})
         elif path == "/auth/users" and method == "POST":
             created = store.create_user(actor, self.read_json())
@@ -423,6 +424,19 @@ class Handler(BaseHTTPRequestHandler):
         elif account and method == "DELETE":
             removed = store.delete_user(actor, account.group(1))
             store.audit(actor["name"], "Konto gelöscht", removed["name"], ip)
+            self.reply_json(200, {"ok": True})
+        elif path == "/auth/groups" and method == "POST":
+            created = store.save_group(None, self.read_json())
+            store.audit(actor["name"], "Gruppe angelegt", created["name"], ip)
+            self.reply_json(201, created)
+        elif group and method == "PUT":
+            form = self.read_json()
+            changed = store.save_group(group.group(1), form)
+            store.audit(actor["name"], "Gruppe geändert", f"{changed['name']}: {', '.join(sorted(form))}", ip)
+            self.reply_json(200, changed)
+        elif group and method == "DELETE":
+            removed = store.delete_group(group.group(1))
+            store.audit(actor["name"], "Gruppe gelöscht", removed["name"], ip)
             self.reply_json(200, {"ok": True})
         elif path == "/auth/audit" and method == "GET":
             self.reply_json(200, {"entries": store.audit_tail()})
