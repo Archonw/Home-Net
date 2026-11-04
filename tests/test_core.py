@@ -7,6 +7,7 @@ import os
 import re
 import sqlite3
 import struct
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -1144,6 +1145,29 @@ class Releases(unittest.TestCase):
         self.assertEqual(services["ntfy"]["image"], modules["ntfy"]["services"]["ntfy"]["image"])
         built = home_net.compose_document(modules, ["pi-wartung"])
         self.assertIn("build", built["services"]["pi-wartung-engine"])
+
+    def test_fork_gets_its_own_sources(self):
+        modules = home_net.available_modules()
+        try:
+            home_net.set_repo("Anna/Home-Net-Fork")
+            doc = home_net.compose_document(modules, ["pi-wartung"], version="v1.2.0")
+            self.assertEqual(doc["services"]["pi-wartung-engine"]["image"], "ghcr.io/anna/home-net-fork/pi-wartung-engine:v1.2.0")
+            self.assertEqual(doc["services"]["home-net-gateway"]["environment"]["HOME_NET_REPO"], "Anna/Home-Net-Fork")
+            self.assertIn("api.github.com/repos/Anna/Home-Net-Fork/releases", home_net.RELEASES)
+            self.assertTrue(home_net.SOURCE.startswith("https://github.com/Anna/Home-Net-Fork/"))
+            with self.assertRaises(home_net.HomeNetError):
+                home_net.set_repo("kein repo")
+        finally:
+            home_net.set_repo(home_net.DEFAULT_REPO)
+
+    def test_clone_repo_from_remote(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(home_net.clone_repo(Path(tmp)))
+            Path(tmp, ".git").mkdir()
+            for url in ("https://github.com/Anna/Home-Net.git\n", "git@github.com:Anna/Home-Net.git\n", "https://github.com/Anna/Home-Net\n"):
+                done = subprocess.CompletedProcess([], 0, stdout=url)
+                with mock.patch.object(home_net.subprocess, "run", return_value=done):
+                    self.assertEqual(home_net.clone_repo(Path(tmp)), "Anna/Home-Net")
 
     def test_release_of(self):
         self.assertIsNone(home_net.release_of({}))

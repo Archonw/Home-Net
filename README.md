@@ -15,6 +15,9 @@ cd Home-Net
 
 Das Programm fragt nach Datenordner, Modulen und Passwort. Danach läuft alles unter `http://<rechner>:8093`, mit einer Anmeldung für alle Module.
 
+Aus einem eigenen Fork installiert, holt Home-Net Updates, Container und App aus diesem Fork (siehe
+[docs/APP-UPDATES.md](docs/APP-UPDATES.md#eigener-fork)).
+
 ### Versionen und Updates
 
 Es gibt zwei Kanäle:

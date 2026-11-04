@@ -41,3 +41,21 @@ als Quelle ein (Version Extraction: `netzwerkmonitor-(.+)\.apk`, Match Group `1`
 Jede Installation holt sich neue Versionen selbst von GitHub, so kommt ein Update dort an, ohne dass jemand etwas
 tun muss. Alle APKs sind mit demselben Schlüssel signiert, deshalb lässt sich jede neue Version über die alte
 installieren, egal ob sie aus GitHub oder von Home-Net kommt.
+
+## Eigener Fork
+
+Wer Home-Net forkt und selbst weiterentwickelt, bekommt Programm, Container und App aus dem eigenen Repository:
+
+- **Installieren:** `HOME_NET_REPO=<besitzer>/<repo> python3 home-net install` oder `home-net install --repo <besitzer>/<repo>`.
+  Das Repository steht danach als `repo` in `home-net.json`; `home-net update` lädt Programm und Versionen von dort, im
+  Kanal `stabil` die Container von `ghcr.io/<besitzer>/<repo>`, und der Zugang sucht dort nach der App.
+- **Container:** `.github/workflows/release.yml` veröffentlicht unter dem Namen des Repositorys, in dem es läuft.
+- **App:** Ohne eigenen Signierschlüssel (Secrets `NETMON_KEYSTORE_*`) baut der Workflow keine Releases. Eine selbst
+  signierte App lässt sich nicht über die offizielle installieren und umgekehrt; vorher die eine deinstallieren.
+  Der Link „Quellcode auf GitHub“ in der App zeigt auf das Repository, aus dem sie gebaut wurde.
+
+## App-Stores
+
+Beschreibung, Symbol und Bildschirmfotos für F-Droid und IzzyOnDroid liegen unter `fastlane/metadata/android/`
+(deutsch und englisch). IzzyOnDroid nimmt die APK direkt aus den GitHub-Releases `app-<Nummer>`; die Aufnahme beantragt
+der Besitzer des Repositorys dort selbst.

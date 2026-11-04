@@ -31,16 +31,29 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 POINTER = Path.home() / ".config" / "home-net" / "location"
-GITHUB_REPO = "Archonw/Home-Net"
-SOURCE = f"https://github.com/{GITHUB_REPO}/archive/refs/heads/main.tar.gz"
-TAG_SOURCE = f"https://github.com/{GITHUB_REPO}/archive/refs/tags/{{tag}}.tar.gz"
-RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=100"
-# Finished images of every release, built by .github/workflows/release.yml
-REGISTRY = "ghcr.io/archonw/home-net"
+# Where program, releases, images and app come from. A fork installs with HOME_NET_REPO=<owner>/<repo> (or --repo);
+# the installation keeps it as "repo" in home-net.json, so updates and the app stay with that fork.
+DEFAULT_REPO = "Archonw/Home-Net"
+REPO_FORMAT = re.compile(r"[\w.-]+/[\w.-]+")
+
+
+def set_repo(name):
+    """Points every download at one GitHub repository."""
+    global GITHUB_REPO, SOURCE, TAG_SOURCE, RELEASES, REGISTRY, RAW_ICONS
+    if not REPO_FORMAT.fullmatch(name or ""):
+        raise HomeNetError(f"Repository bitte als Besitzer/Name angeben, z. B. {DEFAULT_REPO}")
+    GITHUB_REPO = name
+    SOURCE = f"https://github.com/{name}/archive/refs/heads/main.tar.gz"
+    TAG_SOURCE = f"https://github.com/{name}/archive/refs/tags/{{tag}}.tar.gz"
+    RELEASES = f"https://api.github.com/repos/{name}/releases?per_page=100"
+    # Finished images of every release, built by .github/workflows/release.yml
+    REGISTRY = f"ghcr.io/{name.lower()}"
+    RAW_ICONS = f"https://raw.githubusercontent.com/{name}/main/"
+
+
 # stabil: the newest release with finished images. main: the newest state of the code, built on this computer.
 CHANNELS = ("stabil", "main")
 VERSION_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
-RAW_ICONS = "https://raw.githubusercontent.com/Archonw/Home-Net/main/"
 PBKDF2_ROUNDS = 200_000
 GATEWAY = "home-net-gateway"
 DEFAULT_PORT = 8093
@@ -51,6 +64,9 @@ FOLDER_NAME = "Home-Net"
 
 class HomeNetError(Exception):
     pass
+
+
+set_repo(os.environ.get("HOME_NET_REPO") or DEFAULT_REPO)
 
 
 def available_modules(repo=REPO):
@@ -97,6 +113,8 @@ def compose_document(modules, chosen, repo=REPO, version=None):
             "ports": ["${GATEWAY_PORT}:8080"],
             "volumes": ["${DATA_DIR}/gateway:/config", "${DATA_DIR}/events:/events"],
             "labels": {"net.unraid.docker.icon": icon_url("assets/icons/home-net.png")},
+            # The app download follows the repository this installation comes from
+            "environment": {"HOME_NET_REPO": GITHUB_REPO},
         }
     }
     for module_id in chosen:
@@ -255,7 +273,10 @@ class Install:
         return cls(POINTER.read_text().strip())
 
     def load(self):
-        return json.loads(self.state_file.read_text())
+        state = json.loads(self.state_file.read_text())
+        if state.get("repo"):
+            set_repo(state["repo"])
+        return state
 
     def write_private(self, path, text):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -376,7 +397,7 @@ class Install:
             (self.data / "gateway" / "app").mkdir(parents=True, exist_ok=True)
             shutil.copy2(apks[-1], self.data / "gateway" / "app" / apks[-1].name)
         if found:
-            settings = {"repo": found.get("repo", "Archonw/Home-Net"), "token": found.get("token", "")}
+            settings = {"repo": found.get("repo", GITHUB_REPO), "token": found.get("token", "")}
             self.write_private(target, json.dumps(settings) + "\n")
             print("App-Updates: Einstellungen aus dem Netzwerkmonitor übernommen.")
 
@@ -549,6 +570,15 @@ def ask_password():
         print("Die Eingaben stimmen nicht überein.")
 
 
+def clone_repo(folder=REPO):
+    """owner/name of the GitHub repository a git clone of Home-Net came from, so a fork keeps to itself."""
+    if not (folder / ".git").exists():
+        return None
+    url = subprocess.run(["git", "-C", str(folder), "remote", "get-url", "origin"], capture_output=True, text=True).stdout
+    match = re.search(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?/?$", url.strip())
+    return match.group(1) if match else None
+
+
 def cmd_install(args):
     if subprocess.run(["docker", "compose", "version"], capture_output=True).returncode != 0 and not args.no_start:
         raise HomeNetError("Docker mit Compose fehlt auf diesem Rechner")
@@ -566,6 +596,10 @@ def cmd_install(args):
         state["pocket_id_url"] = ask_pocket_id_url(args.pocket_id_url)
     if "wireguard-server" in chosen:
         state["wireguard_host"] = ask_wireguard_host(args.wireguard_host)
+    repo = args.repo or os.environ.get("HOME_NET_REPO") or clone_repo()
+    if repo:
+        set_repo(repo)
+    state["repo"] = GITHUB_REPO
     state["channel"] = args.channel
     if args.channel == "stabil":
         try:
@@ -871,6 +905,8 @@ def main(argv=None):
     p.add_argument("--no-start", action="store_true")
     p.add_argument("--channel", choices=CHANNELS, default="stabil",
                    help="stabil: neueste geprüfte Version mit fertigen Containern (Standard), main: neuester Stand")
+    p.add_argument("--repo", help=f"GitHub-Repository für Programm, Container und App (Standard {DEFAULT_REPO}, "
+                                  "für einen eigenen Fork)")
     p.add_argument("--pocket-id-url", help="Adresse von Pocket ID, wenn pocket-id-server mitinstalliert wird")
     p.add_argument("--wireguard-host", help="Adresse des Heimnetzes von außen, wenn wireguard-server mitinstalliert wird")
     p.set_defaults(func=cmd_install)

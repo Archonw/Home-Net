@@ -14,6 +14,9 @@ android {
         targetSdk = 35
         versionCode = (System.getenv("APP_BUILD") ?: "1").toInt()
         versionName = "0.1.${System.getenv("APP_BUILD") ?: "0"}"
+        // Der Link zum Quellcode zeigt auf das Repository, aus dem die App gebaut wurde (in GitHub Actions gesetzt)
+        val repository = System.getenv("GITHUB_REPOSITORY")?.takeIf { it.isNotBlank() } ?: "Archonw/Home-Net"
+        buildConfigField("String", "SOURCE_URL", "\"https://github.com/$repository\"")
     }
 
     // Signierschlüssel kommt aus Umgebungsvariablen (in GitHub Actions aus den Repository-Secrets).
@@ -48,6 +51,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     // Die Wörterbücher liegen für App und Server gemeinsam unter i18n/ im Repo und kommen als assets/i18n in die App

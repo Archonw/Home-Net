@@ -70,3 +70,8 @@ englisch, Platzhalter `{0}`, `{1}`). Die App übersetzt beim Anzeigen (`I18n.kt`
 kommen beim Bauen nach `assets/i18n`), Webseiten übersetzt `core/gateway/i18n.js`, das der Zugang in jede Seite setzt und
 dessen Wörter er unter `/hn/i18n/<sprache>.json` liefert. Neue sichtbare Texte gehören mit ihrer Übersetzung in denselben
 Commit; Text aus Teilen zusammensetzen nur über `t("… {0} …", wert)`, sonst findet die Übersetzung ihn nicht.
+
+Herkunft: Das GitHub-Repository steht als `repo` in `home-net.json` (bei der Installation aus `--repo`, `HOME_NET_REPO`
+oder dem `origin` des Git-Klons, sonst `Archonw/Home-Net`). `set_repo` in `core/home_net.py` richtet Programm-Download,
+Releases, `ghcr.io/<repo>` und Symbole danach aus; der Zugang bekommt es als `HOME_NET_REPO` für die App-Updates.
+Nichts davon fest auf `Archonw` schreiben. App-Store-Texte und Bilder: `fastlane/metadata/android/`.
