@@ -47,6 +47,11 @@ data class PhStats(
 
 data class PhPauseResult(val failed: List<String>)
 
+/** Update eines Pi-hole über SSH. [state]: waiting, running, ok oder failed. */
+data class PhJob(val state: String, val finished: Long, val log: List<String>) {
+    val busy get() = state == "waiting" || state == "running"
+}
+
 data class PhDetail(
     val name: String,
     val url: String,
@@ -78,6 +83,9 @@ data class PhDetail(
     /** null: Gerät meldet keine Temperatur */
     val temp: Double?,
     val messages: List<String>,
+    val manager: Boolean = false,
+    /** null: seit dem Start des Dienstes nicht aktualisiert */
+    val updateJob: PhJob? = null,
 )
 
 /** Pi-hole-Modul, nur über den gemeinsamen Zugang erreichbar. Pausieren gilt immer für alle Pi-holes. */
@@ -160,8 +168,25 @@ class PiholeApi(private val http: PiApi) {
             ramUsed = d.optLong("ram_used"),
             temp = if (d.isNull("temp") || !d.has("temp")) null else d.optDouble("temp"),
             messages = o.optJSONArray("messages").let { a -> if (a == null) emptyList() else (0 until a.length()).map { a.getString(it) } },
+            manager = o.optBoolean("manager"),
+            updateJob = o.optJSONObject("update_job")?.let { job(it) },
         )
     }
+
+    /** Startet das Update eines Pi-hole, [index] null: alle nacheinander. Nur Eigentümer und Admins. */
+    suspend fun update(index: Int? = null) {
+        http.postJson(if (index == null) "api/update" else "api/instances/$index/update", "{}")
+    }
+
+    /** Stand der Updates in der Reihenfolge der Pi-holes, null: keins gelaufen. */
+    suspend fun updateJobs(): List<PhJob?> =
+        JSONObject(http.raw("api/update")).optJSONArray("jobs").objects().map { if (it.optString("state").isBlank()) null else job(it) }
+
+    private fun job(o: JSONObject) = PhJob(
+        state = o.optString("state"),
+        finished = o.optLong("finished"),
+        log = o.optJSONArray("log").let { a -> if (a == null) emptyList() else (0 until a.length()).map { a.getString(it) } },
+    )
 
     /** [seconds] null: ohne Ende (nur Eigentümer und Admins). */
     suspend fun pause(seconds: Int?): PhPauseResult {

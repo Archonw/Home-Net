@@ -52,6 +52,7 @@ input[type=checkbox] { width:auto; margin:0; }
 .bar div i { position:absolute; left:0; right:0; bottom:0; background:var(--accent); border-radius:2px 2px 0 0; }
 .inst { display:grid; grid-template-columns:2fr 3fr auto; gap:8px; align-items:end; }
 @media (max-width:560px) { .inst { grid-template-columns:1fr; } }
+pre.log { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.4 ui-monospace,monospace; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; max-height:260px; overflow:auto; margin:8px 0 0; }
 </style>
 </head>
 <body>
@@ -105,7 +106,8 @@ function stateText(o) {
   return ["Kein Pi-hole erreichbar", "bad"];
 }
 
-function showOverview(o) {
+async function showOverview(o) {
+  const jobs = manager ? (await api("api/update").catch(() => ({ jobs: [] }))).jobs : [];
   const [text, cls] = stateText(o);
   const msg = $("p", { className: "quiet" });
   const run = async (path, body) => {
@@ -125,19 +127,38 @@ function showOverview(o) {
       $("span", { textContent: i.blocking === "enabled" ? "Filter an" : i.timer ? `Pausiert, noch ${Math.ceil(i.timer / 60)} min` : "Pausiert" }),
       ((i.version || i.ftl) ? ` · Pi-hole ${i.version || "FTL " + i.ftl}` : "") + " ›")
       : $("div", { className: "bad", textContent: i.error }),
-    (i.updates || []).length ? $("div", { className: "quiet", textContent: "Update verfügbar: " + i.updates.map(u => `${u.part} ${u.available}`).join(", ") + " (auf dem Gerät mit „pihole -up“)" }) : null));
+    (i.updates || []).length ? $("div", { className: "quiet", textContent: "Update verfügbar: " + i.updates.map(u => `${u.part} ${u.available}`).join(", ") }) : null,
+    jobs[n] && jobs[n].state ? $("div", { className: jobs[n].state === "ok" ? "ok" : jobs[n].state === "failed" ? "bad" : "warn", textContent: JOB_TEXT[jobs[n].state] }) : null));
+  const busy = jobs.some(jobBusy), outdated = o.instances.some(i => (i.updates || []).length);
+  const umsg = $("span", { className: "quiet" });
   app.replaceChildren(
     $("div", { className: "card" }, $("div", { className: `big ${cls}`, textContent: text }),
       $("p", { className: "hint", textContent: "Pausieren gilt für alle Pi-holes gleichzeitig. Danach schalten sie sich von selbst wieder ein." }),
       $("div", { className: "actions" }, ...buttons), msg),
-    $("h2", { textContent: "Pi-holes" }), ...rows);
-  if (o.blocking !== "enabled") timer = setTimeout(show, 15000);
+    $("h2", { textContent: "Pi-holes" }), ...rows,
+    manager && (outdated || busy) ? $("div", { className: "actions" }, $("button", { className: "main", disabled: busy,
+      textContent: busy ? "Update läuft …" : "Alle aktualisieren", onclick: () => startUpdate("api/update", umsg, show) }), umsg) : null);
+  if (o.blocking !== "enabled" || busy) timer = setTimeout(show, busy ? 5000 : 15000);
 }
 
 const bytes = b => b >= 1073741824 ? `${(b / 1073741824).toLocaleString("de-DE", { maximumFractionDigits: 1 })} GB` : `${Math.round(b / 1048576)} MB`;
 function duration(s) {
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
   return d ? `${d} Tg. ${h} Std.` : h ? `${h} Std. ${m} Min.` : `${m} Min.`;
+}
+
+const JOB_TEXT = { waiting: "Wartet auf die anderen", running: "Wird gerade aktualisiert …", ok: "Update fertig", failed: "Update fehlgeschlagen" };
+const jobBusy = j => j && (j.state === "waiting" || j.state === "running");
+async function startUpdate(path, msg, again) {
+  if (!confirm("Pi-hole jetzt aktualisieren? Das dauert ein paar Minuten. Die Pi-holes werden nacheinander aktualisiert, damit die anderen weiter antworten.")) return;
+  try { await api(path, "POST"); again(); } catch (e) { msg.textContent = e.message; }
+}
+function jobBox(job) {
+  if (!job || !job.state) return null;
+  const cls = job.state === "ok" ? "ok" : job.state === "failed" ? "bad" : "warn";
+  const when = job.finished ? ` · ${time(job.finished)}` : "";
+  return $("div", {}, $("div", { className: cls, textContent: JOB_TEXT[job.state] + when }),
+    job.log && job.log.length ? $("pre", { className: "log", textContent: job.log.join("\n") }) : null);
 }
 
 async function showDetail(n) {
@@ -147,6 +168,7 @@ async function showDetail(n) {
   try { d = await api(`api/instances/${n}`); } catch (e) { app.replaceChildren(backLink(), err(e.message)); return; }
   const row = (label, value) => value === "" || value == null ? null : $("div", { className: "row" }, $("span", { className: "quiet", textContent: label }), $("span", { textContent: value }));
   const dev = d.device, q = d.queries;
+  const umsg = $("span", { className: "quiet" });
   const temp = dev.temp == null ? "" : `${Number(dev.temp).toLocaleString("de-DE", { maximumFractionDigits: 1 })} °C`;
   app.replaceChildren(backLink(),
     $("div", { className: "card" }, $("div", { className: "big", textContent: d.name }),
@@ -160,7 +182,10 @@ async function showDetail(n) {
       row("Eigene Ausnahmen", num(d.own_allowed)), row("Eigene Sperren", num(d.own_denied)), row("Stand", d.gravity_update ? time(d.gravity_update) : "")),
     $("h2", { textContent: "Version" }),
     $("div", { className: "card" }, ...d.versions.map(v => row(v.part, v.installed)),
-      d.updates.length ? $("div", { className: "warn", textContent: "Update verfügbar: " + d.updates.map(u => `${u.part} ${u.available}`).join(", ") + " (auf dem Gerät mit „pihole -up“)" }) : $("div", { className: "quiet", textContent: "Aktuell" })),
+      d.updates.length ? $("div", { className: "warn", textContent: "Update verfügbar: " + d.updates.map(u => `${u.part} ${u.available}`).join(", ") }) : $("div", { className: "quiet", textContent: "Aktuell" }),
+      jobBox(d.update_job),
+      d.manager ? $("div", { className: "actions" }, $("button", { className: d.updates.length ? "main" : "", disabled: jobBusy(d.update_job),
+        textContent: "Pi-hole aktualisieren", onclick: () => startUpdate(`api/instances/${n}/update`, umsg, () => showDetail(n)) }), umsg) : null),
     $("h2", { textContent: "Gerät" }),
     $("div", { className: "card" }, row("Modell", dev.model), row("Name", dev.hostname), row("System", dev.os),
       row("Gerät läuft seit", dev.uptime ? duration(dev.uptime) : ""), row("Pi-hole läuft seit", dev.ftl_uptime ? duration(dev.ftl_uptime) : ""), row("Temperatur", temp),
@@ -168,6 +193,7 @@ async function showDetail(n) {
       row("Arbeitsspeicher", dev.ram_total ? `${bytes(dev.ram_used)} von ${bytes(dev.ram_total)} belegt` : "")),
     d.messages.length ? $("h2", { textContent: "Hinweise von Pi-hole" }) : null,
     ...d.messages.map(m => $("div", { className: "card note", textContent: m })));
+  if (jobBusy(d.update_job)) timer = setTimeout(() => showDetail(n), 5000);
 }
 
 const backLink = () => $("p", {}, $("a", { href: "#", textContent: "‹ Alle Pi-holes", onclick: e => { e.preventDefault(); show(); } }));
@@ -208,12 +234,16 @@ async function showSettings() {
   const add = (item = { name: "", url: "", password_set: false }) => {
     const name = $("input", { value: item.name, placeholder: "z. B. Küche" });
     const url = $("input", { value: item.url, placeholder: "http://192.168.1.2" });
+    const sshUser = $("input", { value: item.ssh_user || "root" });
+    const sshPort = $("input", { value: item.ssh_port || 22, inputMode: "numeric" });
     const pw = $("input", { type: "password", placeholder: item.password_set ? "gespeichert – leer lassen zum Behalten" : "leer, wenn keins gesetzt" });
     const row = $("div", { className: "card" },
       $("div", { className: "inst" }, $("div", {}, $("label", { textContent: "Name" }), name), $("div", {}, $("label", { textContent: "Adresse" }), url),
         $("button", { className: "danger", textContent: "Entfernen", onclick: () => row.remove() })),
-      $("label", { textContent: "Passwort (oder App-Passwort)" }), pw);
-    row.read = () => ({ name: name.value, url: url.value, ...(pw.value || !item.password_set || url.value.replace(/\/+$/, "") !== item.url ? { password: pw.value } : {}) });
+      $("label", { textContent: "Passwort (oder App-Passwort)" }), pw,
+      $("div", { className: "two" }, $("div", {}, $("label", { textContent: "SSH-Benutzer fürs Aktualisieren" }), sshUser),
+        $("div", {}, $("label", { textContent: "SSH-Port" }), sshPort)));
+    row.read = () => ({ name: name.value, url: url.value, ssh_user: sshUser.value, ssh_port: Number(sshPort.value) || 22, ...(pw.value || !item.password_set || url.value.replace(/\/+$/, "") !== item.url ? { password: pw.value } : {}) });
     box.append(row);
   };
   s.instances.forEach(add);
@@ -225,7 +255,12 @@ async function showSettings() {
       $("button", { className: "main", textContent: "Speichern", onclick: async () => {
         try { await api("api/settings", "PUT", { instances: [...box.children].map(r => r.read()) }); msg.textContent = "Gespeichert."; showSettings(); }
         catch (e) { msg.textContent = e.message; }
-      } })), msg);
+      } })), msg,
+    $("h2", { textContent: "Aktualisieren" }),
+    $("div", { className: "card" },
+      $("p", { className: "hint", textContent: "Pi-hole lässt sich über seine Schnittstelle nicht aktualisieren. Home-Net meldet sich dafür per SSH an und startet dort „pihole -up“. Trag diese Zeile auf jedem Pi-hole in die Datei ~/.ssh/authorized_keys des SSH-Benutzers ein (meist root). Der Schlüssel darf dann nur das Update starten, sonst nichts." }),
+      s.key_line ? $("div", { className: "link", textContent: s.key_line }) : err("Der Schlüssel fehlt noch. Starte den Dienst neu."),
+      s.key_line ? $("div", { className: "actions" }, $("button", { textContent: "Kopieren", onclick: e => navigator.clipboard.writeText(s.key_line).then(() => e.target.textContent = "Kopiert") })) : null));
 }
 
 show();

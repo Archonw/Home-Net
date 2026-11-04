@@ -8,6 +8,7 @@ import json
 import os
 import re
 import socketserver
+import subprocess
 import sys
 import tempfile
 import threading
@@ -18,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from pihole import Piholes, PiholeError  # noqa: E402
+from updater import Updater  # noqa: E402
 
 DATA = os.environ.get("DATA", "/data")
 LISTEN_SOCKET = os.environ.get("LISTEN_SOCKET", "")
@@ -63,7 +65,8 @@ class Settings:
         return self.data
 
     def public(self):
-        return {"instances": [{"name": i.get("name", ""), "url": i["url"], "password_set": bool(i.get("password"))}
+        return {"instances": [{"name": i.get("name", ""), "url": i["url"], "password_set": bool(i.get("password")),
+                               "ssh_user": i.get("ssh_user") or "root", "ssh_port": int(i.get("ssh_port") or 22)}
                               for i in self.data["instances"]]}
 
     def update(self, changes):
@@ -87,7 +90,16 @@ class Settings:
                 password = str(password)
                 if len(password) > 256 or "\n" in password:
                     raise ValueError("Das Passwort sieht nicht richtig aus.")
-                out.append({"name": name, "url": url, "password": password})
+                ssh_user = str(item.get("ssh_user") or old.get(url, {}).get("ssh_user") or "root").strip()
+                if not re.fullmatch(r"[a-z_][a-z0-9_.-]{0,31}", ssh_user):
+                    raise ValueError(f"Der SSH-Benutzer „{ssh_user}“ sieht nicht richtig aus.")
+                try:
+                    ssh_port = int(item.get("ssh_port") or old.get(url, {}).get("ssh_port") or 22)
+                except (TypeError, ValueError):
+                    raise ValueError("Der SSH-Port muss eine Zahl sein.")
+                if not 1 <= ssh_port <= 65535:
+                    raise ValueError("Der SSH-Port muss zwischen 1 und 65535 liegen.")
+                out.append({"name": name, "url": url, "password": password, "ssh_user": ssh_user, "ssh_port": ssh_port})
             data = {**self.data, "instances": out}
             fd, tmp = tempfile.mkstemp(dir=self.folder, suffix=".tmp")
             with os.fdopen(fd, "w") as f:
@@ -192,6 +204,7 @@ class ApiHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     settings = None
     piholes = None
+    updater = None
 
     def log_message(self, fmt, *args):
         sys.stderr.write(f"{self.headers.get('X-Forwarded-For', 'socket') if self.headers else 'socket'} {fmt % args}\n")
@@ -258,7 +271,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 log(f"{self.actor()}: Pi-holes geändert ({len(self.settings.get()['instances'])})")
             elif method != "GET":
                 raise LookupError
-            return self.send_json(200, self.settings.public())
+            return self.send_json(200, dict(self.settings.public(), key_line=self.updater.key_line() if self.updater else ""))
         if method == "GET" and path == "/api/overview":
             if not configured:
                 return self.send_json(200, {"configured": False, "manager": self.manager(), "instances": [],
@@ -270,7 +283,32 @@ class ApiHandler(BaseHTTPRequestHandler):
             return self.send_json(200, dict(self.piholes.stats(), configured=True))
         match = re.fullmatch(r"/api/instances/(\d{1,2})", path)
         if method == "GET" and match:
-            return self.send_json(200, self.piholes.details(int(match.group(1))))
+            details = self.piholes.details(int(match.group(1)))
+            details["update_job"] = self.updater.status(details["url"]) if self.updater else None
+            details["manager"] = self.manager()
+            return self.send_json(200, details)
+        match = re.fullmatch(r"/api/(?:instances/(\d{1,2})/)?update", path)
+        if method == "GET" and match:
+            items = self.settings.get()["instances"]
+            return self.send_json(200, {"jobs": [dict(self.updater.status(i["url"]) or {"state": "", "log": []},
+                                                      name=i["name"]) for i in items]})
+        if method == "POST" and match:
+            if not self.manager():
+                raise PermissionError("Aktualisieren dürfen nur Eigentümer und Admins von Home-Net.")
+            items = self.settings.get()["instances"]
+            if match.group(1) is not None:
+                n = int(match.group(1))
+                if not 0 <= n < len(items):
+                    raise LookupError
+                items = [items[n]]
+            if not items:
+                raise ValueError("Es ist noch kein Pi-hole eingetragen.")
+            try:
+                self.updater.start(items, on_done=self.update_done)
+            except RuntimeError as exc:
+                raise ValueError(str(exc))
+            log(f"{self.actor()}: Update gestartet für " + ", ".join(i["name"] for i in items))
+            return self.send_json(202, {"started": [i["name"] for i in items]})
         if method == "POST" and path in ("/api/pause", "/api/resume"):
             if not configured:
                 raise ValueError("Es ist noch kein Pi-hole eingetragen.")
@@ -292,6 +330,14 @@ class ApiHandler(BaseHTTPRequestHandler):
             return self.send_json(200, result)
         raise LookupError
 
+    @staticmethod
+    def update_done(inst, ok, lines):
+        log(f"Update {inst['name']}: {'fertig' if ok else 'fehlgeschlagen'}")
+        last = next((ln for ln in reversed(lines) if ln), "")
+        spool_event("pihole_updated" if ok else "pihole_update_failed",
+                    f"{inst['name']}: Update {'fertig' if ok else 'fehlgeschlagen'}", last[:300],
+                    "default" if ok else "high")
+
 
 class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
@@ -301,6 +347,11 @@ def main():
     os.makedirs(DATA, exist_ok=True)
     ApiHandler.settings = Settings(DATA)
     ApiHandler.piholes = Piholes(ApiHandler.settings.get)
+    ApiHandler.updater = Updater(DATA)
+    try:
+        ApiHandler.updater.ensure_key()
+    except (OSError, subprocess.SubprocessError) as exc:
+        log(f"SSH-Schlüssel nicht angelegt: {exc}")
     if EVENTS_DIR:
         threading.Thread(target=watch, args=(Watcher(ApiHandler.piholes, DATA),), daemon=True).start()
     if API_PORT:

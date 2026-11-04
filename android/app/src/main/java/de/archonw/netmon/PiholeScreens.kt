@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
@@ -61,6 +63,8 @@ fun PiholeScreen(api: PiholeApi, onStats: () -> Unit, onOpen: (Int) -> Unit, onB
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var confirmEndless by remember { mutableStateOf(false) }
+    var confirmUpdate by remember { mutableStateOf(false) }
+    var info by remember { mutableStateOf<String?>(null) }
     val (data, error) = rememberLoaded(reload, PH_REFRESH_MS) { api.overview() }
 
     fun run(action: suspend () -> PhPauseResult) {
@@ -89,6 +93,7 @@ fun PiholeScreen(api: PiholeApi, onStats: () -> Unit, onOpen: (Int) -> Unit, onB
         ) {
             error?.let { Text(it, color = p.blocked, fontSize = 14.sp) }
             message?.let { Text(it, color = p.blocked, fontSize = 14.sp) }
+            info?.let { Text(it, color = p.allowed, fontSize = 14.sp) }
             when {
                 data == null -> if (error == null) Text("Wird geladen …", color = p.muted)
                 !data.configured -> HubCard {
@@ -137,6 +142,9 @@ fun PiholeScreen(api: PiholeApi, onStats: () -> Unit, onOpen: (Int) -> Unit, onB
                             }
                         }
                     }
+                    if (data.manager && data.instances.any { it.updates.isNotEmpty() }) {
+                        PillButton("Alle aktualisieren", strong = true) { confirmUpdate = true }
+                    }
                     Spacer(Modifier.height(16.dp))
                 }
             }
@@ -151,6 +159,17 @@ fun PiholeScreen(api: PiholeApi, onStats: () -> Unit, onOpen: (Int) -> Unit, onB
             onDone = { confirmEndless = false; reload++ },
         ) {
             Text("Er bleibt dann auf allen Pi-holes aus, bis jemand ihn wieder einschaltet.", color = LocalPalette.current.text, fontSize = 14.sp)
+        }
+    }
+
+    if (confirmUpdate) {
+        FormDialog(
+            title = "Alle Pi-holes aktualisieren?", confirm = "Aktualisieren",
+            onDismiss = { confirmUpdate = false },
+            onConfirm = { api.update(null) },
+            onDone = { confirmUpdate = false; info = "Update gestartet. Die Pi-holes werden nacheinander aktualisiert, den Stand siehst du beim jeweiligen Pi-hole."; reload++ },
+        ) {
+            Text("Die Pi-holes werden nacheinander aktualisiert, damit immer welche antworten. Das dauert ein paar Minuten.", color = LocalPalette.current.text, fontSize = 14.sp)
         }
     }
 }
@@ -168,7 +187,14 @@ private fun gb(b: Long): String =
 @Composable
 fun PiholeDetailScreen(api: PiholeApi, index: Int, onBack: () -> Unit) {
     val p = LocalPalette.current
-    val (d, error) = rememberLoaded(0, PH_REFRESH_MS) { api.detail(index) }
+    var reload by remember { mutableStateOf(0) }
+    var confirmUpdate by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val (d, error) = rememberLoaded(reload, PH_REFRESH_MS) { api.detail(index) }
+    val updating = d?.updateJob?.busy == true
+    LaunchedEffect(updating, reload) {
+        if (updating) { delay(5_000); reload++ }
+    }
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
         PageTitle(d?.name ?: "Pi-hole", onBack = onBack)
@@ -211,9 +237,16 @@ fun PiholeDetailScreen(api: PiholeApi, index: Int, onBack: () -> Unit) {
                 d.versions.forEach { (part, v) -> InfoRow(part, v) }
                 if (d.updates.isNotEmpty()) {
                     Text("Update verfügbar: ${d.updates.joinToString(", ")}", color = p.unknown, fontSize = 13.sp)
-                    Text("Einspielen auf dem Gerät mit „pihole -up“.", color = p.muted, fontSize = 12.sp)
                 } else {
                     Text("Aktuell", color = p.muted, fontSize = 13.sp)
+                }
+                d.updateJob?.let { UpdateJobText(it) }
+                message?.let { Text(it, color = p.blocked, fontSize = 13.sp) }
+                if (d.manager) {
+                    Spacer(Modifier.height(4.dp))
+                    PillButton(if (updating) "Update läuft …" else "Pi-hole aktualisieren", strong = d.updates.isNotEmpty()) {
+                        if (!updating) confirmUpdate = true
+                    }
                 }
             }
             SectionTitle("Gerät")
@@ -233,6 +266,32 @@ fun PiholeDetailScreen(api: PiholeApi, index: Int, onBack: () -> Unit) {
             }
             Spacer(Modifier.height(16.dp))
         }
+    }
+
+    if (confirmUpdate) {
+        FormDialog(
+            title = "${d?.name ?: "Pi-hole"} aktualisieren?", confirm = "Aktualisieren",
+            onDismiss = { confirmUpdate = false },
+            onConfirm = { message = null; api.update(index) },
+            onDone = { confirmUpdate = false; reload++ },
+        ) {
+            Text("Das dauert ein paar Minuten. Solange beantworten die anderen Pi-holes die Anfragen.", color = p.text, fontSize = 14.sp)
+        }
+    }
+}
+
+@Composable
+private fun UpdateJobText(job: PhJob) {
+    val p = LocalPalette.current
+    val (text, color) = when (job.state) {
+        "waiting" -> "Wartet auf die anderen Pi-holes" to p.unknown
+        "running" -> "Wird gerade aktualisiert …" to p.unknown
+        "ok" -> "Update fertig" to p.allowed
+        else -> "Update fehlgeschlagen" to p.blocked
+    }
+    Text(text + if (job.finished > 0) " · ${formatEpoch(job.finished)}" else "", color = color, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    if (job.log.isNotEmpty() && !job.busy) {
+        Text(job.log.takeLast(if (job.state == "ok") 3 else 8).joinToString("\n"), color = p.muted, fontSize = 12.sp)
     }
 }
 
