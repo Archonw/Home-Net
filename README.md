@@ -15,12 +15,25 @@ cd Home-Net
 
 Das Programm fragt nach Datenordner, Modulen und Passwort. Danach läuft alles unter `http://<rechner>:8093`, mit einer Anmeldung für alle Module.
 
+### Versionen und Updates
+
+Es gibt zwei Kanäle:
+
+- **stabil** (Standard): die höchste veröffentlichte Version `vX.Y.Z`. Die Container kommen fertig gebaut für amd64 und
+  arm64 von `ghcr.io/archonw/home-net`, die Installation dauert darum nur Minuten und läuft auch auf einem Raspberry Pi.
+- **main**: der neueste Stand des Codes, die Container werden auf dem eigenen Rechner gebaut. Für Tester und Entwickler.
+
+`./home-net update` holt die neue Version, `./home-net version` zeigt die laufende, `./home-net kanal main` bzw.
+`./home-net kanal stabil` wechselt den Kanal. Zurück zu einer älteren Version: `./home-net update --version v1.0.0`.
+Die Änderungen jeder Version stehen unter **Releases**.
+
 | Befehl | Wirkung |
 | --- | --- |
 | `./home-net modules` | Zeigt die verfügbaren Module |
 | `./home-net add <modul>` / `remove <modul>` | Modul ergänzen oder stoppen, seine Daten bleiben. `add pc-sicherung --dir <ordner>` legt fest, wohin die PC-Sicherungen kommen |
 | `./home-net status` | Zeigt, was läuft |
-| `./home-net update` | Lädt die neue Version von GitHub, baut und startet neu. Schlägt der Download fehl, bleibt die alte |
+| `./home-net update` | Lädt die neue Version von GitHub und startet neu. Schlägt der Download fehl, bleibt die alte |
+| `./home-net version` / `kanal [stabil\|main]` | Zeigt die Version, wechselt den Kanal |
 | `./home-net password` | Ändert das Passwort |
 | `./home-net heimnetz` | Zeigt oder ändert, welche Netze als Heimnetz gelten (Anmeldung nur mit Passwort) |
 | `./home-net backup` / `restore <archiv>` | Sichert Einstellungen und Geheimnisse oder spielt sie zurück |
@@ -110,6 +123,12 @@ ein. Die Images der Pis und die PC-Sicherungen liegen in ihren eigenen Ordnern u
 
 In `assets/icons` liegen die Logos als SVG und PNG: `home-net` für die App und die Gruppe auf dem Unraid, `netzwerk`,
 `pi-wartung` und `pc-sicherung` für die Dienste. Die Container auf dem Unraid laden sie von hier.
+
+## Eine Version veröffentlichen
+
+Unter **Actions → Release → Run workflow** die neue Nummer eintragen (`v1.2.0`), oder ein Tag `v1.2.0` pushen. Der
+Workflow baut alle Container für amd64 und arm64, legt sie auf `ghcr.io/archonw/home-net/<container>` und erstellt das
+Release mit den Änderungen seit der letzten Version. Die Pakete auf ghcr.io müssen einmalig öffentlich gestellt werden.
 
 ## Ein Modul hinzufügen
 

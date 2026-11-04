@@ -17,6 +17,8 @@ import hashlib
 import ipaddress
 import json
 import os
+import platform
+import re
 import secrets
 import shlex
 import shutil
@@ -29,7 +31,15 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 POINTER = Path.home() / ".config" / "home-net" / "location"
-SOURCE = "https://github.com/Archonw/Home-Net/archive/refs/heads/main.tar.gz"
+GITHUB_REPO = "Archonw/Home-Net"
+SOURCE = f"https://github.com/{GITHUB_REPO}/archive/refs/heads/main.tar.gz"
+TAG_SOURCE = f"https://github.com/{GITHUB_REPO}/archive/refs/tags/{{tag}}.tar.gz"
+RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=100"
+# Finished images of every release, built by .github/workflows/release.yml
+REGISTRY = "ghcr.io/archonw/home-net"
+# stabil: the newest release with finished images. main: the newest state of the code, built on this computer.
+CHANNELS = ("stabil", "main")
+VERSION_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 RAW_ICONS = "https://raw.githubusercontent.com/Archonw/Home-Net/main/"
 PBKDF2_ROUNDS = 200_000
 GATEWAY = "home-net-gateway"
@@ -71,8 +81,14 @@ def absolute_build(build, repo):
     return dict(build, context=str(repo / build["context"]))
 
 
-def compose_document(modules, chosen, repo=REPO):
-    """The compose file: gateway plus every service of every chosen module."""
+def image_of(service, version):
+    return f"{REGISTRY}/{service}:{version}"
+
+
+def compose_document(modules, chosen, repo=REPO, version=None):
+    """The compose file: gateway plus every service of every chosen module.
+
+    With a version (a release such as v1.2.0) every container comes as a finished image, otherwise it is built here."""
     services = {
         GATEWAY: {
             "build": {"context": str(repo), "dockerfile": "core/gateway/Dockerfile"},
@@ -96,6 +112,10 @@ def compose_document(modules, chosen, repo=REPO):
             svc["restart"] = "unless-stopped"
             svc["labels"] = {"net.unraid.docker.icon": icon_url(module["icon"])}
             services[name] = svc
+    if version:
+        for name, svc in services.items():
+            if svc.pop("build", None) is not None:
+                svc["image"] = image_of(name, version)
     return {"name": "home-net", "services": services}
 
 
@@ -260,7 +280,7 @@ class Install:
                                           f"GATEWAY_PORT={state['port']}\nTZ={state.get('tz') or host_timezone()}\n"
                                           f"POCKET_ID_DATA={pool_path(self.data) / 'pocket-id-server' / 'data'}\n"
                                           f"WG_EASY_DATA={pool_path(self.data) / 'wireguard-server' / 'data'}\n")
-        document = compose_document(modules, state["modules"], repo)
+        document = compose_document(modules, state["modules"], repo, release_of(state))
         self.compose_file.write_text(json.dumps(document, indent=2) + "\n")
         if sync_unraid_folder([svc["container_name"] for svc in document["services"].values()]):
             print(f"Unraid: Gruppe {FOLDER_NAME} im Docker-Tab angepasst.")
@@ -340,7 +360,11 @@ class Install:
                                *args], check=check)
 
     def start(self):
-        self.compose("up", "-d", "--build", "--remove-orphans")
+        if release_of(self.load()):
+            self.compose("pull", check=False)
+            self.compose("up", "-d", "--remove-orphans")
+        else:
+            self.compose("up", "-d", "--build", "--remove-orphans")
 
 
 def pool_path(path, mnt=Path("/mnt")):
@@ -394,10 +418,57 @@ def new_state(data, images, chosen, port, password, tz=None, owner="admin"):
             "tz": tz or host_timezone(), "owner": owner, "auth": password_record(password), "upstream": upstream}
 
 
+def machine():
+    return {"x86_64": "amd64", "aarch64": "arm64"}.get(platform.machine().lower(), platform.machine().lower())
+
+
 def usable(module):
     """Some modules only work on a certain system, e.g. unraid only directly on an Unraid server."""
     need = module.get("requires")
-    return not need or Path(need["path"]).exists()
+    if not need:
+        return True
+    if need.get("path") and not Path(need["path"]).exists():
+        return False
+    return not need.get("arch") or machine() in need["arch"]
+
+
+def release_of(state):
+    """The release whose finished images this installation runs, or None when it builds them itself."""
+    return state.get("version") if state.get("channel", "main") == "stabil" else None
+
+
+def version_key(tag):
+    match = VERSION_TAG.match(tag or "")
+    return tuple(int(n) for n in match.groups()) if match else None
+
+
+def fetch_text(url):
+    if has_https():
+        with urllib.request.urlopen(url, timeout=60) as resp:
+            return resp.read().decode()
+    if not shutil.which("curl"):
+        raise HomeNetError("Python kann kein HTTPS und curl fehlt")
+    out = subprocess.run(["curl", "-fsSL", "--max-time", "60", url], capture_output=True, text=True)
+    if out.returncode != 0:
+        raise HomeNetError(f"{url} nicht erreichbar (curl {out.returncode})")
+    return out.stdout
+
+
+def newest_release(releases):
+    """The highest vX.Y.Z among published releases; the app's own releases (app-NNN) do not count."""
+    tags = [r["tag_name"] for r in releases
+            if not r.get("draft") and not r.get("prerelease") and version_key(r.get("tag_name"))]
+    return max(tags, key=version_key) if tags else None
+
+
+def latest_release():
+    try:
+        tag = newest_release(json.loads(fetch_text(RELEASES)))
+    except (OSError, ValueError) as exc:
+        raise HomeNetError(f"Liste der Versionen nicht geladen: {exc}") from exc
+    if not tag:
+        raise HomeNetError("Es gibt noch keine veröffentlichte Version. Mit home-net kanal main gibt es den neuesten Stand.")
+    return tag
 
 
 def check_usable(modules, chosen):
@@ -470,9 +541,23 @@ def cmd_install(args):
         state["pocket_id_url"] = ask_pocket_id_url(args.pocket_id_url)
     if "wireguard-server" in chosen:
         state["wireguard_host"] = ask_wireguard_host(args.wireguard_host)
+    state["channel"] = args.channel
+    if args.channel == "stabil":
+        try:
+            state["version"] = latest_release()
+        except HomeNetError as exc:
+            print(f"{exc}\nHome-Net nimmt darum den neuesten Stand (Kanal main).")
+            state["channel"] = "main"
+    if state["channel"] == "main":
+        state["version"] = "main"
     inst.apply(state)
     POINTER.parent.mkdir(parents=True, exist_ok=True)
     POINTER.write_text(str(data) + "\n")
+    if release_of(state) and not args.no_start:
+        # Program and images of the same release: fetch the program of that version, it starts everything
+        print(f"Lade Home-Net {state['version']} ...")
+        cmd_update(argparse.Namespace(installed=False, version=state["version"], force=True))
+        return
     if not args.no_start:
         inst.start()
     print(f"Fertig. Home-Net läuft unter http://<dieser-rechner>:{args.port}")
@@ -600,18 +685,69 @@ def replace_program(repo, source=SOURCE):
 
 
 def cmd_update(args):
+    inst = Install.locate()
+    state = inst.load()
     if not args.installed:
-        if (REPO / ".git").exists():
-            subprocess.run(["git", "-C", str(REPO), "pull", "--ff-only"], check=True)
+        channel = state.get("channel", "main")
+        if args.version:
+            if not version_key(args.version):
+                raise HomeNetError("Version bitte als vX.Y.Z angeben, z. B. v1.2.0")
+            target = args.version
+            channel = "stabil"
+        elif channel == "stabil":
+            target = latest_release()
+            if target == state.get("version") and not args.force:
+                print(f"Home-Net {target} ist aktuell.")
+                return
         else:
-            replace_program(REPO)
+            target = "main"
+        if (REPO / ".git").exists():
+            git = ["git", "-C", str(REPO)]
+            if target == "main":
+                subprocess.run([*git, "checkout", "-q", "main"], check=True)
+                subprocess.run([*git, "pull", "--ff-only"], check=True)
+            else:
+                subprocess.run([*git, "fetch", "-q", "origin", f"refs/tags/{target}:refs/tags/{target}"], check=True)
+                subprocess.run([*git, "checkout", "-q", target], check=True)
+        else:
+            source = SOURCE if target == "main" else TAG_SOURCE.format(tag=target)
+            replace_program(REPO, source)
+        print(f"Home-Net {target} geladen.")
         # The rest belongs to the new version
         os.chdir(REPO.parent)
-        os.execv(sys.executable, [sys.executable, str(REPO / "home-net"), "update", "--installed"])
-    inst = Install.locate()
-    inst.apply(inst.load())
-    inst.compose("pull", "--ignore-buildable", check=False)
+        os.execv(sys.executable, [sys.executable, str(REPO / "home-net"), "update", "--installed",
+                                  "--target", target, "--channel", channel])
+    if args.target:
+        state["channel"] = args.channel or state.get("channel", "main")
+        state["version"] = args.target
+    inst.apply(state)
+    if not release_of(state):
+        inst.compose("pull", "--ignore-buildable", check=False)
     inst.start()
+
+
+def cmd_version(_args):
+    state = Install.locate().load()
+    channel = state.get("channel", "main")
+    print(f"Version: {state.get('version') or 'unbekannt'}   Kanal: {channel}")
+    if channel == "stabil":
+        try:
+            newest = latest_release()
+            print("Aktuell." if newest == state.get("version") else f"Neu verfügbar: {newest} (home-net update)")
+        except HomeNetError as exc:
+            print(exc)
+
+
+def cmd_kanal(args):
+    inst = Install.locate()
+    state = inst.load()
+    if not args.channel:
+        print(f"Kanal: {state.get('channel', 'main')}")
+        print("stabil = geprüfte Versionen mit fertigen Containern, main = neuester Stand, wird hier gebaut")
+        return
+    state["channel"] = args.channel
+    inst.write_private(inst.state_file, json.dumps(state, indent=2) + "\n")
+    print(f"Kanal {args.channel}. Wirksam mit: home-net update --force")
 
 
 def cmd_apply(_args):
@@ -708,6 +844,8 @@ def main(argv=None):
     p.add_argument("--owner")
     p.add_argument("--password", default=os.environ.get("HOME_NET_PASSWORD"))
     p.add_argument("--no-start", action="store_true")
+    p.add_argument("--channel", choices=CHANNELS, default="stabil",
+                   help="stabil: neueste geprüfte Version mit fertigen Containern (Standard), main: neuester Stand")
     p.add_argument("--pocket-id-url", help="Adresse von Pocket ID, wenn pocket-id-server mitinstalliert wird")
     p.add_argument("--wireguard-host", help="Adresse des Heimnetzes von außen, wenn wireguard-server mitinstalliert wird")
     p.set_defaults(func=cmd_install)
@@ -727,11 +865,19 @@ def main(argv=None):
     for name, func in (("status", cmd_status), ("modules", cmd_modules), ("apply", cmd_apply), ("backup", cmd_backup)):
         sub.add_parser(name).set_defaults(func=func)
     p = sub.add_parser("update")
+    p.add_argument("--version", help="eine bestimmte Version, z. B. v1.2.0, auch eine ältere zum Zurückgehen")
+    p.add_argument("--force", action="store_true", help="auch neu laden, wenn die Version schon läuft")
     p.add_argument("--installed", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--target", help=argparse.SUPPRESS)
+    p.add_argument("--channel", choices=CHANNELS, help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_update)
     p = sub.add_parser("heimnetz", help="Zeigt oder setzt, welche Netze als Heimnetz gelten")
     p.add_argument("networks", nargs="*", help="z. B. 192.168.178.0/24, oder auto, oder alle")
     p.set_defaults(func=cmd_heimnetz)
+    sub.add_parser("version", help="Zeigt Version und Kanal").set_defaults(func=cmd_version)
+    p = sub.add_parser("kanal", help="stabil (geprüfte Versionen) oder main (neuester Stand)")
+    p.add_argument("channel", nargs="?", choices=CHANNELS)
+    p.set_defaults(func=cmd_kanal)
     p = sub.add_parser("password")
     p.add_argument("user")
     p.add_argument("password", nargs="?")

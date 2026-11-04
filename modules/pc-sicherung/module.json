@@ -3,6 +3,12 @@
   "name": "PC-Sicherung",
   "description": "Sichert ganze PCs samt Windows und Linux über den Netzwerkstart und stellt sie komplett wieder her",
   "icon": "assets/icons/pc-sicherung.png",
+  "requires": {
+    "arch": [
+      "amd64"
+    ],
+    "message": "PC-Sicherung läuft nur auf einem x86-Rechner (amd64), nicht auf ARM wie einem Raspberry Pi."
+  },
   "api": {
     "socket": "/run/pc-sicherung/api.sock",
     "health": "/health",

@@ -54,3 +54,10 @@ Der Zugang erkennt Zugriffe von außen an Kopfzeilen von Proxys und Tunneln (`PR
 Meldungen: Ein Modul nennt in `module.json` unter `events` seine Arten und legt je Meldung eine JSON-Datei in seinem Ordner unter `${DATA_DIR}/events/<modul>` ab. Der Zugang (`core/gateway/events.py`) übernimmt sie, prüft Wahl und Rechte beim Lesen und liefert sie über `/auth/stream` an die App. Die Prüfung `App-Probelauf` startet die App auf Zweigen im Emulator gegen den echten Zugang; Änderungen an der App gehören erst danach auf `main`.
 
 Das Repo ist öffentlich: keine Passwörter, Tokens oder persönlichen Adressen einchecken.
+
+Versionen: Releases heißen `vX.Y.Z` und entstehen mit `.github/workflows/release.yml`, das jeden Container aus
+`tools/release_images.py` nach `ghcr.io/archonw/home-net/<container>:<version>` baut (amd64 und arm64; ein Modul mit
+`requires.arch` nur dafür). Im Kanal `stabil` nimmt die Compose-Datei diese Images statt `build`, im Kanal `main` wird
+gebaut. Installationen ohne `channel` in `home-net.json` laufen als `main`. Die App-Releases `app-NNN` zählen nicht als
+Version und bleiben „Latest“.
+
