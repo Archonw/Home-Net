@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="512" android:viewportHeight="512">
+    <!-- Kachel für Module, die die App nicht selbst kennt: vier Bausteine -->
+    <path android:fillColor="#475569" android:pathData="M0,0 H512 V512 H0 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M120,120 H236 V236 H120 Z M276,120 H392 V236 H276 Z M120,276 H236 V392 H120 Z" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.6" android:pathData="M276,276 H392 V392 H276 Z" />
+</vector>

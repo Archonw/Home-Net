@@ -14,7 +14,7 @@ import threading
 import time
 import traceback
 import xml.etree.ElementTree as ET
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -199,6 +199,27 @@ def start_pc_backup():
     return f"http://127.0.0.1:{httpd.server_address[1]}"
 
 
+class TileModule(BaseHTTPRequestHandler):
+    """A module the app does not know: it only describes its tile."""
+
+    def do_GET(self):
+        body = json.dumps({"text": "Probe-Kachel 7", "alert": False}).encode()
+        self.send_response(200 if self.path == "/api/tile" else 404)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+def start_tile_module():
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), TileModule)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{httpd.server_address[1]}"
+
+
 def main():
     apk = sys.argv[1]
     OUT.mkdir(exist_ok=True)
@@ -213,7 +234,9 @@ def main():
     catalog = [{"id": "pi-wartung", "name": "Pi-Wartung", "description": "d", "icon": "", "upstream": "http://127.0.0.1:9",
                 "events": modules["pi-wartung"]["events"]},
                {"id": "pc-sicherung", "name": "PC-Sicherung", "description": "d", "icon": "", "upstream": start_pc_backup(),
-                "events": modules["pc-sicherung"]["events"]}]
+                "events": modules["pc-sicherung"]["events"]},
+               {"id": "beispiel", "name": "Beispielmodul", "description": "d", "icon": "", "web": True,
+                "upstream": start_tile_module(), "tile": "/api/tile"}]
     Path(config, "gateway.json").write_text(json.dumps({"owner": "chef", "modules": catalog}))
     os.environ["CONFIG_DIR"] = config
     os.environ["EVENTS_DIR"] = spool
@@ -249,6 +272,9 @@ def main():
     find("Pi-Wartung", 40)
     wait_for(service_running, "Hintergrunddienst läuft nach dem Koppeln nicht")
     report("notice", "Gekoppelt, Hintergrunddienst läuft")
+    find("Beispielmodul")
+    find("Probe-Kachel 7")
+    report("notice", "Fremdes Modul zeigt seine eigene Kachel")
 
     # Vor der ersten Meldung: Deren Einblendung läge sonst über der Kachel
     tap("Pi-Wartung")

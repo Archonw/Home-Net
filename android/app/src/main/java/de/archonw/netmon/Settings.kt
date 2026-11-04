@@ -65,7 +65,10 @@ class Settings(context: Context) {
 
     /** Eigene Reihenfolge der Kacheln auf der Startseite. */
     var homeTiles: List<String>
-        get() = normalizedOrder(prefs.getString("home_tiles", "").orEmpty().split(','), HOME_TILES)
+        // Kacheln von Modulen, die die App nicht kennt („m:<id>“), behalten ihren Platz
+        get() = prefs.getString("home_tiles", "").orEmpty().split(',').let { saved ->
+            saved.filter { it in HOME_TILES || it.startsWith(MODULE_TILE) }.distinct() + HOME_TILES.filter { it !in saved }
+        }
         set(value) = prefs.edit().putString("home_tiles", value.joinToString(",")).apply()
 
     /** Eigene Anordnung der Unraid-Übersicht (Bereiche und Menüpunkte). */

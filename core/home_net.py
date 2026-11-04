@@ -173,6 +173,8 @@ def gateway_config(modules, chosen, upstream_passwords, owner="admin", lan=None)
             upstream = f"unix:{api['socket']}" if api.get("socket") else f"http://{api['service']}:{api['port']}"
             if module.get("events"):
                 item["events"] = module["events"]
+            if api.get("tile"):
+                item["tile"] = api["tile"]
             item.update(upstream=upstream, health=api.get("health", "/health"),
                         public=api.get("public", []), web=bool(api.get("web")),
                         password=upstream_passwords.get(module_id, ""))
