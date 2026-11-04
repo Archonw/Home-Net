@@ -23,11 +23,17 @@ const NM = (() => {
     catch { return { ...DEFAULTS }; }
   }
   const prefs = load();
+  // Unter dem Zugang gilt die Darstellung für alle Home-Net-Seiten (Schlüssel aus core/gateway/theme.js).
+  const SHARED_THEME = "hn.theme";
+  try { const t = localStorage.getItem(SHARED_THEME); if (t in THEMES) prefs.theme = t; } catch { /* privates Fenster */ }
   if (!STYLES[prefs.style]) prefs.style = DEFAULTS.style;
   if (!STYLES[prefs.style].accents.includes(prefs.accent)) prefs.accent = STYLES[prefs.style].accents[0];
 
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch { /* privates Fenster */ }
+    try {
+      localStorage.setItem(KEY, JSON.stringify(prefs));
+      localStorage.setItem(SHARED_THEME, prefs.theme);
+    } catch { /* privates Fenster */ }
   }
 
   const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));

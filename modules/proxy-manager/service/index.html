@@ -6,7 +6,8 @@
 <title>Proxy Manager</title>
 <style>
 :root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#0b8a7e; --ok:#1a7f37; --bad:#c93a3a; --warn:#b35a0a; --soft:#0b8a7e1f; }
-@media (prefers-color-scheme: dark) { :root { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#3fbfb1; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#3fbfb126; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme=light]) { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#3fbfb1; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#3fbfb126; } }
+:root[data-theme=dark] { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#3fbfb1; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#3fbfb126; }
 * { box-sizing: border-box; }
 body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
 header { padding:18px 16px 0; max-width:900px; margin:auto; }

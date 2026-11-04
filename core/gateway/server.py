@@ -27,6 +27,8 @@ CONFIG_DIR = os.environ.get("CONFIG_DIR", "/config")
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORTAL = os.path.join(HERE, "portal.html")
 LOGIN = os.path.join(HERE, "login.html")
+THEME = os.path.join(HERE, "theme.js")
+THEME_TAG = '<script src="/hn/theme.js"></script>'
 EVENTS_DIR = os.environ.get("EVENTS_DIR", "/events")
 SCAN_SECONDS = 2
 STREAM_PING_SECONDS = 45
@@ -133,7 +135,7 @@ def rewrite_html(body, prefix):
     """Modules write some links from their own root; under the gateway those need the module's prefix."""
     text = body.decode("utf-8", "replace")
     text = re.sub(r'(href|src|action)="/(?!/)', lambda m: f'{m.group(1)}="{prefix}/', text)
-    text = text.replace("<head>", f'<head><script>window.HOME_NET_PREFIX="{prefix}"</script>', 1)
+    text = text.replace("<head>", f'<head><script>window.HOME_NET_PREFIX="{prefix}"</script>{THEME_TAG}', 1)
     text = re.sub(r"<body[^>]*>", lambda m: m.group(0) + BACK_LINK, text, count=1)
     return text.encode()
 
@@ -244,6 +246,10 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         if path == "/health":
             self.reply_json(200, {"ok": True})
+            return
+        if path == "/hn/theme.js" and self.command in ("GET", "HEAD"):
+            with open(THEME, "rb") as f:
+                self.reply(200, f.read(), "text/javascript; charset=utf-8")
             return
         if path == "/login" and self.command == "GET":
             with open(LOGIN, "rb") as f:
