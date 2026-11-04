@@ -60,6 +60,7 @@ sealed interface Screen {
     data class WireGuardClient(val id: Int) : Screen
     data object Pihole : Screen
     data object PiholeStats : Screen
+    data class PiholeInstance(val index: Int) : Screen
     data object HubSetup : Screen
     data object Notifications : Screen
 }
@@ -140,7 +141,7 @@ class MainActivity : FragmentActivity() {
                 is Screen.PocketIdUser -> Screen.PocketId
                 is Screen.ProxyHost, Screen.ProxyCerts -> Screen.Proxy
                 is Screen.WireGuardClient -> Screen.WireGuard
-                Screen.PiholeStats -> Screen.Pihole
+                Screen.PiholeStats, is Screen.PiholeInstance -> Screen.Pihole
                 Screen.HubSetup, Screen.Notifications -> Screen.Setup
                 else -> Screen.Home
             }
@@ -221,9 +222,11 @@ class MainActivity : FragmentActivity() {
                     Screen.Pihole -> PiholeScreen(
                         api = settings.piholeApi(),
                         onStats = { screen = Screen.PiholeStats },
+                        onOpen = { screen = Screen.PiholeInstance(it) },
                         onBack = { screen = Screen.Home },
                     )
                     Screen.PiholeStats -> PiholeStatsScreen(settings.piholeApi()) { screen = Screen.Pihole }
+                    is Screen.PiholeInstance -> PiholeDetailScreen(settings.piholeApi(), s.index) { screen = Screen.Pihole }
                     Screen.PcOverview -> PcOverviewScreen(
                         api = settings.pcApi(),
                         onOpen = { screen = Screen.PcDetail(it) },

@@ -101,10 +101,63 @@ class Instance:
             version = self.request("GET", "/api/info/version").get("version") or {}
         except PiholeError:
             version = {}
-        core = ((version.get("core") or {}).get("local") or {}).get("version") or ""
-        ftl = ((version.get("ftl") or {}).get("local") or {}).get("version") or ""
+        core, ftl = local_version(version, "core"), local_version(version, "ftl")
         return {"blocking": blocking.get("blocking", "unknown"), "timer": blocking.get("timer"),
                 "version": core, "ftl": ftl, "updates": updates(version)}
+
+    def details(self):
+        """Everything about one Pi-hole and the machine it runs on. Parts its API does not offer stay empty."""
+        def optional(path):
+            try:
+                return self.request("GET", path)
+            except PiholeError:
+                return {}
+        summary = self.request("GET", "/api/stats/summary")
+        blocking = self.request("GET", "/api/dns/blocking")
+        version = optional("/api/info/version").get("version") or {}
+        system = optional("/api/info/system").get("system") or {}
+        host = optional("/api/info/host").get("host") or {}
+        sensors = optional("/api/info/sensors").get("sensors") or {}
+        ftl = optional("/api/info/ftl").get("ftl") or {}
+        messages = optional("/api/info/messages").get("messages") or []
+        q = summary.get("queries") or {}
+        gravity = summary.get("gravity") or {}
+        ram = ((system.get("memory") or {}).get("ram")) or {}
+        cpu = system.get("cpu") or {}
+        load = (cpu.get("load") or {}).get("raw") or []
+        uname = host.get("uname") or {}
+        database = ftl.get("database") or {}
+        domains = database.get("domains") or {}
+        regex = database.get("regex") or {}
+        dmi = host.get("dmi") or {}
+        board = " ".join(x for x in ((dmi.get("sys") or {}).get("vendor"), (dmi.get("product") or {}).get("name"))
+                         if x and x != "Default string")
+        return {
+            "blocking": blocking.get("blocking", "unknown"), "timer": blocking.get("timer"),
+            "versions": [{"part": label, "installed": local_version(version, key)} for key, label in COMPONENTS
+                         if local_version(version, key)],
+            "updates": updates(version),
+            "queries": {k: int(q.get(k) or 0) for k in ("total", "blocked", "cached", "forwarded", "unique_domains")},
+            "percent": round(float(q.get("percent_blocked") or 0), 1),
+            "clients": int(((summary.get("clients") or {}).get("active")) or 0),
+            "gravity": int(gravity.get("domains_being_blocked") or 0),
+            "gravity_update": int(gravity.get("last_update") or 0),
+            "lists": count_of(database.get("lists")),
+            "own_allowed": count_of(domains.get("allowed")) + count_of(regex.get("allowed")),
+            "own_denied": count_of(domains.get("denied")) + count_of(regex.get("denied")),
+            "device": {
+                "model": host.get("model") or board,
+                "hostname": uname.get("nodename") or "",
+                "os": " ".join(x for x in (uname.get("sysname"), uname.get("release"), uname.get("machine")) if x),
+                "uptime": int(system.get("uptime") or 0),
+                "cpus": int(cpu.get("nprocs") or 0),
+                "load": [round(float(x), 2) for x in load[:3]],
+                "ram_total": int(ram.get("total") or 0) * 1024, "ram_used": int(ram.get("used") or 0) * 1024,
+                "temp": sensors.get("cpu_temp"), "hot_limit": sensors.get("hot_limit"),
+                "ftl_uptime": int(ftl.get("uptime") or 0) // 1000 if ftl.get("uptime") else 0,
+            },
+            "messages": [str(m.get("plain") or m.get("html") or m.get("type") or "")[:300] for m in messages[:10]],
+        }
 
     def stats(self):
         return {
@@ -159,6 +212,13 @@ class Piholes:
             rows.append(row)
         return {"instances": rows, "blocking": combined(rows)}
 
+    def details(self, index):
+        instances = self.instances()
+        if not 0 <= index < len(instances):
+            raise LookupError
+        inst = instances[index]
+        return dict(inst.details(), name=inst.name, url=inst.url)
+
     def stats(self):
         results = self.each(self.instances(), Instance.stats)
         good = [r for _, r, err in results if not err]
@@ -174,6 +234,23 @@ class Piholes:
 COMPONENTS = (("core", "Core"), ("web", "Web"), ("ftl", "FTL"), ("docker", "Docker"))
 
 
+def count_of(value):
+    """Pi-hole gives some counts as a number and others as {"total": n, "enabled": m}."""
+    if isinstance(value, dict):
+        value = value.get("total")
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def local_version(version, key):
+    """Installed version of a part; Pi-hole reports missing ones as null or even as the text "null"."""
+    local = (version.get(key) or {}).get("local")
+    value = local if isinstance(local, str) else (local or {}).get("version") if isinstance(local, dict) else ""
+    return "" if not value or str(value).lower() in ("null", "none", "n/a") else str(value)
+
+
 def updates(version):
     """Parts of Pi-hole with a newer release than installed, as reported by Pi-hole itself ("Core v6.1 → v6.2")."""
     out = []
@@ -181,10 +258,13 @@ def updates(version):
         part = version.get(key) or {}
         local = part.get("local") or {}
         remote = part.get("remote") or {}
-        if isinstance(local, str):  # docker: plain tags
-            have, new = local, remote if isinstance(remote, str) else ""
+        have = local_version(version, key)
+        if isinstance(remote, str):  # docker: plain tags
+            new = remote
         else:
-            have, new = local.get("version") or "", (remote.get("version") if isinstance(remote, dict) else "") or ""
+            new = (remote.get("version") if isinstance(remote, dict) else "") or ""
+        if str(new).lower() in ("null", "none", "n/a"):
+            new = ""
         if have and new and have != new and newer(new, have):
             out.append({"part": label, "installed": have, "available": new})
     return out

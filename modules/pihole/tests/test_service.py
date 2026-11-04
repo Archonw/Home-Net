@@ -76,6 +76,24 @@ class FakePihole(BaseHTTPRequestHandler):
             return self.reply(200, {"version": {"core": {"local": {"version": "v6.1.4"}, "remote": {"version": s["remote"]}},
                                                 "web": {"local": {"version": None}, "remote": {"version": None}},
                                                 "ftl": {"local": {"version": "v6.2.3"}, "remote": {"version": "v6.2.3"}}}})
+        if path == "/api/info/system":
+            return self.reply(200, {"system": {"uptime": 3 * 86400 + 7200, "memory": {"ram": {"total": 948304, "used": 312000}},
+                                               "procs": 120, "cpu": {"nprocs": 4, "load": {"raw": [0.12, 0.2, 0.18]}}}})
+        if path == "/api/info/host":
+            return self.reply(200, {"host": {"model": "Raspberry Pi 3 Model B Rev 1.2",
+                                             "uname": {"sysname": "Linux", "nodename": "pihole-pi", "release": "6.6.51",
+                                                       "machine": "aarch64"}}})
+        if path == "/api/info/sensors":
+            return self.reply(200, {"sensors": {"list": [], "cpu_temp": 47.2, "hot_limit": 60, "unit": "C"}})
+        if path == "/api/info/ftl":
+            return self.reply(200, {"ftl": {"database": {"gravity": 123456, "lists": 4,
+                                                         "domains": {"allowed": {"total": 1, "enabled": 1},
+                                                                     "denied": {"total": 0, "enabled": 0}},
+                                                         "regex": {"allowed": {"total": 2, "enabled": 2},
+                                                                   "denied": {"total": 1, "enabled": 1}}},
+                                            "uptime": 3600000.5}})
+        if path == "/api/info/messages":
+            return self.reply(200, {"messages": [{"type": "RATE_LIMIT", "plain": "Client 192.168.1.40 has been rate-limited"}]})
         if path == "/api/stats/summary":
             return self.reply(200, s["summary"])
         if path == "/api/stats/top_domains":
@@ -249,6 +267,27 @@ class ServiceTest(unittest.TestCase):
         self.assertFalse(out["configured"])
         self.assertEqual(self.call("POST", "/api/pause", {"seconds": 30})[0], 400)
 
+    def test_details_of_one(self):
+        code, d = self.call("GET", "/api/instances/0", role="user")
+        self.assertEqual(code, 200)
+        self.assertEqual(d["name"], "Erster")
+        self.assertEqual(d["queries"]["total"], 1000)
+        self.assertEqual(d["percent"], 20.0)
+        self.assertEqual(d["versions"], [{"part": "Core", "installed": "v6.1.4"}, {"part": "FTL", "installed": "v6.2.3"}])
+        self.assertEqual(d["device"]["model"], "Raspberry Pi 3 Model B Rev 1.2")
+        self.assertEqual(d["device"]["temp"], 47.2)
+        self.assertEqual(d["device"]["ram_total"], 948304 * 1024)
+        self.assertEqual(d["device"]["load"], [0.12, 0.2, 0.18])
+        self.assertEqual((d["lists"], d["own_allowed"], d["own_denied"]), (4, 3, 1))
+        self.assertEqual(d["device"]["ftl_uptime"], 3600)
+        self.assertEqual(d["messages"], ["Client 192.168.1.40 has been rate-limited"])
+        self.assertEqual(self.call("GET", "/api/instances/5")[0], 404)
+        self.fb.shutdown()
+        self.fb.server_close()
+        code, out = self.call("GET", "/api/instances/1")
+        self.assertEqual(code, 502)
+        self.assertIn("nicht erreichbar", out["detail"])
+
     def test_page_and_health(self):
         req = urllib.request.urlopen(f"http://127.0.0.1:{self.api.server_address[1]}/", timeout=5)
         self.assertIn(b"Pi-hole", req.read())
@@ -327,8 +366,18 @@ class WatcherTest(unittest.TestCase):
 
 
 class VersionTest(unittest.TestCase):
+    def test_board_when_no_model(self):
+        inst = pihole.Instance("x", "http://x", "")
+        answers = {"/api/stats/summary": {}, "/api/dns/blocking": {"blocking": "enabled"},
+                   "/api/info/host": {"host": {"model": None, "dmi": {"sys": {"vendor": "Gigabyte Technology Co., Ltd."},
+                                                                      "product": {"name": "C246M-WU4"}}}}}
+        inst.request = lambda method, path, *a, **k: answers.get(path, {})
+        self.assertEqual(inst.details()["device"]["model"], "Gigabyte Technology Co., Ltd. C246M-WU4")
+        self.assertEqual(inst.details()["versions"], [])
+
     def test_updates(self):
         self.assertEqual(pihole.updates({}), [])
+        self.assertEqual(pihole.local_version({"core": {"local": {"version": "null"}}}, "core"), "")
         self.assertEqual(pihole.updates({"ftl": {"local": {"version": "v6.8"}, "remote": {"version": "v6.10"}},
                                          "core": {"local": {"version": None}, "remote": {"version": "v6.3"}},
                                          "web": {"local": {"version": "v6.6.1"}, "remote": {"version": "v6.6"}},

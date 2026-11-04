@@ -47,6 +47,39 @@ data class PhStats(
 
 data class PhPauseResult(val failed: List<String>)
 
+data class PhDetail(
+    val name: String,
+    val url: String,
+    val blocking: String,
+    val timer: Int?,
+    val versions: List<Pair<String, String>>,
+    val updates: List<String>,
+    val total: Long,
+    val blocked: Long,
+    val cached: Long,
+    val forwarded: Long,
+    val uniqueDomains: Long,
+    val percent: Double,
+    val clients: Int,
+    val gravity: Long,
+    val gravityUpdate: Long,
+    val lists: Int,
+    val ownAllowed: Int,
+    val ownDenied: Int,
+    val model: String,
+    val hostname: String,
+    val os: String,
+    val uptime: Long,
+    val ftlUptime: Long,
+    val cpus: Int,
+    val load: List<Double>,
+    val ramTotal: Long,
+    val ramUsed: Long,
+    /** null: Gerät meldet keine Temperatur */
+    val temp: Double?,
+    val messages: List<String>,
+)
+
 /** Pi-hole-Modul, nur über den gemeinsamen Zugang erreichbar. Pausieren gilt immer für alle Pi-holes. */
 class PiholeApi(private val http: PiApi) {
 
@@ -89,6 +122,44 @@ class PiholeApi(private val http: PiApi) {
             errors = o.optJSONArray("errors").objects().map { it.optString("error") },
             answered = o.optInt("answered"),
             instances = o.optInt("instances"),
+        )
+    }
+
+    suspend fun detail(index: Int): PhDetail {
+        val o = JSONObject(http.raw("api/instances/$index"))
+        val q = o.optJSONObject("queries") ?: JSONObject()
+        val d = o.optJSONObject("device") ?: JSONObject()
+        val load = d.optJSONArray("load")
+        return PhDetail(
+            name = o.optString("name"),
+            url = o.optString("url"),
+            blocking = o.optString("blocking", "unknown"),
+            timer = if (o.isNull("timer")) null else o.optDouble("timer").toInt(),
+            versions = o.optJSONArray("versions").objects().map { it.optString("part") to it.optString("installed") },
+            updates = o.optJSONArray("updates").objects().map { "${it.optString("part")} ${it.optString("available")}" },
+            total = q.optLong("total"),
+            blocked = q.optLong("blocked"),
+            cached = q.optLong("cached"),
+            forwarded = q.optLong("forwarded"),
+            uniqueDomains = q.optLong("unique_domains"),
+            percent = o.optDouble("percent", 0.0),
+            clients = o.optInt("clients"),
+            gravity = o.optLong("gravity"),
+            gravityUpdate = o.optLong("gravity_update"),
+            lists = o.optInt("lists"),
+            ownAllowed = o.optInt("own_allowed"),
+            ownDenied = o.optInt("own_denied"),
+            model = d.optString("model"),
+            hostname = d.optString("hostname"),
+            os = d.optString("os"),
+            uptime = d.optLong("uptime"),
+            ftlUptime = d.optLong("ftl_uptime"),
+            cpus = d.optInt("cpus"),
+            load = if (load == null) emptyList() else (0 until load.length()).map { load.optDouble(it) },
+            ramTotal = d.optLong("ram_total"),
+            ramUsed = d.optLong("ram_used"),
+            temp = if (d.isNull("temp") || !d.has("temp")) null else d.optDouble("temp"),
+            messages = o.optJSONArray("messages").let { a -> if (a == null) emptyList() else (0 until a.length()).map { a.getString(it) } },
         )
     }
 

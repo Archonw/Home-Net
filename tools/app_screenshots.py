@@ -397,6 +397,10 @@ def main():
     tap("Statistik")
     find("Am häufigsten geblockt", 30)
     shot("pihole-statistik")
+    tap("Zurück")
+    tap("Pi im Flur")
+    find("Domains auf den Listen", 30)
+    shot("pihole-geraet")
     probe.report("notice", "Alle Bilder aufgenommen")
 
 

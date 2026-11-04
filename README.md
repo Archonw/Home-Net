@@ -44,9 +44,9 @@ Alle Bilder zeigen erfundene Beispieldaten. Sie entstehen im Emulator mit `tools
 | --- | --- |
 | <img src="docs/screenshots/wireguard.png" width="200" alt="VPN-Zugänge mit Verbindungszustand"> | <img src="docs/screenshots/wireguard-qr.png" width="200" alt="QR-Code eines Zugangs zum Scannen"> |
 
-| Pi-hole | Pi-hole: pausiert | Pi-hole: Statistik |
-| --- | --- | --- |
-| <img src="docs/screenshots/pihole.png" width="200" alt="Werbefilter aller Pi-holes"> | <img src="docs/screenshots/pihole-pausiert.png" width="200" alt="Werbefilter für 5 Minuten pausiert"> | <img src="docs/screenshots/pihole-statistik.png" width="200" alt="Statistik aller Pi-holes zusammen"> |
+| Pi-hole | Pi-hole: pausiert | Pi-hole: Statistik | Pi-hole: ein Gerät |
+| --- | --- | --- | --- |
+| <img src="docs/screenshots/pihole.png" width="200" alt="Werbefilter aller Pi-holes"> | <img src="docs/screenshots/pihole-pausiert.png" width="200" alt="Werbefilter für 5 Minuten pausiert"> | <img src="docs/screenshots/pihole-statistik.png" width="200" alt="Statistik aller Pi-holes zusammen"> | <img src="docs/screenshots/pihole-geraet.png" width="200" alt="Details eines Pi-holes mit Version und Gerät"> |
 
 ## Konten und Anmeldung
 

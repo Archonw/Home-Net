@@ -268,6 +268,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             if not configured:
                 return self.send_json(200, {"configured": False})
             return self.send_json(200, dict(self.piholes.stats(), configured=True))
+        match = re.fullmatch(r"/api/instances/(\d{1,2})", path)
+        if method == "GET" and match:
+            return self.send_json(200, self.piholes.details(int(match.group(1))))
         if method == "POST" and path in ("/api/pause", "/api/resume"):
             if not configured:
                 raise ValueError("Es ist noch kein Pi-hole eingetragen.")

@@ -118,10 +118,10 @@ function showOverview(o) {
   const buttons = o.blocking === "enabled" ? [] : [$("button", { className: "main", textContent: "Wieder einschalten", onclick: () => run("api/resume") })];
   PAUSES.forEach(([s, label]) => buttons.push($("button", { textContent: label, onclick: () => run("api/pause", { seconds: s }) })));
   if (manager) buttons.push($("button", { className: "danger", textContent: "Ohne Ende", onclick: () => confirm("Werbefilter ohne Ende pausieren? Er bleibt dann aus, bis jemand ihn wieder einschaltet.") && run("api/pause", {}) }));
-  const rows = o.instances.map(i => $("div", { className: "card" },
+  const rows = o.instances.map((i, n) => $("div", { className: "card click", onclick: () => showDetail(n) },
     $("div", { className: "name" }, i.name, $("span", { className: "quiet", textContent: ` · ${i.url.replace(/^https?:\/\//, "")}` })),
     i.online ? $("div", { className: i.blocking === "enabled" ? "ok" : "warn",
-      textContent: (i.blocking === "enabled" ? "Filter an" : i.timer ? `Pausiert, noch ${Math.ceil(i.timer / 60)} min` : "Pausiert") + ((i.version || i.ftl) ? ` · Pi-hole ${i.version || "FTL " + i.ftl}` : "") })
+      textContent: (i.blocking === "enabled" ? "Filter an" : i.timer ? `Pausiert, noch ${Math.ceil(i.timer / 60)} min` : "Pausiert") + ((i.version || i.ftl) ? ` · Pi-hole ${i.version || "FTL " + i.ftl}` : "") + " ›" })
       : $("div", { className: "bad", textContent: i.error }),
     (i.updates || []).length ? $("div", { className: "quiet", textContent: "Update verfügbar: " + i.updates.map(u => `${u.part} ${u.available}`).join(", ") + " (auf dem Gerät mit „pihole -up“)" }) : null));
   app.replaceChildren(
@@ -131,6 +131,44 @@ function showOverview(o) {
     $("h2", { textContent: "Pi-holes" }), ...rows);
   if (o.blocking !== "enabled") timer = setTimeout(show, 15000);
 }
+
+const bytes = b => b >= 1073741824 ? `${(b / 1073741824).toLocaleString("de-DE", { maximumFractionDigits: 1 })} GB` : `${Math.round(b / 1048576)} MB`;
+function duration(s) {
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d} Tg. ${h} Std.` : h ? `${h} Std. ${m} Min.` : `${m} Min.`;
+}
+
+async function showDetail(n) {
+  clearTimeout(timer);
+  app.replaceChildren($("p", { className: "quiet", textContent: "Wird geladen …" }));
+  let d;
+  try { d = await api(`api/instances/${n}`); } catch (e) { app.replaceChildren(backLink(), err(e.message)); return; }
+  const row = (label, value) => value === "" || value == null ? null : $("div", { className: "row" }, $("span", { className: "quiet", textContent: label }), $("span", { textContent: value }));
+  const dev = d.device, q = d.queries;
+  const temp = dev.temp == null ? "" : `${Number(dev.temp).toLocaleString("de-DE", { maximumFractionDigits: 1 })} °C`;
+  app.replaceChildren(backLink(),
+    $("div", { className: "card" }, $("div", { className: "big", textContent: d.name }),
+      $("div", { className: d.blocking === "enabled" ? "ok" : "warn", textContent: d.blocking === "enabled" ? "Filter an" : d.timer ? `Pausiert, noch ${Math.ceil(d.timer / 60)} min` : "Pausiert" }),
+      $("div", { className: "quiet", textContent: d.url })),
+    $("h2", { textContent: "Heute (24 h)" }),
+    $("div", { className: "card" }, row("Anfragen", num(q.total)), row("Geblockt", `${num(q.blocked)} (${d.percent.toLocaleString("de-DE")} %)`),
+      row("Aus dem Zwischenspeicher", num(q.cached)), row("Weitergeleitet", num(q.forwarded)), row("Verschiedene Domains", num(q.unique_domains)), row("Aktive Geräte", num(d.clients))),
+    $("h2", { textContent: "Blocklisten" }),
+    $("div", { className: "card" }, row("Domains auf den Listen", num(d.gravity)), row("Listen", d.lists ? num(d.lists) : ""),
+      row("Eigene Ausnahmen", num(d.own_allowed)), row("Eigene Sperren", num(d.own_denied)), row("Stand", d.gravity_update ? time(d.gravity_update) : "")),
+    $("h2", { textContent: "Version" }),
+    $("div", { className: "card" }, ...d.versions.map(v => row(v.part, v.installed)),
+      d.updates.length ? $("div", { className: "warn", textContent: "Update verfügbar: " + d.updates.map(u => `${u.part} ${u.available}`).join(", ") + " (auf dem Gerät mit „pihole -up“)" }) : $("div", { className: "quiet", textContent: "Aktuell" })),
+    $("h2", { textContent: "Gerät" }),
+    $("div", { className: "card" }, row("Modell", dev.model), row("Name", dev.hostname), row("System", dev.os),
+      row("Gerät läuft seit", dev.uptime ? duration(dev.uptime) : ""), row("Pi-hole läuft seit", dev.ftl_uptime ? duration(dev.ftl_uptime) : ""), row("Temperatur", temp),
+      row("Prozessor", dev.cpus ? `${dev.cpus} Kerne, Last ${dev.load.map(x => x.toLocaleString("de-DE")).join(" / ")}` : ""),
+      row("Arbeitsspeicher", dev.ram_total ? `${bytes(dev.ram_used)} von ${bytes(dev.ram_total)} belegt` : "")),
+    d.messages.length ? $("h2", { textContent: "Hinweise von Pi-hole" }) : null,
+    ...d.messages.map(m => $("div", { className: "card note", textContent: m })));
+}
+
+const backLink = () => $("p", {}, $("a", { href: "#", textContent: "‹ Alle Pi-holes", onclick: e => { e.preventDefault(); show(); } }));
 
 function list(title, items, label) {
   return $("div", { className: "card" }, $("div", { className: "name", textContent: title }),
