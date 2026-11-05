@@ -52,8 +52,16 @@ data class NcOverview(
     val account: String,
 )
 
+/** So meldet der Dienst, dass Nextcloud das Passwort des Kontos bestätigt haben möchte (ab Nextcloud 32). */
+const val NC_CONFIRM_TEXT = "Nextcloud verlangt eine Bestätigung mit dem Passwort."
+
 /** Nextcloud-Verwaltung, nur über den gemeinsamen Zugang erreichbar. */
 class NextcloudApi(private val http: PiApi) {
+
+    /** Das Passwort des Kontos von Home-Net in Nextcloud; der Dienst behält es 30 Minuten im Speicher. */
+    suspend fun confirm(password: String) {
+        http.postJson("api/confirm", JSONObject().put("password", password).toString())
+    }
 
     suspend fun overview(): NcOverview {
         val o = JSONObject(http.raw("api/overview"))

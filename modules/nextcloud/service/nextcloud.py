@@ -22,10 +22,18 @@ QUOTA_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(B|KB|MB|GB|TB)", re.I)
 USER_ID_RE = re.compile(r"[A-Za-z0-9_.@\- ']{1,64}")
 
 
+# Nextcloud 32+ wants the account password for every change of users ("password confirmation"), which an app password
+# cannot give. The pages then ask for it once; it is kept in memory for CONFIRM_FOR seconds, like Nextcloud's own
+# 30 minutes, and never written to disk. Clients recognise this exact text.
+CONFIRM_TEXT = "Nextcloud verlangt eine Bestätigung mit dem Passwort."
+CONFIRM_FOR = 30 * 60
+
+
 class NextcloudError(Exception):
-    def __init__(self, message, status=502):
+    def __init__(self, message, status=502, confirm=False):
         super().__init__(message)
         self.status = status
+        self.confirm = confirm
 
 
 def quota_text(value):
@@ -54,6 +62,7 @@ class Nextcloud:
     def __init__(self, settings):
         self.settings = settings  # callable returning {"url", "user", "password", "verify_tls"}
         self._cache = (0.0, None)
+        self._confirmed = ("", 0.0)  # account password and until when (monotonic)
 
     # --- HTTP ------------------------------------------------------------------------------------
 
@@ -73,7 +82,10 @@ class Nextcloud:
             with urllib.request.urlopen(req, timeout=TIMEOUT, context=self.context()) as resp:
                 return resp.read()
         except urllib.error.HTTPError as exc:
-            raise NextcloudError(self.explain(exc), 400 if exc.code in (400, 404, 409) else 502)
+            text = self.explain(exc)
+            if text == CONFIRM_TEXT:
+                raise NextcloudError(text, 403, confirm=True)
+            raise NextcloudError(text, 400 if exc.code in (400, 404, 409) else 502)
         except ssl.SSLCertVerificationError:
             raise NextcloudError("Das Zertifikat der Nextcloud passt nicht. Für ein eigenes Zertifikat im Heimnetz "
                                  "unter Einstellungen „Zertifikat nicht prüfen“ wählen.")
@@ -84,13 +96,14 @@ class Nextcloud:
                                      "Heimnetz unter Einstellungen „Zertifikat nicht prüfen“ wählen.")
             raise NextcloudError(f"Nextcloud ist nicht erreichbar ({reason}).")
 
-    def ocs(self, method, path, body=None, query=None):
+    def ocs(self, method, path, body=None, query=None, password=None):
+        """password: the account password instead of the app password (only for confirmed changes)."""
         s = self.settings()
         if not s.get("user") or not s.get("password"):
             raise NextcloudError("Benutzername und App-Passwort fehlen. Bitte unter Einstellungen eintragen.", 400)
         url = self.base() + "/ocs/v2.php" + path + "?" + urllib.parse.urlencode({"format": "json", **(query or {})})
         data = json.dumps(body).encode() if body is not None else None
-        token = base64.b64encode(f"{s['user']}:{s['password']}".encode()).decode()
+        token = base64.b64encode(f"{s['user']}:{password or s['password']}".encode()).decode()
         req = urllib.request.Request(url, data=data, method=method, headers={
             "Authorization": f"Basic {token}", "OCS-APIRequest": "true", "Accept": "application/json",
             **({"Content-Type": "application/json"} if data is not None else {})})
@@ -110,6 +123,8 @@ class Nextcloud:
             detail = ""
         if exc.code == 401:
             return "Nextcloud lehnt die Anmeldung ab. Stimmen Benutzername und App-Passwort?"
+        if exc.code == 403 and "password confirmation" in detail.lower():
+            return CONFIRM_TEXT
         if exc.code == 403:
             return detail or "Das Konto für Home-Net ist in Nextcloud kein Admin."
         if exc.code == 404:
@@ -230,6 +245,36 @@ class Nextcloud:
 
     # --- Ändern ----------------------------------------------------------------------------------
 
+    def confirm(self, password):
+        """Checks the account password with a harmless call; on success changes use it for CONFIRM_FOR seconds."""
+        password = str(password or "")
+        if not password or len(password) > 300:
+            raise ValueError("Bitte das Passwort eingeben.")
+        if password == self.settings().get("password"):
+            raise ValueError("Das ist das App-Passwort. Gemeint ist das normale Passwort des Kontos in Nextcloud.")
+        try:
+            self.ocs("GET", "/cloud/user", password=password)
+        except NextcloudError as exc:
+            if "lehnt die Anmeldung ab" in str(exc):
+                raise ValueError("Nextcloud lehnt das Passwort ab. Gemeint ist das normale Passwort des Kontos, nicht "
+                                 "das App-Passwort. Mit Zwei-Faktor-Anmeldung geht es so nicht, dann hilft nur "
+                                 "allowed_no_password_confirmation_ranges (siehe Anleitung).")
+            raise
+        self._confirmed = (password, time.monotonic() + CONFIRM_FOR)
+
+    def confirmed(self):
+        password, until = self._confirmed
+        return password if password and time.monotonic() < until else None
+
+    def write(self, method, path, body=None, query=None):
+        password = self.confirmed()
+        try:
+            return self.ocs(method, path, body, query, password=password)
+        except NextcloudError as exc:
+            if exc.confirm:
+                self._confirmed = ("", 0.0)
+            raise
+
     def create_user(self, user_id, name="", email="", password="", groups=(), quota=""):
         user_id = check_user_id(user_id)
         if not password and not email:
@@ -244,38 +289,38 @@ class Nextcloud:
             body["password"] = password
         if quota:
             body["quota"] = quota_text(quota)
-        self.ocs("POST", "/cloud/users", body)
+        self.write("POST", "/cloud/users", body)
         self.forget()
 
     def set_field(self, user_id, key, value):
         if key not in ("displayname", "email", "quota", "password"):
             raise ValueError("Unbekanntes Feld")
-        self.ocs("PUT", "/cloud/users/" + quote(user_id), {"key": key, "value": value})
+        self.write("PUT", "/cloud/users/" + quote(user_id), {"key": key, "value": value})
         self.forget()
 
     def set_enabled(self, user_id, enabled):
-        self.ocs("PUT", "/cloud/users/" + quote(user_id) + ("/enable" if enabled else "/disable"), {})
+        self.write("PUT", "/cloud/users/" + quote(user_id) + ("/enable" if enabled else "/disable"), {})
         self.forget()
 
     def set_group(self, user_id, group, member):
         if member:
-            self.ocs("POST", "/cloud/users/" + quote(user_id) + "/groups", {"groupid": group})
+            self.write("POST", "/cloud/users/" + quote(user_id) + "/groups", {"groupid": group})
         else:
-            self.ocs("DELETE", "/cloud/users/" + quote(user_id) + "/groups", query={"groupid": group})
+            self.write("DELETE", "/cloud/users/" + quote(user_id) + "/groups", query={"groupid": group})
         self.forget()
 
     def welcome(self, user_id):
-        self.ocs("POST", "/cloud/users/" + quote(user_id) + "/welcome", {})
+        self.write("POST", "/cloud/users/" + quote(user_id) + "/welcome", {})
 
     def delete_user(self, user_id):
-        self.ocs("DELETE", "/cloud/users/" + quote(user_id))
+        self.write("DELETE", "/cloud/users/" + quote(user_id))
         self.forget()
 
     def create_group(self, group):
         group = str(group or "").strip()
         if not group or len(group) > 64:
             raise ValueError("Bitte einen Namen für die Gruppe angeben (höchstens 64 Zeichen).")
-        self.ocs("POST", "/cloud/groups", {"groupid": group})
+        self.write("POST", "/cloud/groups", {"groupid": group})
         self.forget()
 
 

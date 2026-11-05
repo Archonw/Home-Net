@@ -54,6 +54,13 @@ select { width:100%; font:inherit; color:inherit; background:var(--bg); border:1
 </header>
 <main id="app">Wird geladen …</main>
 <dialog id="dlg"><form id="form" method="dialog"></form></dialog>
+<dialog id="pwdlg"><form id="pwform" method="dialog">
+  <h2 style="font-size:18px;color:inherit;margin:0 0 6px">Mit Passwort bestätigen</h2>
+  <p class="quiet">Nextcloud möchte Änderungen an Benutzern mit dem Passwort bestätigt haben. Gemeint ist das normale Passwort des Kontos, mit dem sich Home-Net anmeldet, nicht das App-Passwort. Es wird nicht gespeichert und gilt 30 Minuten.</p>
+  <input id="pwinput" type="password" autocomplete="current-password">
+  <p class="err" id="pwerr"></p>
+  <div class="foot"><button type="button" id="pwcancel">Abbrechen</button><button class="main" id="pwok">Bestätigen</button></div>
+</form></dialog>
 
 <script>
 const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
@@ -61,11 +68,33 @@ const tr = text => (window.hnT ? window.hnT(text) : text);
 const app = document.getElementById("app"), dlg = document.getElementById("dlg"), form = document.getElementById("form"), nav = document.getElementById("nav");
 let tab = "overview", data = null;
 
-async function api(path, method = "GET", body) {
+async function api(path, method = "GET", body, retried = false) {
   const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
   const out = await r.json().catch(() => ({}));
+  if (r.status === 403 && out.confirm && !retried) {
+    await askPassword();
+    return api(path, method, body, true);
+  }
   if (!r.ok) throw new Error(out.detail || `Fehler ${r.status}`);
   return out;
+}
+
+// Nextcloud verlangt für Änderungen das Passwort des Kontos; einmal eingeben, dann die Aktion wiederholen
+function askPassword() {
+  const d = document.getElementById("pwdlg"), input = document.getElementById("pwinput"), err = document.getElementById("pwerr");
+  input.value = ""; err.textContent = "";
+  return new Promise((resolve, reject) => {
+    const ok = document.getElementById("pwok"), cancel = document.getElementById("pwcancel");
+    const done = () => { ok.onclick = cancel.onclick = null; d.onclose = null; };
+    ok.onclick = async e => {
+      e.preventDefault();
+      try { await api("api/confirm", "POST", { password: input.value }, true); done(); d.close(); resolve(); }
+      catch (x) { err.textContent = x.message; }
+    };
+    cancel.onclick = () => d.close();
+    d.onclose = () => { done(); reject(new Error(tr("Nicht bestätigt."))); };
+    d.showModal(); input.focus();
+  });
 }
 
 function drawNav(manager) {

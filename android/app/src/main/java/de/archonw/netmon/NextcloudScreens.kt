@@ -34,6 +34,48 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
 private const val NC_REFRESH_MS = 60_000L
+
+/** Eine Änderung, die auf die Bestätigung mit dem Passwort wartet, und was danach geschehen soll. */
+private class NcGate {
+    var pending by mutableStateOf<Pair<suspend () -> Unit, () -> Unit>?>(null)
+
+    /** Führt [action] aus; verlangt Nextcloud das Passwort, merkt sie sich die Aktion für [NcPasswordDialog]. */
+    suspend fun guard(after: () -> Unit, action: suspend () -> Unit) {
+        try {
+            action()
+        } catch (e: ApiException) {
+            if (e.message != NC_CONFIRM_TEXT) throw e
+            pending = action to after
+            throw ApiException(t("Bitte mit dem Passwort bestätigen."))
+        }
+    }
+}
+
+@Composable
+private fun NcPasswordDialog(api: NextcloudApi, gate: NcGate) {
+    val waiting = gate.pending ?: return
+    var password by remember { mutableStateOf("") }
+    FormDialog(
+        title = "Mit Passwort bestätigen", confirm = "Bestätigen", onDismiss = { gate.pending = null },
+        onConfirm = {
+            api.confirm(password)
+            waiting.first()
+        },
+        onDone = {
+            gate.pending = null
+            waiting.second()
+        },
+    ) {
+        Text(
+            "Nextcloud möchte Änderungen an Benutzern mit dem Passwort bestätigt haben. Gemeint ist das normale Passwort des Kontos, mit dem sich Home-Net anmeldet, nicht das App-Passwort. Es wird nicht gespeichert und gilt 30 Minuten.",
+            color = LocalPalette.current.muted, fontSize = 13.sp,
+        )
+        OutlinedTextField(
+            password, { password = it }, label = { Text("Passwort") }, singleLine = true,
+            visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
 private const val QUOTA_HINT = "z. B. 5 GB, leer für den Standard, „unbegrenzt“ für keine Grenze"
 
 fun nextcloudTileText(o: NcOverview): String = when {
@@ -68,13 +110,11 @@ fun NextcloudScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> U
     var reload by remember { mutableStateOf(0) }
     var adding by remember { mutableStateOf(false) }
     var addingGroup by remember { mutableStateOf(false) }
+    val gate = remember { NcGate() }
     val (data, error) = rememberLoaded(reload, NC_REFRESH_MS) { api.overview() }
-    val ready = data?.configured == true && data.error.isBlank()
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
-        PageTitle("Nextcloud", onBack = onBack, trailing = {
-            if (ready && data?.canManage == true) TextAction("Neu") { adding = true }
-        })
+        PageTitle("Nextcloud", onBack = onBack)
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -117,6 +157,7 @@ fun NextcloudScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> U
                     if (data.canManage) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) { SectionTitle("Benutzer") }
+                            TextAction("Neuer Benutzer") { adding = true }
                             TextAction("Neue Gruppe") { addingGroup = true }
                         }
                         data.users.forEach { u ->
@@ -146,7 +187,7 @@ fun NextcloudScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> U
         val chosen = remember { mutableStateListOf<String>() }
         FormDialog(
             title = "Neuer Benutzer", confirm = "Anlegen", onDismiss = { adding = false },
-            onConfirm = { api.create(id, name, email, password, quota, chosen.toList()) },
+            onConfirm = { gate.guard({ adding = false; reload++ }) { api.create(id, name, email, password, quota, chosen.toList()) } },
             onDone = { adding = false; reload++ },
         ) {
             OutlinedTextField(name, {
@@ -178,11 +219,13 @@ fun NextcloudScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> U
         var group by remember { mutableStateOf("") }
         FormDialog(
             title = "Neue Gruppe", confirm = "Anlegen", onDismiss = { addingGroup = false },
-            onConfirm = { api.createGroup(group) }, onDone = { addingGroup = false; reload++ },
+            onConfirm = { gate.guard({ addingGroup = false; reload++ }) { api.createGroup(group) } },
+            onDone = { addingGroup = false; reload++ },
         ) {
             OutlinedTextField(group, { group = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         }
     }
+    NcPasswordDialog(api, gate)
 }
 
 @Composable
@@ -195,6 +238,7 @@ fun NextcloudUserScreen(api: NextcloudApi, id: String, onBack: () -> Unit) {
     var confirm by remember { mutableStateOf<Triple<String, String, suspend () -> Unit>?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     val pending = remember { mutableStateMapOf<String, Boolean>() }
+    val gate = remember { NcGate() }
     val (data, error) = rememberLoaded(reload, NC_REFRESH_MS) { api.overview() }
     val user = data?.users?.firstOrNull { it.id == id }
     val own = user != null && user.id.equals(data?.account, ignoreCase = true)
@@ -243,7 +287,7 @@ fun NextcloudUserScreen(api: NextcloudApi, id: String, onBack: () -> Unit) {
                                 message = null
                                 scope.launch {
                                     try {
-                                        api.setGroup(user.id, g, wanted)
+                                        gate.guard({ reload++ }) { api.setGroup(user.id, g, wanted) }
                                         reload++
                                     } catch (e: ApiException) {
                                         message = e.message
@@ -288,13 +332,15 @@ fun NextcloudUserScreen(api: NextcloudApi, id: String, onBack: () -> Unit) {
         FormDialog(
             title = t("{0} bearbeiten", user.name), confirm = "Speichern", onDismiss = { editing = false },
             onConfirm = {
-                api.update(
-                    user.id,
-                    name = name.takeIf { it != user.name },
-                    email = email.takeIf { it != user.email },
-                    quota = quota.takeIf { it != user.quotaInput() },
-                    password = password,
-                )
+                gate.guard({ editing = false; reload++ }) {
+                    api.update(
+                        user.id,
+                        name = name.takeIf { it != user.name },
+                        email = email.takeIf { it != user.email },
+                        quota = quota.takeIf { it != user.quotaInput() },
+                        password = password,
+                    )
+                }
             },
             onDone = { editing = false; reload++ },
         ) {
@@ -321,7 +367,7 @@ fun NextcloudUserScreen(api: NextcloudApi, id: String, onBack: () -> Unit) {
         var typed by remember { mutableStateOf("") }
         FormDialog(
             title = t("{0} löschen?", user.name), confirm = "Löschen", onDismiss = { deleting = false },
-            onConfirm = { api.delete(user.id, typed) },
+            onConfirm = { gate.guard({ deleting = false; onBack() }) { api.delete(user.id, typed) } },
             onDone = { deleting = false; onBack() },
         ) {
             Text("Das Konto wird mit allen Dateien gelöscht. Das lässt sich nicht rückgängig machen.", color = LocalPalette.current.text, fontSize = 14.sp)
@@ -331,7 +377,8 @@ fun NextcloudUserScreen(api: NextcloudApi, id: String, onBack: () -> Unit) {
     confirm?.let { (question, label, action) ->
         FormDialog(
             title = question, confirm = label, onDismiss = { confirm = null },
-            onConfirm = action, onDone = { confirm = null; reload++ },
+            onConfirm = { gate.guard({ confirm = null; reload++ }) { action() } }, onDone = { confirm = null; reload++ },
         ) {}
     }
+    NcPasswordDialog(api, gate)
 }

@@ -229,7 +229,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         except LookupError:
             self.send_json(404, {"detail": "Nicht gefunden"})
         except NextcloudError as exc:
-            self.send_json(exc.status if 400 <= exc.status < 600 else 502, {"detail": str(exc)})
+            self.send_json(exc.status if 400 <= exc.status < 600 else 502, {"detail": str(exc), "confirm": exc.confirm})
 
     do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = route
 
@@ -255,6 +255,10 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.manager()
         if method == "POST" and path == "/api/users":
             return self.create_user(body)
+        if method == "POST" and path == "/api/confirm":
+            self.nc.confirm(body.get("password"))
+            log(f"{self.actor()}: Passwort für Nextcloud bestätigt")
+            return self.send_json(200, {"ok": True, "minutes": 30})
         if method == "POST" and path == "/api/groups":
             self.nc.create_group(body.get("name"))
             log(f"{self.actor()}: Gruppe {body.get('name')} angelegt")
