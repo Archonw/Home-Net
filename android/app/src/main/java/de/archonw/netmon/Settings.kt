@@ -132,6 +132,11 @@ class Settings(context: Context) {
         PiApi("$hubUrl/m/proxy-manager", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/proxy-manager"),
     )
 
+    /** Nextcloud-Verwaltung, ebenfalls nur über den gemeinsamen Zugang. */
+    fun nextcloudApi() = NextcloudApi(
+        PiApi("$hubUrl/m/nextcloud", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/nextcloud"),
+    )
+
     /** Pi-hole, ebenfalls nur über den gemeinsamen Zugang. */
     fun piholeApi() = PiholeApi(
         PiApi("$hubUrl/m/pihole", hubSecret, if (hubExternalUrl.isBlank()) "" else "$hubExternalUrl/m/pihole"),

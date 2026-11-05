@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="512" android:viewportHeight="512">
+    <!-- assets/icons/nextcloud.svg -->
+    <path android:fillColor="#0082C9" android:pathData="M0,0 H512 V512 H0 Z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M156,368 H360 A82,82 0 0 0 374,205 A122,122 0 0 0 140,214 A78,78 0 0 0 156,368 Z" />
+    <path android:strokeColor="#0082C9" android:strokeWidth="22" android:strokeLineCap="round"
+        android:strokeLineJoin="round" android:pathData="M256,330 V246 M218,282 L256,244 L294,282" />
+</vector>

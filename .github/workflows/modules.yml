@@ -191,3 +191,18 @@ jobs:
           python-version: "3.12"
       - run: python -m unittest discover tests
       - run: docker build -q -t proxy-manager-uebersicht:test .
+
+  nextcloud:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.modules), 'nextcloud')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/nextcloud
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover tests
+      - run: docker build -q -t nextcloud-verwaltung:test .
