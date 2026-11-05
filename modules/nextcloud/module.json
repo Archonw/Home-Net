@@ -1,0 +1,57 @@
+{
+  "id": "nextcloud",
+  "name": "Nextcloud",
+  "description": "Zeigt Zustand, Speicher und Updates einer Nextcloud und verwaltet ihre Benutzer und Gruppen",
+  "icon": "assets/icons/nextcloud.png",
+  "api": {
+    "socket": "/run/nextcloud/api.sock",
+    "health": "/health",
+    "public": [
+      "/health"
+    ],
+    "web": true
+  },
+  "services": {
+    "nextcloud-verwaltung": {
+      "build": "modules/nextcloud",
+      "extra_hosts": [
+        "host.docker.internal:host-gateway"
+      ],
+      "environment": [
+        "TZ=${TZ}",
+        "DATA=/data",
+        "LISTEN_SOCKET=/run/nextcloud/api.sock",
+        "EVENTS_DIR=/run/home-net-events"
+      ],
+      "volumes": [
+        "${DATA_DIR}/nextcloud/config:/data",
+        "${DATA_DIR}/nextcloud/run:/run/nextcloud",
+        "${DATA_DIR}/events/nextcloud:/run/home-net-events"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python3",
+          "-c",
+          "import socket;s=socket.socket(socket.AF_UNIX);s.connect('/run/nextcloud/api.sock');s.send(b'GET /health HTTP/1.0\\r\\n\\r\\n');assert b' 200 ' in s.recv(64)"
+        ]
+      }
+    }
+  },
+  "events": [
+    {
+      "id": "nextcloud_down",
+      "label": "Nextcloud nicht erreichbar"
+    },
+    {
+      "id": "nextcloud_storage",
+      "label": "Speicher der Nextcloud wird knapp",
+      "manager_only": true
+    },
+    {
+      "id": "nextcloud_update",
+      "label": "Update für Nextcloud oder ihre Apps",
+      "manager_only": true
+    }
+  ]
+}

@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nextcloud</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#0082c9; --ok:#1a7f37; --bad:#c93a3a; --warn:#b35a0a; --soft:#0082c91f; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme=light]) { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#4ea8e8; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#4ea8e826; } }
+:root[data-theme=dark] { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#4ea8e8; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#4ea8e826; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
+header { padding:18px 16px 0; max-width:900px; margin:auto; }
+h1 { font-size:24px; margin:0 0 10px; }
+nav { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); }
+nav button { border:0; border-bottom:2px solid transparent; border-radius:0; background:none; padding:8px 10px; color:var(--muted); }
+nav button.on { color:var(--text); border-color:var(--accent); font-weight:620; }
+main { max-width:900px; margin:auto; padding:8px 16px 48px; }
+h2 { font-size:13px; color:var(--muted); margin:20px 0 8px; font-weight:650; }
+button { font:inherit; border:1px solid var(--line); background:var(--card); color:inherit; border-radius:9px; padding:7px 13px; cursor:pointer; }
+button.main { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+button.danger { color:var(--bad); }
+button:disabled { opacity:.55; cursor:default; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:8px; }
+.click { cursor:pointer; }
+.name { font-weight:620; }
+.quiet { color:var(--muted); font-size:13px; }
+.bad { color:var(--bad); } .warn { color:var(--warn); } .ok { color:var(--ok); }
+.note { background:var(--soft); border-color:transparent; }
+.pills { display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
+.pill { font-size:12px; border-radius:20px; padding:1px 8px; background:var(--soft); white-space:nowrap; }
+.actions { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; align-items:center; }
+dialog { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:14px; width:min(560px,94vw); padding:18px; }
+dialog::backdrop { background:#0007; }
+label { display:block; margin:9px 0 3px; font-size:13px; color:var(--muted); }
+label.check { color:inherit; font-size:15px; margin:6px 0; display:flex; align-items:center; gap:8px; }
+input { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; }
+input[type=checkbox] { width:auto; margin:0; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+.err { color:var(--bad); margin:8px 0; white-space:pre-wrap; }
+.hint { font-size:12.5px; color:var(--muted); margin:3px 0 0; }
+.foot { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; flex-wrap:wrap; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px; }
+.big { font-size:20px; font-weight:650; }
+select { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; }
+.bar { height:6px; border-radius:3px; background:var(--line); overflow:hidden; margin-top:5px; } .bar > div { height:100%; background:var(--accent); }
+@media (max-width:560px) { .two { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Nextcloud</h1>
+  <nav id="nav"></nav>
+</header>
+<main id="app">Wird geladen …</main>
+<dialog id="dlg"><form id="form" method="dialog"></form></dialog>
+
+<script>
+const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
+const tr = text => (window.hnT ? window.hnT(text) : text);
+const app = document.getElementById("app"), dlg = document.getElementById("dlg"), form = document.getElementById("form"), nav = document.getElementById("nav");
+let tab = "overview", data = null;
+
+async function api(path, method = "GET", body) {
+  const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.detail || `Fehler ${r.status}`);
+  return out;
+}
+
+function drawNav(manager) {
+  const tabs = manager ? [["overview", "Übersicht"], ["users", "Benutzer"], ["settings", "Einstellungen"]] : [["overview", "Übersicht"]];
+  nav.replaceChildren(...tabs.map(([id, label]) => $("button", { textContent: label, className: id === tab ? "on" : "", onclick: () => { tab = id; show(); } })));
+}
+
+async function show() {
+  drawNav(data ? data.can_manage : false);
+  if (tab === "settings") return showSettings();
+  try { data = await api("api/overview"); } catch (e) { app.replaceChildren($("p", { className: "err", textContent: e.message })); return; }
+  drawNav(data.can_manage);
+  if (!data.configured) {
+    app.replaceChildren($("div", { className: "card note" }, "Es fehlt noch die Anmeldung für Nextcloud. ",
+      data.can_manage ? $("a", { href: "#", textContent: "Jetzt unter Einstellungen eintragen.", onclick: e => { e.preventDefault(); tab = "settings"; show(); } }) : "Ein Admin von Home-Net muss sie eintragen."));
+    return;
+  }
+  if (data.error) { app.replaceChildren($("p", { className: "err", textContent: data.error })); return; }
+  tab === "users" ? showUsers() : showOverview();
+}
+
+const size = b => {
+  if (b == null) return "–";
+  for (const [u, s] of [["TB", 1024 ** 4], ["GB", 1024 ** 3], ["MB", 1024 ** 2], ["KB", 1024]]) if (b >= s) return `${(b / s).toFixed(b >= 10 * s ? 0 : 1)} ${u}`;
+  return `${b} B`;
+};
+const when = t => t ? new Date(t * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : tr("noch nie");
+const stat = (label, value, cls = "") => $("div", { className: "card" }, $("div", { className: "quiet", textContent: label }), $("div", { className: `big ${cls}`, textContent: value }));
+
+function showOverview() {
+  const s = data.status, i = data.info;
+  const parts = [];
+  const state = s.maintenance ? ["Wartungsmodus", "warn"] : s.needs_upgrade ? ["Wartet auf Aktualisierung der Datenbank", "warn"] : ["Läuft", "ok"];
+  parts.push($("div", { className: "grid" },
+    stat("Zustand", tr(state[0]), state[1]), stat("Version", s.version || "–"),
+    data.user_count != null ? stat("Benutzer", String(data.user_count)) : null,
+    i ? stat("Frei auf dem Datenträger", size(i.free_bytes), i.storage_low ? "bad" : "") : null));
+  if (!i) {
+    parts.push($("div", { className: "card note" }, "Für Speicher, aktive Benutzer und Updates braucht Nextcloud die App „Monitoring“ (serverinfo). Sie ist bei Nextcloud dabei und lässt sich unter Apps einschalten."));
+    app.replaceChildren(...parts);
+    return;
+  }
+  parts.push($("h2", { textContent: "Aktiv" }), $("div", { className: "grid" },
+    stat("Letzte 5 Minuten", String(i.active["5min"])), stat("Letzte Stunde", String(i.active["1h"])), stat("Letzte 24 Stunden", String(i.active["24h"]))));
+  parts.push($("h2", { textContent: "Updates" }));
+  if (i.server_update) parts.push($("div", { className: "card" }, $("div", { className: "name warn", textContent: `Nextcloud ${i.server_update} ist verfügbar` }),
+    $("div", { className: "quiet", textContent: "Aktualisieren über das Docker-Image bzw. den Updater von Nextcloud." })));
+  if (i.app_updates.length) parts.push($("div", { className: "card" }, $("div", { className: "name warn", textContent: `${i.app_updates.length} App-Updates` }),
+    $("div", { className: "pills" }, ...i.app_updates.map(a => $("span", { className: "pill", textContent: `${a.id} ${a.version}` }))),
+    $("p", { className: "hint", textContent: "Installieren in Nextcloud unter Apps → Updates." })));
+  if (!i.server_update && !i.app_updates.length) parts.push($("div", { className: "card ok", textContent: tr("Alles aktuell.") }));
+  parts.push($("h2", { textContent: "System" }), $("div", { className: "card" },
+    line("Dateien", i.files.toLocaleString("de-DE")), line("Freigaben", i.shares.toLocaleString("de-DE")), line("Installierte Apps", String(i.apps_installed)),
+    i.mem_total ? line("Arbeitsspeicher frei", `${size(i.mem_free)} / ${size(i.mem_total)}`) : null,
+    i.cpu_load.length ? line("Last (1/5/15 min)", i.cpu_load.join(" / ")) : null,
+    i.php ? line("PHP", i.php) : null, i.database ? line("Datenbank", `${i.database}${i.database_bytes ? ` · ${size(i.database_bytes)}` : ""}`) : null));
+  app.replaceChildren(...parts);
+}
+
+const line = (label, value) => $("div", { className: "quiet" }, $("span", { textContent: `${tr(label)}: ` }), $("span", { style: "color:var(--text)", textContent: value }));
+
+function quotaBar(u) {
+  if (!u.quota) return $("div", { className: "quiet", textContent: `${size(u.used)} belegt · Speicherplatz ${tr(u.quota_text)}` });
+  const pct = Math.min(100, Math.round(100 * (u.used || 0) / u.quota));
+  return $("div", {}, $("div", { className: "quiet", textContent: `${size(u.used)} von ${u.quota_text} belegt` }), $("div", { className: "bar" }, $("div", { style: `width:${pct}%` })));
+}
+
+function showUsers() {
+  const list = data.users.map(u => $("div", { className: "card click", onclick: () => editUser(u) },
+    $("div", { className: "name" }, u.name, u.admin ? $("span", { className: "quiet", textContent: " · Admin" }) : null, u.enabled ? null : $("span", { className: "bad", textContent: " · gesperrt" })),
+    $("div", { className: "quiet", textContent: [u.id !== u.name ? u.id : "", u.email, `${tr("zuletzt angemeldet")} ${when(u.last_login)}`].filter(Boolean).join(" · ") }),
+    quotaBar(u),
+    $("div", { className: "pills" }, ...u.groups.map(g => $("span", { className: "pill", textContent: g })))));
+  app.replaceChildren($("div", { className: "actions" }, $("button", { className: "main", textContent: "Neuer Benutzer", onclick: newUser }), $("button", { textContent: "Neue Gruppe", onclick: newGroup })),
+    $("p", { className: "hint", textContent: "Wer sich über Pocket ID anmeldet, bekommt sein Konto beim ersten Anmelden. Name und E-Mail solcher Konten kommen von Pocket ID und werden dort geändert." }), ...list);
+}
+
+function openDialog(title, body, buttons) {
+  form.replaceChildren($("h2", { textContent: title, style: "font-size:18px;color:inherit;margin:0 0 6px" }), ...body.filter(b => b != null),
+    $("p", { className: "err", id: "err" }), $("div", { className: "foot" }, ...buttons));
+  dlg.showModal();
+}
+
+const fail = e => { document.getElementById("err").textContent = e.message; };
+const field = (label, name, value = "", type = "text", hint = "") => $("div", {}, $("label", { textContent: label }), $("input", { name, value, type }), hint ? $("p", { className: "hint", textContent: hint }) : null);
+const val = name => (form.elements[name] || {}).value || "";
+const groupBoxes = selected => data.groups.map(g => $("label", { className: "check" }, $("input", { type: "checkbox", name: "group", value: g, checked: selected.includes(g) }), g));
+const checked = () => [...form.querySelectorAll("input[name=group]:checked")].map(i => i.value);
+const QUOTA_HINT = "z. B. 5 GB, leer für den Standard, „unbegrenzt“ für keine Grenze";
+
+function newUser() {
+  openDialog("Neuer Benutzer", [
+    field("Benutzername", "id"), field("Anzeigename", "name"),
+    field("E-Mail", "email", "", "email", "Ohne Passwort schickt Nextcloud an diese Adresse einen Link, mit dem die Person ihr Passwort festlegt."),
+    field("Passwort (freiwillig)", "password", "", "password"),
+    field("Speicherplatz", "quota", "", "text", QUOTA_HINT),
+    data.groups.length ? $("label", { textContent: "Gruppen" }) : null, ...groupBoxes([]),
+  ], [$("button", { textContent: "Abbrechen", value: "x" }), $("button", { className: "main", textContent: "Anlegen", onclick: async e => {
+    e.preventDefault();
+    try {
+      await api("api/users", "POST", { id: val("id"), name: val("name"), email: val("email"), password: val("password"), quota: val("quota"), groups: checked() });
+      dlg.close(); show();
+    } catch (err) { fail(err); }
+  } })]);
+}
+
+function newGroup() {
+  openDialog("Neue Gruppe", [field("Name", "group")], [$("button", { textContent: "Abbrechen", value: "x" }), $("button", { className: "main", textContent: "Anlegen", onclick: async e => {
+    e.preventDefault();
+    try { await api("api/groups", "POST", { name: val("group") }); dlg.close(); show(); } catch (err) { fail(err); }
+  } })]);
+}
+
+function editUser(u) {
+  const own = u.id.toLowerCase() === (data.account || "").toLowerCase();
+  const act = (label, fn, cls = "") => $("button", { textContent: label, className: cls, onclick: async e => { e.preventDefault(); try { await fn(); } catch (err) { fail(err); } } });
+  const buttons = [];
+  if (u.email) buttons.push(act("Willkommens-Mail", async () => { await api(`api/users/${encodeURIComponent(u.id)}/welcome`, "POST", {}); alert(tr(`Mail an ${u.email} geschickt.`)); }));
+  if (!own) {
+    buttons.push(act(u.enabled ? "Sperren" : "Entsperren", async () => {
+      if (u.enabled && !confirm(tr(`${u.name} sperren? Die Anmeldung an Nextcloud geht dann nicht mehr, die Dateien bleiben.`))) return;
+      await api(`api/users/${encodeURIComponent(u.id)}`, "PUT", { enabled: !u.enabled }); dlg.close(); show();
+    }));
+    buttons.push(act("Löschen", async () => {
+      const typed = prompt(tr(`${u.name} mit allen Dateien löschen? Das lässt sich nicht rückgängig machen. Zum Bestätigen den Benutzernamen „${u.id}“ eintippen:`));
+      if (typed == null) return;
+      await api(`api/users/${encodeURIComponent(u.id)}`, "DELETE", { confirm: typed }); dlg.close(); show();
+    }, "danger"));
+  }
+  openDialog(u.name, [
+    $("div", { className: "quiet", textContent: `${u.id} · ${u.backend === "Database" ? tr("Konto in Nextcloud") : u.backend === "user_oidc" ? tr("Anmeldung über Pocket ID / OIDC") : u.backend}` }),
+    own ? $("p", { className: "hint", textContent: "Mit diesem Konto meldet sich Home-Net an." }) : null,
+    field("Anzeigename", "name", u.name), field("E-Mail", "email", u.email, "email"),
+    field("Speicherplatz", "quota", u.quota_text === "Standard" ? "" : u.quota_text, "text", QUOTA_HINT),
+    u.can_password ? field("Neues Passwort", "password", "", "password", "Leer lassen zum Behalten.") : null,
+    data.groups.length ? $("label", { textContent: "Gruppen" }) : null, ...groupBoxes(u.groups),
+    $("div", { className: "actions" }, ...buttons),
+  ], [$("button", { textContent: "Schließen", value: "x" }), $("button", { className: "main", textContent: "Speichern", onclick: async e => {
+    e.preventDefault();
+    const path = `api/users/${encodeURIComponent(u.id)}`;
+    try {
+      const change = {};
+      if (val("name") !== u.name) change.name = val("name");
+      if (val("email") !== u.email) change.email = val("email");
+      if (val("quota") !== (u.quota_text === "Standard" ? "" : u.quota_text)) change.quota = val("quota");
+      if (val("password")) change.password = val("password");
+      if (Object.keys(change).length) await api(path, "PUT", change);
+      const want = checked();
+      for (const g of data.groups) {
+        const was = u.groups.includes(g), now = want.includes(g);
+        if (was !== now) await api(`${path}/groups`, "PUT", { group: g, member: now });
+      }
+      dlg.close(); show();
+    } catch (err) { fail(err); }
+  } })]);
+}
+
+async function showSettings() {
+  let s;
+  try { s = await api("api/settings"); } catch (e) { app.replaceChildren($("p", { className: "err", textContent: e.message })); return; }
+  const url = $("input", { value: s.url, placeholder: "https://cloud.example.org" }), user = $("input", { value: s.user });
+  const pw = $("input", { type: "password", placeholder: s.password_set ? tr("gespeichert – leer lassen zum Behalten") : "" });
+  const tls = $("input", { type: "checkbox", checked: !s.verify_tls });
+  const msg = $("p", { className: "quiet" });
+  app.replaceChildren($("div", { className: "card" },
+    $("label", { textContent: "Adresse der Nextcloud" }), url,
+    $("p", { className: "hint", textContent: "Wie der Server Nextcloud erreicht, z. B. https://cloud.example.org oder https://192.168.1.10:444 im Heimnetz. Die Adresse muss in Nextcloud unter trusted_domains stehen." }),
+    $("label", { className: "check" }, tls, tr("Zertifikat nicht prüfen (eigenes Zertifikat im Heimnetz)")),
+    $("label", { textContent: "Benutzername eines Admins" }), user,
+    $("label", { textContent: "App-Passwort" }), pw,
+    $("p", { className: "hint", textContent: "In Nextcloud mit dem Admin-Konto unter Persönliche Einstellungen → Sicherheit → „Neues App-Passwort erstellen“ anlegen, z. B. mit dem Namen Home-Net. Das geht auch, wenn du dich sonst über Pocket ID anmeldest. Das App-Passwort bleibt nur auf dem Server." }),
+    $("div", { className: "foot" }, $("button", { className: "main", textContent: "Speichern", onclick: async () => {
+      try {
+        await api("api/settings", "PUT", { url: url.value, user: user.value, verify_tls: !tls.checked, ...(pw.value ? { password: pw.value } : {}) });
+        pw.value = ""; msg.textContent = tr("Gespeichert. Prüfe Anmeldung …");
+        const o = await api("api/overview");
+        msg.textContent = o.error ? o.error : tr(`Anmeldung klappt: Nextcloud ${o.status.version}, ${o.user_count} Benutzer.`);
+      } catch (e) { msg.textContent = e.message; }
+    } })), msg));
+}
+
+show();
+</script>
+</body>
+</html>

@@ -107,6 +107,7 @@ Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sond
 | `modules/pocket-id/` | Verwaltet die Benutzer von Pocket ID (Anmeldung mit Passkey): anlegen, einladen, sperren, Apps zuordnen, siehe [README](modules/pocket-id/README.md) |
 | `modules/proxy-manager/` | Zeigt, welche Adressen Nginx Proxy Manager von außen erreichbar macht, welche nur intern sind und wann die Zertifikate ablaufen, siehe [README](modules/proxy-manager/README.md) |
 | `modules/pocket-id-server/` | Installiert Pocket ID selbst, falls noch keins läuft (`home-net add pocket-id --with-server`) |
+| `modules/nextcloud/` | Zeigt Zustand, Speicher und Updates einer Nextcloud und verwaltet ihre Benutzer und Gruppen, siehe [README](modules/nextcloud/README.md) |
 | `modules/wireguard/` | Verwaltet die VPN-Zugänge von WireGuard-Easy: anlegen, sperren, QR-Code fürs Handy in der App, siehe [README](modules/wireguard/README.md) |
 | `modules/wireguard-server/` | Installiert WireGuard-Easy selbst, falls noch keins läuft (`home-net add wireguard --with-server`) |
 | `modules/pihole/` | Pausiert den Werbefilter aller Pi-holes gleichzeitig und zeigt ihre Statistik zusammen, siehe [README](modules/pihole/README.md) |

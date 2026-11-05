@@ -52,6 +52,7 @@ A fork installs from itself: updates, containers and the app then come from your
 | `unraid` | Manages an Unraid server: shares, users, Docker, VMs, User Scripts ([README](modules/unraid/README.md)) |
 | `pocket-id` | Manages Pocket ID users (passkey login): create, invite, lock, assign apps ([README](modules/pocket-id/README.md)); `pocket-id-server` installs Pocket ID itself |
 | `proxy-manager` | Shows which addresses Nginx Proxy Manager exposes publicly, which are internal, and when certificates expire ([README](modules/proxy-manager/README.md)) |
+| `nextcloud` | Shows state, storage and updates of a Nextcloud and manages its users and groups ([README](modules/nextcloud/README.md)) |
 | `wireguard` | Manages WireGuard-Easy VPN clients, QR code in the app ([README](modules/wireguard/README.md)); `wireguard-server` installs WireGuard-Easy itself |
 | `pihole` | Pauses ad blocking on all Pi-holes at once and shows combined statistics ([README](modules/pihole/README.md)) |
 

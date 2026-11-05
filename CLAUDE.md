@@ -29,6 +29,10 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
   „Nur intern“ heißt: die Zugriffsliste lässt ohne Passwort nur Netze aus `INTERNAL` zu. Öffentliches DNS fragt das
   Modul selbst bei 1.1.1.1/9.9.9.9 ab, damit lokale Einträge nicht täuschen. Nur Eigentümer und Admins. Genutzt in
   `android/.../ProxyApi.kt` und `ProxyScreens.kt`.
+- `modules/nextcloud`: Dienst aus `service/server.py`, der Zugriff auf Nextcloud (OCS-API `/ocs/v2.php` mit Benutzername
+  und App-Passwort eines Admins, dazu `/status.php` und die App serverinfo) in `service/nextcloud.py`. Den Zustand sieht
+  jeder mit Zugriff, Benutzer und Änderungen nur Eigentümer und Admins; das Konto von Home-Net selbst lässt sich nicht
+  sperren, löschen oder aus `admin` nehmen. Genutzt in `android/.../NextcloudApi.kt` und `NextcloudScreens.kt`.
 - `modules/wireguard`: Dienst aus `service/server.py`, der Zugriff auf WireGuard-Easy ab Version 15 (REST-API mit
   Basic-Anmeldung, Quelle `src/server/api` im Repo `wg-easy/wg-easy`) in `service/wgeasy.py`. Die App zeichnet den
   QR-Code selbst aus `/api/clients/<id>/config` (zxing). Genutzt in `android/.../WireGuardApi.kt` und

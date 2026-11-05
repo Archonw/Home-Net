@@ -18,7 +18,7 @@ body:
     id: modul
     attributes:
       label: Bereich / Area
-      options: [Installation / home-net, Zugang / Login, App, netzwerkmonitor, pi-wartung, pc-sicherung, unraid, pocket-id, proxy-manager, wireguard, pihole, anderes / other]
+      options: [Installation / home-net, Zugang / Login, App, netzwerkmonitor, pi-wartung, pc-sicherung, unraid, pocket-id, proxy-manager, wireguard, pihole, nextcloud, anderes / other]
   - type: input
     id: system
     attributes:

@@ -327,7 +327,7 @@ class Install:
         if "pc-sicherung" in state["modules"]:
             Path(pc_dir(state)).mkdir(parents=True, exist_ok=True)
             (self.data / "pc-sicherung" / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
-        for module_id in ("unraid", "pocket-id", "wireguard", "pihole", "proxy-manager"):
+        for module_id in ("unraid", "pocket-id", "wireguard", "pihole", "proxy-manager", "nextcloud"):
             if module_id in state["modules"]:
                 (self.data / module_id / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
         if "pocket-id-server" in state["modules"]:

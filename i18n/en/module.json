@@ -33,5 +33,9 @@
  "WireGuard (Server)": "WireGuard (server)",
  "Zeigt, welche Adressen Nginx Proxy Manager von außen erreichbar macht, welche nur intern sind und wann die Zertifikate ablaufen": "Shows which addresses Nginx Proxy Manager exposes to the outside, which are internal only and when the certificates expire",
  "Ziel einer Adresse antwortet nicht": "Target of an address does not respond",
- "Überwacht die Geräte im Netz, meldet neue und lässt sie erlauben oder sperren": "Watches the devices on the network, reports new ones and lets you allow or block them"
+ "Überwacht die Geräte im Netz, meldet neue und lässt sie erlauben oder sperren": "Watches the devices on the network, reports new ones and lets you allow or block them",
+ "Zeigt Zustand, Speicher und Updates einer Nextcloud und verwaltet ihre Benutzer und Gruppen": "Shows state, storage and updates of a Nextcloud and manages its users and groups",
+ "Nextcloud nicht erreichbar": "Nextcloud unreachable",
+ "Speicher der Nextcloud wird knapp": "Nextcloud storage running low",
+ "Update für Nextcloud oder ihre Apps": "Update for Nextcloud or its apps"
 }
