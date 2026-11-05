@@ -69,12 +69,9 @@ fun NextcloudScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> U
     var adding by remember { mutableStateOf(false) }
     var addingGroup by remember { mutableStateOf(false) }
     val (data, error) = rememberLoaded(reload, NC_REFRESH_MS) { api.overview() }
-    val ready = data?.configured == true && data.error.isBlank()
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
-        PageTitle("Nextcloud", onBack = onBack, trailing = {
-            if (ready && data?.canManage == true) TextAction("Neu") { adding = true }
-        })
+        PageTitle("Nextcloud", onBack = onBack)
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -117,6 +114,7 @@ fun NextcloudScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> U
                     if (data.canManage) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) { SectionTitle("Benutzer") }
+                            TextAction("Neuer Benutzer") { adding = true }
                             TextAction("Neue Gruppe") { addingGroup = true }
                         }
                         data.users.forEach { u ->
