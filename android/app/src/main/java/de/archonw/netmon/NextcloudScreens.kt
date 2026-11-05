@@ -17,6 +17,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -31,6 +32,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val NC_REFRESH_MS = 60_000L
@@ -67,7 +69,7 @@ private fun NcPasswordDialog(api: NextcloudApi, gate: NcGate) {
         },
     ) {
         Text(
-            "Nextcloud möchte Änderungen an Benutzern mit dem Passwort bestätigt haben. Gemeint ist das normale Passwort des Kontos, mit dem sich Home-Net anmeldet, nicht das App-Passwort. Es wird nicht gespeichert und gilt 30 Minuten.",
+            "Nextcloud möchte Änderungen mit dem Passwort bestätigt haben. Gemeint ist das normale Passwort des Kontos, mit dem sich Home-Net anmeldet, nicht das App-Passwort. Es wird nicht gespeichert und gilt 30 Minuten.",
             color = LocalPalette.current.muted, fontSize = 13.sp,
         )
         OutlinedTextField(
@@ -110,8 +112,22 @@ fun NextcloudScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> U
     var reload by remember { mutableStateOf(0) }
     var adding by remember { mutableStateOf(false) }
     var addingGroup by remember { mutableStateOf(false) }
+    var askUpdate by remember { mutableStateOf(false) }
+    var updates by remember { mutableStateOf<NcUpdateState?>(null) }
     val gate = remember { NcGate() }
     val (data, error) = rememberLoaded(reload, NC_REFRESH_MS) { api.overview() }
+
+    // Laufen Updates (auch von der Weboberfläche gestartet), alle 3 Sekunden nach dem Stand fragen
+    LaunchedEffect(data?.canManage) {
+        if (data?.canManage == true) runCatching { api.updateStatus() }.getOrNull()?.takeIf { it.running }?.let { updates = it }
+    }
+    LaunchedEffect(updates?.running) {
+        while (updates?.running == true) {
+            delay(3_000)
+            runCatching { api.updateStatus() }.onSuccess { updates = it }
+        }
+        if (updates != null) reload++
+    }
 
     Column(Modifier.fillMaxSize().background(p.bg)) {
         PageTitle("Nextcloud", onBack = onBack)
@@ -149,9 +165,26 @@ fun NextcloudScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> U
                             if (info.appUpdates.isNotEmpty()) {
                                 Text(t("{0} App-Updates", info.appUpdates.size), color = p.unknown, fontSize = 14.sp)
                                 Text(info.appUpdates.joinToString(", ") { "${it.id} ${it.version}" }, color = p.muted, fontSize = 12.sp)
-                                Text("Installieren in Nextcloud unter Apps → Updates.", color = p.muted, fontSize = 12.sp)
+                                if (!data.canManage) Text("Installieren in Nextcloud unter Apps → Updates.", color = p.muted, fontSize = 12.sp)
                             }
-                            if (info.serverUpdate.isBlank() && info.appUpdates.isEmpty()) Text("Alles aktuell.", color = p.text, fontSize = 14.sp)
+                            updates?.takeIf { it.running || it.total > 0 }?.let { u ->
+                                when {
+                                    u.running -> {
+                                        Text(t("Aktualisiere {0} ({1} von {2}) …", u.current, u.done.size + u.failed.size + 1, u.total), color = p.text, fontSize = 14.sp)
+                                        LinearProgressIndicator(
+                                            progress = { (u.done.size + u.failed.size).toFloat() / u.total.coerceAtLeast(1) },
+                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                        )
+                                    }
+                                    u.failed.isNotEmpty() -> Text(t("{0} von {1} Apps aktualisiert", u.done.size, u.total), color = p.unknown, fontSize = 14.sp)
+                                    else -> Text("Alle Apps aktualisiert.", color = p.text, fontSize = 14.sp)
+                                }
+                                u.failed.forEach { (app, why) -> Text("$app: ${t(why)}", color = p.blocked, fontSize = 12.sp) }
+                            }
+                            if (data.canManage && info.appUpdates.isNotEmpty() && updates?.running != true) {
+                                Row { TextAction("Alle Apps aktualisieren") { askUpdate = true } }
+                            }
+                            if (info.serverUpdate.isBlank() && info.appUpdates.isEmpty() && updates?.running != true) Text("Alles aktuell.", color = p.text, fontSize = 14.sp)
                         }
                     }
                     if (data.canManage) {
@@ -223,6 +256,17 @@ fun NextcloudScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> U
             onDone = { addingGroup = false; reload++ },
         ) {
             OutlinedTextField(group, { group = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        }
+    }
+    if (askUpdate && data?.info != null) {
+        val apps = data.info.appUpdates
+        FormDialog(
+            title = t("{0} Apps aktualisieren?", apps.size), confirm = "Aktualisieren", onDismiss = { askUpdate = false },
+            onConfirm = { gate.guard({ askUpdate = false }) { updates = api.updateApps() } },
+            onDone = { askUpdate = false },
+        ) {
+            Text(apps.joinToString(", ") { it.id }, color = LocalPalette.current.text, fontSize = 14.sp)
+            Text("Nextcloud spielt die Updates nacheinander ein, das kann einige Minuten dauern. Die Seite zeigt den Stand.", color = LocalPalette.current.muted, fontSize = 12.sp)
         }
     }
     NcPasswordDialog(api, gate)

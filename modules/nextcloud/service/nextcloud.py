@@ -15,6 +15,8 @@ import urllib.parse
 import urllib.request
 
 TIMEOUT = 20
+APP_TIMEOUT = 300       # an app update downloads and migrates; Nextcloud may take minutes
+APP_ID_RE = re.compile(r"[a-z0-9_\-]{1,64}")
 USER_PAGE = 500         # Nextcloud refuses limit > 500 with error 400
 USER_MAX = 20000
 STORAGE_WARN = 20 * 1024 ** 3   # free bytes on the data disk below which the module warns
@@ -30,10 +32,11 @@ CONFIRM_FOR = 30 * 60
 
 
 class NextcloudError(Exception):
-    def __init__(self, message, status=502, confirm=False):
+    def __init__(self, message, status=502, confirm=False, code=0):
         super().__init__(message)
         self.status = status
         self.confirm = confirm
+        self.code = code  # HTTP status from Nextcloud, 0 when it did not answer
 
 
 def quota_text(value):
@@ -77,15 +80,15 @@ class Nextcloud:
             return ssl.create_default_context()
         return ssl._create_unverified_context()  # eigenes Zertifikat im Heimnetz, vom Admin so gewählt
 
-    def open(self, req):
+    def open(self, req, timeout=TIMEOUT):
         try:
-            with urllib.request.urlopen(req, timeout=TIMEOUT, context=self.context()) as resp:
+            with urllib.request.urlopen(req, timeout=timeout, context=self.context()) as resp:
                 return resp.read()
         except urllib.error.HTTPError as exc:
             text = self.explain(exc)
             if text == CONFIRM_TEXT:
-                raise NextcloudError(text, 403, confirm=True)
-            raise NextcloudError(text, 400 if exc.code in (400, 404, 409) else 502)
+                raise NextcloudError(text, 403, confirm=True, code=exc.code)
+            raise NextcloudError(text, 400 if exc.code in (400, 404, 409) else 502, code=exc.code)
         except ssl.SSLCertVerificationError:
             raise NextcloudError("Das Zertifikat der Nextcloud passt nicht. Für ein eigenes Zertifikat im Heimnetz "
                                  "unter Einstellungen „Zertifikat nicht prüfen“ wählen.")
@@ -96,7 +99,7 @@ class Nextcloud:
                                      "Heimnetz unter Einstellungen „Zertifikat nicht prüfen“ wählen.")
             raise NextcloudError(f"Nextcloud ist nicht erreichbar ({reason}).")
 
-    def ocs(self, method, path, body=None, query=None, password=None):
+    def ocs(self, method, path, body=None, query=None, password=None, timeout=TIMEOUT):
         """password: the account password instead of the app password (only for confirmed changes)."""
         s = self.settings()
         if not s.get("user") or not s.get("password"):
@@ -107,7 +110,7 @@ class Nextcloud:
         req = urllib.request.Request(url, data=data, method=method, headers={
             "Authorization": f"Basic {token}", "OCS-APIRequest": "true", "Accept": "application/json",
             **({"Content-Type": "application/json"} if data is not None else {})})
-        raw = self.open(req)
+        raw = self.open(req, timeout)
         try:
             out = json.loads(raw)["ocs"]
         except (ValueError, KeyError, TypeError):
@@ -117,9 +120,11 @@ class Nextcloud:
     @staticmethod
     def explain(exc):
         try:
-            meta = json.loads(exc.read() or b"{}").get("ocs", {}).get("meta", {})
-            detail = meta.get("message") or ""
-        except (ValueError, AttributeError):
+            data = json.loads(exc.read() or b"{}")
+            detail = (data.get("ocs", {}).get("meta", {}).get("message")
+                      or (data.get("data") or {}).get("message") or "")  # older pages answer {"data": {"message"}}
+            detail = str(detail)
+        except (ValueError, AttributeError, TypeError):
             detail = ""
         if exc.code == 401:
             return "Nextcloud lehnt die Anmeldung ab. Stimmen Benutzername und App-Passwort?"
@@ -311,6 +316,41 @@ class Nextcloud:
 
     def welcome(self, user_id):
         self.write("POST", "/cloud/users/" + quote(user_id) + "/welcome", {})
+
+    def update_app(self, app_id):
+        """Updates one app from the app store. Nextcloud wants the real account password for this (strict password
+        confirmation), so it only works after confirm(). Newer Nextcloud has an OCS endpoint in the app appstore;
+        older ones only the page of the app settings, which takes Basic sign-in with the OCS-APIRequest header."""
+        app_id = str(app_id or "").strip()
+        if not APP_ID_RE.fullmatch(app_id):
+            raise ValueError("Unbekannte App")
+        password = self.confirmed()
+        if not password:
+            raise NextcloudError(CONFIRM_TEXT, 403, confirm=True)
+        try:
+            self.ocs("POST", "/apps/appstore/api/v1/apps/update", {"appId": app_id}, password=password,
+                     timeout=APP_TIMEOUT)
+        except NextcloudError as exc:
+            if exc.confirm:
+                self._confirmed = ("", 0.0)
+            if exc.code not in (404, 405):
+                raise
+            self.update_app_legacy(app_id, password)
+        finally:
+            self.forget()
+
+    def update_app_legacy(self, app_id, password):
+        s = self.settings()
+        token = base64.b64encode(f"{s['user']}:{password}".encode()).decode()
+        req = urllib.request.Request(self.base() + "/index.php/settings/apps/update/" + quote(app_id), headers={
+            "Authorization": f"Basic {token}", "OCS-APIRequest": "true", "Accept": "application/json"})
+        raw = self.open(req, APP_TIMEOUT)
+        try:
+            data = json.loads(raw).get("data") or {}
+        except (ValueError, AttributeError):
+            raise NextcloudError("Nextcloud antwortet beim Update nicht wie erwartet.")
+        if data.get("appid") != app_id:
+            raise NextcloudError(str(data.get("message") or "Das Update hat nicht geklappt."))
 
     def delete_user(self, user_id):
         self.write("DELETE", "/cloud/users/" + quote(user_id))

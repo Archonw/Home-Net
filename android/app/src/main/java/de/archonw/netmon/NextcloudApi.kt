@@ -52,6 +52,16 @@ data class NcOverview(
     val account: String,
 )
 
+/** Stand der App-Updates, die der Dienst nacheinander im Hintergrund einspielt. */
+data class NcUpdateState(
+    val running: Boolean,
+    val current: String,
+    val done: List<String>,
+    /** App und Fehlertext */
+    val failed: List<Pair<String, String>>,
+    val total: Int,
+)
+
 /** So meldet der Dienst, dass Nextcloud das Passwort des Kontos bestätigt haben möchte (ab Nextcloud 32). */
 const val NC_CONFIRM_TEXT = "Nextcloud verlangt eine Bestätigung mit dem Passwort."
 
@@ -143,6 +153,22 @@ class NextcloudApi(private val http: PiApi) {
     suspend fun delete(id: String, typed: String) { http.delete("api/users/${enc(id)}?confirm=${enc(typed)}") }
 
     suspend fun createGroup(name: String) { http.postJson("api/groups", JSONObject().put("name", name.trim()).toString()) }
+
+    /** Startet die Updates aller Apps, für die Nextcloud eines kennt. */
+    suspend fun updateApps(): NcUpdateState = updateState(http.postJson("api/apps/update", "{}"))
+
+    suspend fun updateStatus(): NcUpdateState = updateState(http.raw("api/apps/update"))
+
+    private fun updateState(text: String): NcUpdateState {
+        val o = JSONObject(text)
+        return NcUpdateState(
+            running = o.optBoolean("running"),
+            current = o.optString("current"),
+            done = o.optJSONArray("done").strings(),
+            failed = o.optJSONArray("failed").objects().map { it.optString("id") to it.optString("error") },
+            total = o.optInt("total"),
+        )
+    }
 
     private fun enc(name: String): String = Uri.encode(name)
 

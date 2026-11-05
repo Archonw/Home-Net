@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.parse
@@ -71,11 +72,21 @@ class FakeNextcloud(BaseHTTPRequestHandler):
             return self.reply(200, raw=json.dumps({
                 "installed": True, "maintenance": s["maintenance"], "needsDbUpgrade": False, "version": "35.0.2.2",
                 "versionstring": "35.0.2", "edition": "", "productname": "Nextcloud"}).encode())
-        if not path.startswith("/ocs/v2.php/") or query.get("format") != "json":
-            return self.reply(404, raw=b"<html>not found</html>")
         tokens = {f"Basic {base64.b64encode(f'{ADMIN}:{pw}'.encode()).decode()}": pw
                   for pw in (APP_PASSWORD, ACCOUNT_PASSWORD)}
         used = tokens.get(self.headers.get("Authorization"))
+        if s.get("legacy_apps") and path.startswith("/index.php/settings/apps/update/"):
+            # Nextcloud 33 and older: no password confirmation, admin sign-in with OCS-APIRequest
+            app = urllib.parse.unquote(path.rsplit("/", 1)[1])
+            s["calls"].append(("GET", path, {}))
+            if not used or self.headers.get("OCS-APIRequest") != "true":
+                return self.reply(401, raw=b"{}")
+            if app not in s["app_updates"]:
+                return self.reply(500, raw=json.dumps({"data": {"message": "Could not update app."}}).encode())
+            del s["app_updates"][app]
+            return self.reply(200, raw=json.dumps({"data": {"appid": app}}).encode())
+        if not path.startswith("/ocs/v2.php/") or query.get("format") != "json":
+            return self.reply(404, raw=b"<html>not found</html>")
         if not used or self.headers.get("OCS-APIRequest") != "true":
             return self.reply(401, message="Current user is not logged in")
         # Nextcloud 32+: changes need a confirmed password, which a login with the app password never has
@@ -86,6 +97,13 @@ class FakeNextcloud(BaseHTTPRequestHandler):
         path = path[len("/ocs/v2.php"):]
         s["calls"].append((self.command, path, body or {k: v for k, v in query.items() if k != "format"}))
         users = s["users"]
+        if self.command == "POST" and path == "/apps/appstore/api/v1/apps/update" and not s.get("legacy_apps"):
+            if used != ACCOUNT_PASSWORD:  # strict password confirmation: only the real password counts
+                return self.reply(403, message="Password confirmation is required")
+            if body.get("appId") not in s["app_updates"]:
+                return self.reply(400, message="Could not update app")
+            del s["app_updates"][body["appId"]]
+            return self.reply(200, {"appId": body["appId"]})
         if path == "/apps/serverinfo/api/v1/info":
             if not s["serverinfo"]:
                 return self.reply(404, message="")
@@ -195,6 +213,7 @@ class ServiceTest(unittest.TestCase):
         settings.update({"url": f"http://127.0.0.1:{self.fake.server_port}"})
         server.ApiHandler.settings = settings
         server.ApiHandler.nc = nextcloud.Nextcloud(settings.get)
+        server.ApiHandler.updater = server.AppUpdater(server.ApiHandler.nc)
         self.api = ThreadingHTTPServer(("127.0.0.1", 0), server.ApiHandler)
         threading.Thread(target=self.api.serve_forever, daemon=True).start()
 
@@ -303,6 +322,44 @@ class ServiceTest(unittest.TestCase):
             self.assertNotIn(ACCOUNT_PASSWORD, f.read())
         server.ApiHandler.nc._confirmed = (ACCOUNT_PASSWORD, 0.0)  # expired
         self.assertEqual(self.call("PUT", "/api/users/ben-oidc", {"enabled": True})[0], 403)
+
+    def wait_updates(self):
+        for _ in range(100):
+            code, state = self.call("GET", "/api/apps/update")
+            self.assertEqual(code, 200)
+            if not state["running"]:
+                return state
+            time.sleep(0.05)
+        self.fail("Updates hören nicht auf")
+
+    def test_app_updates(self):
+        self.sign_in()
+        FakeNextcloud.state["app_updates"] = {"calendar": "6.1.0", "mail": "5.0.1"}
+        self.assertEqual(self.call("POST", "/api/apps/update", {}, role="user")[0], 403)
+        code, out = self.call("POST", "/api/apps/update", {})
+        self.assertEqual((code, out["confirm"]), (403, True))  # strict: always the real password
+        self.assertEqual(self.call("POST", "/api/confirm", {"password": ACCOUNT_PASSWORD})[0], 200)
+        code, out = self.call("POST", "/api/apps/update", {})
+        self.assertEqual((code, out["total"]), (200, 2), out)
+        state = self.wait_updates()
+        self.assertEqual((state["done"], state["failed"]), (["calendar", "mail"], []))
+        self.assertEqual(FakeNextcloud.state["app_updates"], {})
+        self.assertEqual(self.overview()["info"]["app_updates"], [])
+        self.assertEqual(self.call("POST", "/api/apps/update", {})[0], 400)  # nothing left
+        # one failing app does not stop the others
+        FakeNextcloud.state["app_updates"] = {"contacts": "8.0.0"}
+        self.call("POST", "/api/apps/update", {"apps": ["gibtsnicht", "contacts"]})
+        state = self.wait_updates()
+        self.assertEqual(state["done"], ["contacts"])
+        self.assertEqual([f["id"] for f in state["failed"]], ["gibtsnicht"])
+        self.assertEqual(self.call("POST", "/api/apps/update", {"apps": ["../x"]})[0], 200)
+        self.assertIn("Unbekannte App", self.wait_updates()["failed"][0]["error"])
+        # older Nextcloud: the page of the app settings
+        FakeNextcloud.state["legacy_apps"] = True
+        FakeNextcloud.state["app_updates"] = {"recognize": "9.0.0"}
+        self.call("POST", "/api/apps/update", {})
+        self.assertEqual(self.wait_updates()["done"], ["recognize"])
+        self.assertEqual(FakeNextcloud.state["app_updates"], {})
 
     def test_users(self):
         self.sign_in()

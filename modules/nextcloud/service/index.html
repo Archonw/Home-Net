@@ -56,7 +56,7 @@ select { width:100%; font:inherit; color:inherit; background:var(--bg); border:1
 <dialog id="dlg"><form id="form" method="dialog"></form></dialog>
 <dialog id="pwdlg"><form id="pwform" method="dialog">
   <h2 style="font-size:18px;color:inherit;margin:0 0 6px">Mit Passwort bestätigen</h2>
-  <p class="quiet">Nextcloud möchte Änderungen an Benutzern mit dem Passwort bestätigt haben. Gemeint ist das normale Passwort des Kontos, mit dem sich Home-Net anmeldet, nicht das App-Passwort. Es wird nicht gespeichert und gilt 30 Minuten.</p>
+  <p class="quiet">Nextcloud möchte Änderungen mit dem Passwort bestätigt haben. Gemeint ist das normale Passwort des Kontos, mit dem sich Home-Net anmeldet, nicht das App-Passwort. Es wird nicht gespeichert und gilt 30 Minuten.</p>
   <input id="pwinput" type="password" autocomplete="current-password">
   <p class="err" id="pwerr"></p>
   <div class="foot"><button type="button" id="pwcancel">Abbrechen</button><button class="main" id="pwok">Bestätigen</button></div>
@@ -124,6 +124,57 @@ const size = b => {
 const when = t => t ? new Date(t * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : tr("noch nie");
 const stat = (label, value, cls = "") => $("div", { className: "card" }, $("div", { className: "quiet", textContent: label }), $("div", { className: `big ${cls}`, textContent: value }));
 
+// App-Updates laufen im Dienst nacheinander im Hintergrund; die Seite fragt alle 3 Sekunden nach dem Stand
+let upd = null, updTimer = null;
+
+function updLine(u) {
+  if (u.running) return [`Aktualisiere ${u.current} (${u.done.length + u.failed.length + 1} von ${u.total}) …`, "quiet"];
+  if (u.failed.length) return [`${u.done.length} von ${u.total} Apps aktualisiert`, "warn"];
+  return ["Alle Apps aktualisiert.", "ok"];
+}
+
+function appUpdateCard(i) {
+  const kids = [];
+  if (i.app_updates.length) {
+    kids.push($("div", { className: "name warn", textContent: `${i.app_updates.length} App-Updates` }),
+      $("div", { className: "pills" }, ...i.app_updates.map(a => $("span", { className: "pill", textContent: `${a.id} ${a.version}` }))));
+  }
+  if (upd && (upd.running || upd.total)) {
+    const [text, cls] = updLine(upd);
+    kids.push($("p", { className: cls, textContent: text }),
+      ...upd.failed.map(f => $("p", { className: "err", textContent: `${f.id}: ${f.error}` })));
+  }
+  if (data.can_manage && i.app_updates.length) {
+    const btn = $("button", { className: "main", textContent: "Alle Apps aktualisieren", disabled: !!(upd && upd.running) });
+    const err = $("p", { className: "err" });
+    btn.onclick = async () => {
+      btn.disabled = true; err.textContent = "";
+      try { upd = await api("api/apps/update", "POST", {}); pollUpdates(); showOverview(); }
+      catch (e) { err.textContent = e.message; btn.disabled = false; }
+    };
+    kids.push($("div", { className: "actions" }, btn), err);
+  } else if (i.app_updates.length) {
+    kids.push($("p", { className: "hint", textContent: "Installieren in Nextcloud unter Apps → Updates." }));
+  }
+  return $("div", { className: "card" }, ...kids);
+}
+
+function pollUpdates() {
+  clearTimeout(updTimer);
+  updTimer = setTimeout(async () => {
+    try { upd = await api("api/apps/update"); } catch (e) { return; }
+    if (upd.running) pollUpdates();
+    if (tab === "overview") upd.running ? showOverview() : show();
+  }, 3000);
+}
+
+async function loadUpdates() {
+  if (!data || !data.can_manage) return;
+  let u;
+  try { u = await api("api/apps/update"); } catch (e) { return; }
+  if (u.running) { upd = u; pollUpdates(); if (tab === "overview") showOverview(); }
+}
+
 function showOverview() {
   const s = data.status, i = data.info;
   const parts = [];
@@ -142,10 +193,8 @@ function showOverview() {
   parts.push($("h2", { textContent: "Updates" }));
   if (i.server_update) parts.push($("div", { className: "card" }, $("div", { className: "name warn", textContent: `Nextcloud ${i.server_update} ist verfügbar` }),
     $("div", { className: "quiet", textContent: "Aktualisieren über das Docker-Image bzw. den Updater von Nextcloud." })));
-  if (i.app_updates.length) parts.push($("div", { className: "card" }, $("div", { className: "name warn", textContent: `${i.app_updates.length} App-Updates` }),
-    $("div", { className: "pills" }, ...i.app_updates.map(a => $("span", { className: "pill", textContent: `${a.id} ${a.version}` }))),
-    $("p", { className: "hint", textContent: "Installieren in Nextcloud unter Apps → Updates." })));
-  if (!i.server_update && !i.app_updates.length) parts.push($("div", { className: "card ok", textContent: tr("Alles aktuell.") }));
+  if (i.app_updates.length || (upd && (upd.running || upd.total))) parts.push(appUpdateCard(i));
+  else if (!i.server_update) parts.push($("div", { className: "card ok", textContent: tr("Alles aktuell.") }));
   parts.push($("h2", { textContent: "System" }), $("div", { className: "card" },
     line("Dateien", i.files.toLocaleString("de-DE")), line("Freigaben", i.shares.toLocaleString("de-DE")), line("Installierte Apps", String(i.apps_installed)),
     i.mem_total ? line("Arbeitsspeicher frei", `${size(i.mem_free)} / ${size(i.mem_total)}`) : null,
@@ -276,7 +325,7 @@ async function showSettings() {
     } })), msg));
 }
 
-show();
+show().then(loadUpdates);
 </script>
 </body>
 </html>
