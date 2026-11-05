@@ -64,6 +64,7 @@
  "Nextcloud kennt diese Adresse nicht (trusted_domains).": "Nextcloud does not know this address (trusted_domains).",
  "Nextcloud lehnt die Anmeldung ab. Stimmen Benutzername und App-Passwort?": "Nextcloud refuses the login. Are user name and app password right?",
  "Nextcloud meldet: {0}": "Nextcloud reports: {0}",
+ "Nextcloud verlangt für Änderungen eine Passwort-Bestätigung, die mit einem App-Passwort nicht geht. Abhilfe: in der config.php von Nextcloud unter allowed_no_password_confirmation_ranges das Netz von Home-Net eintragen (siehe Anleitung des Moduls).": "Nextcloud requires a password confirmation for changes, which is not possible with an app password. Fix: add the Home-Net network to allowed_no_password_confirmation_ranges in Nextcloud's config.php (see the module guide).",
  "Nextcloud wieder erreichbar": "Nextcloud reachable again",
  "Nextcloud {0} ist verfügbar": "Nextcloud {0} is available",
  "Nextcloud {0} ist verfügbar (läuft: {1}).": "Nextcloud {0} is available (running: {1}).",

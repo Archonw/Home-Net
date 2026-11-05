@@ -22,6 +22,11 @@ QUOTA_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(B|KB|MB|GB|TB)", re.I)
 USER_ID_RE = re.compile(r"[A-Za-z0-9_.@\- ']{1,64}")
 
 
+CONFIRM_HINT = ("Nextcloud verlangt für Änderungen eine Passwort-Bestätigung, die mit einem App-Passwort nicht geht. "
+                "Abhilfe: in der config.php von Nextcloud unter allowed_no_password_confirmation_ranges das Netz von "
+                "Home-Net eintragen (siehe Anleitung des Moduls).")
+
+
 class NextcloudError(Exception):
     def __init__(self, message, status=502):
         super().__init__(message)
@@ -110,6 +115,8 @@ class Nextcloud:
             detail = ""
         if exc.code == 401:
             return "Nextcloud lehnt die Anmeldung ab. Stimmen Benutzername und App-Passwort?"
+        if exc.code == 403 and "password confirmation" in detail.lower():
+            return CONFIRM_HINT
         if exc.code == 403:
             return detail or "Das Konto für Home-Net ist in Nextcloud kein Admin."
         if exc.code == 404:

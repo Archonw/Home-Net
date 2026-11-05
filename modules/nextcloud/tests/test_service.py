@@ -146,6 +146,8 @@ class FakeNextcloud(BaseHTTPRequestHandler):
             if self.command == "POST" and rest == ["welcome"]:
                 return self.reply(200)
             if self.command == "DELETE" and not rest:
+                if s.get("confirm_required"):
+                    return self.reply(403, message="Password confirmation is required")
                 del users[uid]
                 return self.reply(200)
         return self.reply(404, message="Not found")
@@ -312,6 +314,11 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/groups", {"name": "kinder"})[0], 200)
         self.assertIn("kinder", FakeNextcloud.state["groups"])
 
+        FakeNextcloud.state["confirm_required"] = True  # Nextcloud 32+ without allowed_no_password_confirmation_ranges
+        code, out = self.call("DELETE", "/api/users/anna?confirm=anna")
+        self.assertEqual(code, 502)
+        self.assertIn("allowed_no_password_confirmation_ranges", out["detail"])
+        FakeNextcloud.state["confirm_required"] = False
         self.assertEqual(self.call("DELETE", "/api/users/anna", {"confirm": "ann"})[0], 400)
         self.assertIn("anna", FakeNextcloud.state["users"])
         self.assertEqual(self.call("DELETE", "/api/users/admin", {"confirm": "admin"})[0], 400)
