@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "service"))
 import nextcloud  # noqa: E402
 import server  # noqa: E402
 
-ADMIN, APP_PASSWORD = "admin", "abcde-fghij-klmno-pqrst-uvwxy"
+ADMIN, APP_PASSWORD, ACCOUNT_PASSWORD = "admin", "abcde-fghij-klmno-pqrst-uvwxy", "richtiges Passwort"
 GB = 1024 ** 3
 
 
@@ -73,9 +73,16 @@ class FakeNextcloud(BaseHTTPRequestHandler):
                 "versionstring": "35.0.2", "edition": "", "productname": "Nextcloud"}).encode())
         if not path.startswith("/ocs/v2.php/") or query.get("format") != "json":
             return self.reply(404, raw=b"<html>not found</html>")
-        token = base64.b64encode(f"{ADMIN}:{APP_PASSWORD}".encode()).decode()
-        if self.headers.get("Authorization") != f"Basic {token}" or self.headers.get("OCS-APIRequest") != "true":
+        tokens = {f"Basic {base64.b64encode(f'{ADMIN}:{pw}'.encode()).decode()}": pw
+                  for pw in (APP_PASSWORD, ACCOUNT_PASSWORD)}
+        used = tokens.get(self.headers.get("Authorization"))
+        if not used or self.headers.get("OCS-APIRequest") != "true":
             return self.reply(401, message="Current user is not logged in")
+        # Nextcloud 32+: changes need a confirmed password, which a login with the app password never has
+        if s.get("confirm_required") and self.command != "GET" and used == APP_PASSWORD:
+            return self.reply(403, message="Password confirmation is required")
+        if self.command == "GET" and path == "/ocs/v2.php/cloud/user":
+            return self.reply(200, {"id": ADMIN})
         path = path[len("/ocs/v2.php"):]
         s["calls"].append((self.command, path, body or {k: v for k, v in query.items() if k != "format"}))
         users = s["users"]
@@ -146,8 +153,6 @@ class FakeNextcloud(BaseHTTPRequestHandler):
             if self.command == "POST" and rest == ["welcome"]:
                 return self.reply(200)
             if self.command == "DELETE" and not rest:
-                if s.get("confirm_required"):
-                    return self.reply(403, message="Password confirmation is required")
                 del users[uid]
                 return self.reply(200)
         return self.reply(404, message="Not found")
@@ -278,6 +283,27 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(o["user_count"], 1203)
         self.assertEqual(len({u["id"] for u in o["users"]}), 1203)
 
+    def test_password_confirmation(self):
+        self.sign_in()
+        FakeNextcloud.state["confirm_required"] = True
+        code, out = self.call("DELETE", "/api/users/anna?confirm=anna")
+        self.assertEqual((code, out["confirm"], out["detail"]), (403, True, nextcloud.CONFIRM_TEXT))
+        self.assertIn("anna", FakeNextcloud.state["users"])
+        code, out = self.call("POST", "/api/confirm", {"password": APP_PASSWORD})  # the app password cannot confirm
+        self.assertEqual(code, 400)
+        self.assertIn("App-Passwort", out["detail"])
+        code, out = self.call("POST", "/api/confirm", {"password": "falsch"})
+        self.assertEqual(code, 400)
+        self.assertIn("lehnt das Passwort ab", out["detail"])
+        self.assertEqual(self.call("POST", "/api/confirm", {"password": ACCOUNT_PASSWORD}, role="user")[0], 403)
+        self.assertEqual(self.call("POST", "/api/confirm", {"password": ACCOUNT_PASSWORD})[0], 200)
+        self.assertEqual(self.call("DELETE", "/api/users/anna?confirm=anna")[0], 200)
+        self.assertEqual(self.call("PUT", "/api/users/ben-oidc", {"enabled": False})[0], 200)  # still within 30 min
+        with open(os.path.join(self.tmp.name, "settings.json")) as f:
+            self.assertNotIn(ACCOUNT_PASSWORD, f.read())
+        server.ApiHandler.nc._confirmed = (ACCOUNT_PASSWORD, 0.0)  # expired
+        self.assertEqual(self.call("PUT", "/api/users/ben-oidc", {"enabled": True})[0], 403)
+
     def test_users(self):
         self.sign_in()
         code, out = self.call("POST", "/api/users", {"id": "clara", "name": "Clara", "email": "c@example.org",
@@ -314,11 +340,6 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/groups", {"name": "kinder"})[0], 200)
         self.assertIn("kinder", FakeNextcloud.state["groups"])
 
-        FakeNextcloud.state["confirm_required"] = True  # Nextcloud 32+ without allowed_no_password_confirmation_ranges
-        code, out = self.call("DELETE", "/api/users/anna?confirm=anna")
-        self.assertEqual(code, 502)
-        self.assertIn("allowed_no_password_confirmation_ranges", out["detail"])
-        FakeNextcloud.state["confirm_required"] = False
         self.assertEqual(self.call("DELETE", "/api/users/anna", {"confirm": "ann"})[0], 400)
         self.assertIn("anna", FakeNextcloud.state["users"])
         self.assertEqual(self.call("DELETE", "/api/users/admin", {"confirm": "admin"})[0], 400)

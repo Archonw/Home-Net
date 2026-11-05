@@ -39,20 +39,23 @@ Die Adresse ist die, unter der der Server Nextcloud erreicht: die öffentliche (
 die im Heimnetz (z. B. `https://192.168.1.10:444`). Sie muss in der `config.php` von Nextcloud unter `trusted_domains`
 stehen. Hat Nextcloud im Heimnetz nur ein eigenes Zertifikat, *Zertifikat nicht prüfen* wählen.
 
-### Änderungen ohne Passwort-Bestätigung erlauben
+### Bestätigung mit dem Passwort
 
 Ab Nextcloud 32 verlangt die API für jede Änderung an Benutzern (anlegen, ändern, sperren, Gruppen, löschen) eine
-Passwort-Bestätigung, die mit einem App-Passwort nicht möglich ist. Ohne die folgende Einstellung zeigt das Modul nur an.
-In der `config.php` von Nextcloud die Adressen eintragen, von denen Home-Net kommt, und nur diese:
+Bestätigung mit dem Passwort, die ein App-Passwort nicht geben kann. Das Modul fragt dann einmal nach dem normalen
+Passwort des Kontos, prüft es bei Nextcloud und nutzt es 30 Minuten lang für Änderungen (wie Nextcloud selbst). Es
+bleibt nur im Arbeitsspeicher des Dienstes, nie auf der Platte.
+
+Hat das Konto eine Zwei-Faktor-Anmeldung, geht das nicht. Dann in der `config.php` von Nextcloud nur die Adressen
+eintragen, von denen Home-Net kommt:
 
 ```php
 'allowed_no_password_confirmation_ranges' => ['172.18.0.0/16'],
 ```
 
-Welche Adresse Nextcloud sieht, hängt vom Weg ab: Spricht das Modul Nextcloud direkt an (z. B.
-`https://192.168.1.10:444`), ist es das Docker-Netz von Home-Net (`docker network inspect home-net_default`). Läuft der
-Weg über einen Reverse Proxy, sieht Nextcloud den Proxy, und eine Freigabe für ihn gälte für alle, die über den Proxy
-kommen. Darum für das Modul die direkte Adresse nehmen.
+Spricht das Modul Nextcloud direkt an (z. B. `https://192.168.1.10:444`), ist das das Docker-Netz von Home-Net
+(`docker network inspect home-net_default`). Über einen Reverse Proxy sieht Nextcloud nur den Proxy, und die Freigabe
+gälte für alle, die über ihn kommen.
 
 Für Speicher, aktive Benutzer und Updates braucht Nextcloud die mitgelieferte App *Monitoring* (`serverinfo`). Ohne sie
 zeigt das Modul nur Version und Benutzer.
@@ -80,3 +83,6 @@ zeigt das Modul nur Version und Benutzer.
 | `POST /api/users/<id>/welcome` | Admins | Willkommens-Mail |
 | `DELETE /api/users/<id>?confirm=<id>` | Admins | Löschen mit allen Dateien |
 | `POST /api/groups` | Admins | `{name}` |
+| `POST /api/confirm` | Admins | `{password}`: Passwort des Kontos für 30 Minuten (nur im Speicher) |
+
+Verlangt Nextcloud die Bestätigung, antwortet eine Änderung mit 403 und `{"confirm": true}`.
