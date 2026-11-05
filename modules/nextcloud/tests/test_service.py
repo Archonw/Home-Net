@@ -96,7 +96,11 @@ class FakeNextcloud(BaseHTTPRequestHandler):
                            "database": {"type": "mysql", "version": "10.11", "size": 300000000}},
                 "activeUsers": {"last5minutes": 1, "last1hour": 2, "last24hours": 3}})
         if self.command == "GET" and path == "/cloud/users/details":
-            return self.reply(200, {"users": users})
+            limit, offset = int(query.get("limit", 0) or 0), int(query.get("offset", 0) or 0)
+            if limit > 500:  # like Nextcloud 35
+                return self.reply(400, message="")
+            ids = sorted(users)[offset:offset + limit] if limit else sorted(users)
+            return self.reply(200, {"users": {i: users[i] for i in ids}})
         if self.command == "GET" and path == "/cloud/groups":
             return self.reply(200, {"groups": s["groups"]})
         if self.command == "POST" and path == "/cloud/users":
@@ -262,6 +266,15 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(o["user_count"], 3)
         FakeNextcloud.state["down"] = True
         self.assertIn("Fehler 503", self.overview()["error"])
+
+    def test_many_users_in_pages(self):
+        self.sign_in()
+        for n in range(1200):
+            FakeNextcloud.state["users"][f"u{n:04d}"] = dict(FakeNextcloud.state["users"]["anna"], id=f"u{n:04d}")
+        o = self.overview()
+        self.assertEqual(o["error"], "")
+        self.assertEqual(o["user_count"], 1203)
+        self.assertEqual(len({u["id"] for u in o["users"]}), 1203)
 
     def test_users(self):
         self.sign_in()

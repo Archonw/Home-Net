@@ -15,7 +15,8 @@ import urllib.parse
 import urllib.request
 
 TIMEOUT = 20
-USER_LIMIT = 1000
+USER_PAGE = 500         # Nextcloud refuses limit > 500 with error 400
+USER_MAX = 20000
 STORAGE_WARN = 20 * 1024 ** 3   # free bytes on the data disk below which the module warns
 QUOTA_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(B|KB|MB|GB|TB)", re.I)
 USER_ID_RE = re.compile(r"[A-Za-z0-9_.@\- ']{1,64}")
@@ -171,11 +172,20 @@ class Nextcloud:
         }
 
     def users(self):
-        data = self.ocs("GET", "/cloud/users/details", query={"limit": USER_LIMIT}) or {}
-        raw = data.get("users") or {}
-        items = raw.values() if isinstance(raw, dict) else raw
-        out = []
+        items, offset = [], 0
+        while offset < USER_MAX:
+            data = self.ocs("GET", "/cloud/users/details", query={"limit": USER_PAGE, "offset": offset}) or {}
+            raw = data.get("users") or {}
+            page = list(raw.values() if isinstance(raw, dict) else raw)
+            items.extend(page)
+            if len(page) < USER_PAGE:
+                break
+            offset += USER_PAGE
+        out, seen = [], set()
         for u in items:
+            if isinstance(u, dict) and u.get("id") in seen:
+                continue
+            seen.add(u.get("id") if isinstance(u, dict) else None)
             if not isinstance(u, dict) or not u.get("id"):
                 continue
             q = u.get("quota") or {}
