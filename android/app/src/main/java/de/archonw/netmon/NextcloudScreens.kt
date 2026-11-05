@@ -107,11 +107,9 @@ private fun NcUser.subtitle(): String = listOfNotNull(
 private fun NcUser.quotaInput(): String = if (quotaText == "Standard") "" else quotaText
 
 @Composable
-fun NextcloudScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> Unit) {
+fun NextcloudScreen(api: NextcloudApi, onUsers: () -> Unit, onBack: () -> Unit) {
     val p = LocalPalette.current
     var reload by remember { mutableStateOf(0) }
-    var adding by remember { mutableStateOf(false) }
-    var addingGroup by remember { mutableStateOf(false) }
     var askUpdate by remember { mutableStateOf(false) }
     var updates by remember { mutableStateOf<NcUpdateState?>(null) }
     val gate = remember { NcGate() }
@@ -188,24 +186,85 @@ fun NextcloudScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> U
                         }
                     }
                     if (data.canManage) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) { SectionTitle("Benutzer") }
-                            TextAction("Neuer Benutzer") { adding = true }
-                            TextAction("Neue Gruppe") { addingGroup = true }
-                        }
-                        data.users.forEach { u ->
-                            HubCard(onClick = { onOpen(u.id) }) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(u.name, color = p.text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                                    if (u.admin) Text("Admin", color = p.muted, fontSize = 12.sp)
-                                }
-                                Text(u.subtitle(), color = if (u.enabled) p.muted else p.blocked, fontSize = 13.sp)
-                                if (u.groups.isNotEmpty()) Text(u.groups.joinToString(", "), color = p.muted, fontSize = 12.sp)
-                            }
+                        HubCard(onClick = onUsers) {
+                            Text("Benutzer und Gruppen", color = p.text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                            Text(t("{0} Benutzer · {1} Gruppen", data.users.size, data.groups.size), color = p.muted, fontSize = 13.sp)
                         }
                     }
                     Spacer(Modifier.height(16.dp))
                 }
+            }
+        }
+    }
+
+    if (askUpdate && data?.info != null) {
+        val apps = data.info.appUpdates
+        FormDialog(
+            title = t("{0} Apps aktualisieren?", apps.size), confirm = "Aktualisieren", onDismiss = { askUpdate = false },
+            onConfirm = { gate.guard({ askUpdate = false }) { updates = api.updateApps() } },
+            onDone = { askUpdate = false },
+        ) {
+            Text(apps.joinToString(", ") { it.id }, color = LocalPalette.current.text, fontSize = 14.sp)
+            Text("Nextcloud spielt die Updates nacheinander ein, das kann einige Minuten dauern. Die Seite zeigt den Stand.", color = LocalPalette.current.muted, fontSize = 12.sp)
+        }
+    }
+    NcPasswordDialog(api, gate)
+}
+
+
+/** Benutzer und Gruppen auf einer eigenen Seite, damit die Übersicht kurz bleibt. */
+@Composable
+fun NextcloudUsersScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> Unit) {
+    val p = LocalPalette.current
+    var reload by remember { mutableStateOf(0) }
+    var adding by remember { mutableStateOf(false) }
+    var addingGroup by remember { mutableStateOf(false) }
+    val gate = remember { NcGate() }
+    val (data, error) = rememberLoaded(reload, NC_REFRESH_MS) { api.overview() }
+
+    Column(Modifier.fillMaxSize().background(p.bg)) {
+        PageTitle("Benutzer und Gruppen", onBack = onBack)
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            (error ?: data?.error?.takeIf { it.isNotBlank() })?.let { Text(it, color = p.blocked, fontSize = 14.sp) }
+            if (data == null && error == null) Text("Wird geladen …", color = p.muted)
+            if (data != null && data.error.isBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) { SectionTitle(t("Benutzer ({0})", data.users.size)) }
+                    TextAction("Neuer Benutzer") { adding = true }
+                }
+                data.users.forEach { u ->
+                    HubCard(onClick = { onOpen(u.id) }) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(u.name, color = p.text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                            if (u.admin) Text("Admin", color = p.muted, fontSize = 12.sp)
+                        }
+                        Text(u.subtitle(), color = if (u.enabled) p.muted else p.blocked, fontSize = 13.sp)
+                        if (u.groups.isNotEmpty()) Text(u.groups.joinToString(", "), color = p.muted, fontSize = 12.sp)
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) { SectionTitle(t("Gruppen ({0})", data.groups.size)) }
+                    TextAction("Neue Gruppe") { addingGroup = true }
+                }
+                if (data.groups.isEmpty()) Text("Keine Gruppen.", color = p.muted, fontSize = 13.sp)
+                data.groups.forEach { g ->
+                    val members = data.users.filter { g in it.groups }
+                    HubCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(g, color = p.text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                            Text(t("{0} Mitglieder", members.size), color = p.muted, fontSize = 12.sp)
+                        }
+                        Text(
+                            if (members.isEmpty()) t("Noch niemand in dieser Gruppe.") else members.joinToString(", ") { it.name },
+                            color = p.muted, fontSize = 13.sp,
+                        )
+                    }
+                }
+                Text("Mitglieder ändern: Benutzer antippen und dort die Gruppen an- oder abwählen.", color = p.muted, fontSize = 12.sp)
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
@@ -256,17 +315,6 @@ fun NextcloudScreen(api: NextcloudApi, onOpen: (String) -> Unit, onBack: () -> U
             onDone = { addingGroup = false; reload++ },
         ) {
             OutlinedTextField(group, { group = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        }
-    }
-    if (askUpdate && data?.info != null) {
-        val apps = data.info.appUpdates
-        FormDialog(
-            title = t("{0} Apps aktualisieren?", apps.size), confirm = "Aktualisieren", onDismiss = { askUpdate = false },
-            onConfirm = { gate.guard({ askUpdate = false }) { updates = api.updateApps() } },
-            onDone = { askUpdate = false },
-        ) {
-            Text(apps.joinToString(", ") { it.id }, color = LocalPalette.current.text, fontSize = 14.sp)
-            Text("Nextcloud spielt die Updates nacheinander ein, das kann einige Minuten dauern. Die Seite zeigt den Stand.", color = LocalPalette.current.muted, fontSize = 12.sp)
         }
     }
     NcPasswordDialog(api, gate)

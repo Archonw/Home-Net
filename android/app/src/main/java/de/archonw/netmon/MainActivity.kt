@@ -57,6 +57,7 @@ sealed interface Screen {
     data object ProxyCerts : Screen
     data class ProxyHost(val key: String) : Screen
     data object Nextcloud : Screen
+    data object NextcloudUsers : Screen
     data class NextcloudUser(val id: String) : Screen
     data object WireGuard : Screen
     data class WireGuardClient(val id: Int) : Screen
@@ -146,7 +147,8 @@ class MainActivity : FragmentActivity() {
                 is Screen.PocketIdUser -> Screen.PocketId
                 is Screen.ProxyHost, Screen.ProxyCerts -> Screen.Proxy
                 is Screen.WireGuardClient -> Screen.WireGuard
-                is Screen.NextcloudUser -> Screen.Nextcloud
+                Screen.NextcloudUsers -> Screen.Nextcloud
+                is Screen.NextcloudUser -> Screen.NextcloudUsers
                 Screen.PiholeStats, is Screen.PiholeInstance -> Screen.Pihole
                 Screen.HubSetup, Screen.Notifications -> Screen.Setup
                 else -> Screen.Home
@@ -227,10 +229,15 @@ class MainActivity : FragmentActivity() {
                     Screen.ProxyCerts -> ProxyCertsScreen(settings.proxyApi()) { screen = Screen.Proxy }
                     Screen.Nextcloud -> NextcloudScreen(
                         api = settings.nextcloudApi(),
-                        onOpen = { screen = Screen.NextcloudUser(it) },
+                        onUsers = { screen = Screen.NextcloudUsers },
                         onBack = { screen = Screen.Home },
                     )
-                    is Screen.NextcloudUser -> NextcloudUserScreen(settings.nextcloudApi(), s.id) { screen = Screen.Nextcloud }
+                    Screen.NextcloudUsers -> NextcloudUsersScreen(
+                        api = settings.nextcloudApi(),
+                        onOpen = { screen = Screen.NextcloudUser(it) },
+                        onBack = { screen = Screen.Nextcloud },
+                    )
+                    is Screen.NextcloudUser -> NextcloudUserScreen(settings.nextcloudApi(), s.id) { screen = Screen.NextcloudUsers }
                     Screen.WireGuard -> WireGuardScreen(
                         api = settings.wireGuardApi(),
                         onOpen = { screen = Screen.WireGuardClient(it) },

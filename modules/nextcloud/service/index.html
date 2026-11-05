@@ -218,7 +218,15 @@ function showUsers() {
     quotaBar(u),
     $("div", { className: "pills" }, ...u.groups.map(g => $("span", { className: "pill", textContent: g })))));
   app.replaceChildren($("div", { className: "actions" }, $("button", { className: "main", textContent: "Neuer Benutzer", onclick: newUser }), $("button", { textContent: "Neue Gruppe", onclick: newGroup })),
-    $("p", { className: "hint", textContent: "Wer sich über Pocket ID anmeldet, bekommt sein Konto beim ersten Anmelden. Name und E-Mail solcher Konten kommen von Pocket ID und werden dort geändert." }), ...list);
+    $("p", { className: "hint", textContent: "Wer sich über Pocket ID anmeldet, bekommt sein Konto beim ersten Anmelden. Name und E-Mail solcher Konten kommen von Pocket ID und werden dort geändert." }),
+    $("h2", { textContent: `Benutzer (${data.users.length})` }), ...list,
+    $("h2", { textContent: `Gruppen (${data.groups.length})` }),
+    ...(data.groups.length ? data.groups.map(g => {
+      const members = data.users.filter(u => u.groups.includes(g));
+      return $("div", { className: "card" }, $("div", { className: "name" }, g, $("span", { className: "quiet", textContent: ` · ${members.length} Mitglieder` })),
+        $("div", { className: "quiet", textContent: members.length ? members.map(u => u.name).join(", ") : tr("Noch niemand in dieser Gruppe.") }));
+    }) : [$("p", { className: "quiet", textContent: "Keine Gruppen." })]),
+    $("p", { className: "hint", textContent: "Mitglieder ändern: Benutzer antippen und dort die Gruppen an- oder abwählen." }));
 }
 
 function openDialog(title, body, buttons) {
