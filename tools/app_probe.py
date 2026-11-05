@@ -290,7 +290,7 @@ def main():
     find("01.11.26, 03:00")
     tap("Jetzt sichern")
     tap("Starten")
-    find("Sicherung wartet auf den Start des PCs")
+    find("Sicherung wartet auf den nächsten Start des PCs")
     tap("Zurück")
     find("1 gerade in Arbeit")
     tap("Zurück")

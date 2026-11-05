@@ -12,6 +12,8 @@ data class PcJob(
     val runLabel: String,
     val cancel: Boolean,
     val progress: PcProgress?,
+    /** Wartet auf das Wartungsfenster statt auf den nächsten Start. */
+    val inWindow: Boolean = false,
 ) {
     val isRestore: Boolean get() = action == "restore"
 
@@ -25,6 +27,7 @@ data class PcJob(
                 progress = it.optJSONObject("progress")?.let { p ->
                     PcProgress(p.optString("step"), p.optInt("percent"), p.optLong("bytes"), p.optString("log"))
                 },
+                inWindow = it.optString("when") == "window",
             )
         }
     }
@@ -40,6 +43,9 @@ data class PcRow(
     val okTime: Long,
     val bytes: Long,
     val next: Long,
+    /** Wartungsfenster wie »23–6 Uhr«, leer ohne. */
+    val window: String = "",
+    val windowOpen: Boolean = true,
 ) {
     companion object {
         fun from(o: JSONObject) = PcRow(
@@ -52,6 +58,8 @@ data class PcRow(
             okTime = o.optLong("ok_time"),
             bytes = o.optLong("bytes"),
             next = o.optLong("next"),
+            window = o.optString("window"),
+            windowOpen = o.optBoolean("window_open", true),
         )
     }
 }
@@ -144,13 +152,17 @@ class PcApi(private val http: PiApi) {
         )
     }
 
-    suspend fun backup(id: String, after: String) {
-        http.postJson("api/pcs/$id/backup", JSONObject().put("after", after).toString())
+    /** [whenToRun] »next« (nächster Start) oder »window« (Wartungsfenster), null überlässt es dem PC. */
+    suspend fun backup(id: String, after: String, whenToRun: String? = null) {
+        http.postJson("api/pcs/$id/backup", JSONObject().put("after", after).putOpt("when", whenToRun).toString())
     }
 
     /** Schreibt den ganzen PC auf den Stand von [run] zurück. */
-    suspend fun restore(id: String, run: String, after: String) {
-        http.postJson("api/pcs/$id/restore", JSONObject().put("run", run).put("after", after).toString())
+    suspend fun restore(id: String, run: String, after: String, whenToRun: String? = null) {
+        http.postJson(
+            "api/pcs/$id/restore",
+            JSONObject().put("run", run).put("after", after).putOpt("when", whenToRun).toString(),
+        )
     }
 
     suspend fun cancel(id: String) { http.postJson("api/pcs/$id/cancel", "{}") }

@@ -41,12 +41,15 @@ private const val PC_BUSY_REFRESH_MS = 5_000L
 
 private val AFTER_CHOICES = listOf("poweroff" to "Danach ausschalten", "reboot" to "Danach normal starten")
 
+private fun whenChoices(window: String) =
+    listOf("window" to "Im Wartungsfenster ($window)", "next" to "Beim nächsten Start, auch außerhalb des Fensters")
+
 /** Art des Zustands, daraus wird die Farbe. */
 enum class PcTone { OK, BAD, WARN, RUN, QUIET }
 
 /** Was gerade mit dem PC los ist, wie in der Weboberfläche. */
 fun pcStatus(row: PcRow): Pair<String, PcTone> {
-    row.job?.let { return pcJobText(it) }
+    row.job?.let { return pcJobText(it, row) }
     return when (row.status) {
         "ok" -> "Gesichert" to PcTone.OK
         "failed" -> "Fehler" to PcTone.BAD
@@ -56,11 +59,13 @@ fun pcStatus(row: PcRow): Pair<String, PcTone> {
     }
 }
 
-fun pcJobText(job: PcJob): Pair<String, PcTone> {
+fun pcJobText(job: PcJob, row: PcRow? = null): Pair<String, PcTone> {
     val what = if (job.isRestore) "Wiederherstellung" else "Sicherung"
     return when {
         job.cancel -> "$what wird abgebrochen" to PcTone.WARN
-        job.state == "armed" -> "$what wartet auf den Start des PCs" to PcTone.RUN
+        job.state == "armed" && job.inWindow && row != null && !row.windowOpen ->
+            "$what wartet auf das Wartungsfenster (${row.window})" to PcTone.RUN
+        job.state == "armed" -> "$what wartet auf den nächsten Start des PCs" to PcTone.RUN
         job.state == "booting" -> "$what: PC startet das Sicherungssystem" to PcTone.RUN
         else -> "$what läuft" + (job.progress?.let { " (${it.percent} %)" } ?: "") to PcTone.RUN
     }
@@ -320,8 +325,14 @@ fun PcDetailScreen(api: PcApi, id: String, onBack: () -> Unit) {
                         }
                         if (job.state == "armed") {
                             Text(
-                                "Der PC wurde per Wake-on-LAN geweckt. Läuft er schon, bitte neu starten: Er startet dann " +
-                                    "übers Netz. Ohne Netzwerkstart den Stick einstecken.",
+                                if (job.inWindow && !d.row.windowOpen) {
+                                    "Der Auftrag läuft beim ersten Start des PCs im Wartungsfenster (${d.row.window}). " +
+                                        "Zu Beginn wird der PC geweckt; bis dahin startet er ganz normal."
+                                } else {
+                                    "Der Auftrag wartet, bis der PC übers Netz startet; ist er aus, wurde er per " +
+                                        "Wake-on-LAN geweckt. Läuft er gerade, startet der Auftrag beim nächsten Neustart. " +
+                                        "Ohne Netzwerkstart den Stick einstecken."
+                                },
                                 color = p.muted, fontSize = 13.sp,
                             )
                         }
@@ -418,16 +429,22 @@ fun PcDetailScreen(api: PcApi, id: String, onBack: () -> Unit) {
         )
         "backup" -> if (d != null) {
             var after by remember { mutableStateOf(d.after) }
+            var whenToRun by remember { mutableStateOf("window") }
+            val window = d.row.window
             AlertDialog(
                 onDismissRequest = { dialog = null },
                 title = { Text("Sicherung starten?") },
                 text = {
                     Column {
                         Text(
-                            "Der Server weckt den PC. Er startet übers Netz oder vom Stick, sichert alle Platten und " +
-                                "ist währenddessen nicht nutzbar.",
+                            "Der Auftrag wartet, bis der PC das nächste Mal übers Netz oder vom Stick startet; ist er " +
+                                "aus, wird er geweckt. Während der Sicherung ist der PC nicht nutzbar.",
                             fontSize = 14.sp,
                         )
+                        if (window.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Choices(whenChoices(window), whenToRun) { whenToRun = it }
+                        }
                         Spacer(Modifier.height(8.dp))
                         Choices(AFTER_CHOICES, after) { after = it }
                     }
@@ -435,7 +452,7 @@ fun PcDetailScreen(api: PcApi, id: String, onBack: () -> Unit) {
                 confirmButton = {
                     TextButton(onClick = {
                         dialog = null
-                        act { api.backup(id, after) }
+                        act { api.backup(id, after, whenToRun.takeIf { window.isNotBlank() }) }
                     }) { Text("Starten") }
                 },
                 dismissButton = { TextButton(onClick = { dialog = null }) { Text("Abbrechen") } },
@@ -448,9 +465,10 @@ fun PcDetailScreen(api: PcApi, id: String, onBack: () -> Unit) {
             name = d?.row?.name ?: "PC",
             runs = d?.runs.orEmpty().filter { it.complete },
             initial = run,
-            onConfirm = { chosen, after ->
+            window = d?.row?.window.orEmpty(),
+            onConfirm = { chosen, after, whenToRun ->
                 restoreRun = null
-                act { api.restore(id, chosen.id, after) }
+                act { api.restore(id, chosen.id, after, whenToRun) }
             },
             onDismiss = { restoreRun = null },
         )
@@ -478,11 +496,13 @@ private fun RestoreDialog(
     name: String,
     runs: List<PcRun>,
     initial: PcRun,
-    onConfirm: (PcRun, String) -> Unit,
+    window: String,
+    onConfirm: (PcRun, String, String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var run by remember { mutableStateOf(initial) }
     var after by remember { mutableStateOf("reboot") }
+    var whenToRun by remember { mutableStateOf("window") }
     var sure by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -492,6 +512,10 @@ private fun RestoreDialog(
                 if (!sure) {
                     Text("Stand", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Choices(runs.map { it.id to it.label }, run.id) { picked -> run = runs.first { it.id == picked } }
+                    if (window.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Choices(whenChoices(window), whenToRun) { whenToRun = it }
+                    }
                     Spacer(Modifier.height(8.dp))
                     Choices(AFTER_CHOICES, after) { after = it }
                 } else {
@@ -504,7 +528,7 @@ private fun RestoreDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { if (sure) onConfirm(run, after) else sure = true }) {
+            TextButton(onClick = { if (sure) onConfirm(run, after, whenToRun.takeIf { window.isNotBlank() }) else sure = true }) {
                 Text(if (sure) "Ja, überschreiben" else "Weiter")
             }
         },

@@ -23,6 +23,10 @@ oder teilweise zurück.
   über iPXE.
 - Nächtliche Sicherungen: Der Server weckt den PC per Wake-on-LAN, der PC startet übers Netz, sichert und schaltet
   sich wieder aus.
+- Ein Auftrag von Hand wartet, bis der PC das nächste Mal übers Netz startet, auch über Tage; ein laufender PC wird
+  nicht unterbrochen. Mit Wartungsfenster (etwa 23 bis 6 Uhr) wartet er auf dessen Beginn: Dann wird der PC geweckt,
+  und nur ein Start im Fenster führt den Auftrag aus. Beim Auftrag lässt sich stattdessen »beim nächsten Start« wählen.
+  Geplante Sicherungen geben auf, wenn der PC nicht kommt: ohne Fenster nach 20 Minuten, mit Fenster an dessen Ende.
 
 ## Teile
 
