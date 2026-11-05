@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from nextcloud import STORAGE_WARN, Nextcloud, NextcloudError, check_user_id, quota_text  # noqa: E402
+from nextcloud import CONFIRM_TEXT, STORAGE_WARN, Nextcloud, NextcloudError, check_user_id, quota_text  # noqa: E402
 
 DATA = os.environ.get("DATA", "/data")
 LISTEN_SOCKET = os.environ.get("LISTEN_SOCKET", "")
@@ -177,10 +177,53 @@ class Watcher:
             time.sleep(WATCH_EVERY)
 
 
+class AppUpdater:
+    """Updates apps one after another in the background, because a single update can take minutes."""
+
+    def __init__(self, nc):
+        self.nc = nc
+        self.lock = threading.Lock()
+        self.state = {"running": False, "current": "", "done": [], "failed": [], "total": 0, "finished": 0}
+
+    def get(self):
+        with self.lock:
+            return json.loads(json.dumps(self.state))
+
+    def start(self, apps, actor):
+        with self.lock:
+            if self.state["running"]:
+                raise ValueError("Die Updates laufen schon.")
+            self.state = {"running": True, "current": "", "done": [], "failed": [], "total": len(apps),
+                          "finished": 0}
+        threading.Thread(target=self.run, args=(apps, actor), daemon=True).start()
+
+    def run(self, apps, actor):
+        for app in apps:
+            with self.lock:
+                self.state["current"] = app
+            try:
+                self.nc.update_app(app)
+                ok, error = True, ""
+                log(f"{actor}: App {app} aktualisiert")
+            except Exception as exc:  # report and go on with the next app
+                ok, error = False, str(exc) or exc.__class__.__name__
+                log(f"{actor}: App {app} nicht aktualisiert: {error}")
+            with self.lock:
+                if ok:
+                    self.state["done"].append(app)
+                else:
+                    self.state["failed"].append({"id": app, "error": error})
+                self.state["finished"] = int(time.time())
+        with self.lock:
+            self.state["running"], self.state["current"] = False, ""
+            self.state["finished"] = int(time.time())
+
+
 class ApiHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     settings = None
     nc = None
+    updater = None
 
     def log_message(self, fmt, *args):
         sys.stderr.write(f"{self.headers.get('X-Forwarded-For', 'socket') if self.headers else 'socket'} {fmt % args}\n")
@@ -259,6 +302,11 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.nc.confirm(body.get("password"))
             log(f"{self.actor()}: Passwort für Nextcloud bestätigt")
             return self.send_json(200, {"ok": True, "minutes": 30})
+        if path == "/api/apps/update":
+            if method == "POST":
+                return self.update_apps(body)
+            if method == "GET":
+                return self.send_json(200, self.updater.get())
         if method == "POST" and path == "/api/groups":
             self.nc.create_group(body.get("name"))
             log(f"{self.actor()}: Gruppe {body.get('name')} angelegt")
@@ -339,6 +387,24 @@ class ApiHandler(BaseHTTPRequestHandler):
         log(f"{self.actor()}: {user_id} {'in' if body['member'] else 'aus'} Gruppe {group}")
         return self.send_json(200, {"ok": True})
 
+    def update_apps(self, body):
+        apps = body.get("apps")
+        if apps is None:
+            info = self.nc.serverinfo()
+            if info is None:
+                raise ValueError("Ohne die App serverinfo kennt Home-Net die Updates nicht.")
+            apps = [a["id"] for a in info["app_updates"]]
+        if not isinstance(apps, list) or not all(isinstance(a, str) for a in apps):
+            raise ValueError("Apps bitte als Liste angeben.")
+        apps = list(dict.fromkeys(a.strip() for a in apps if a.strip()))
+        if not apps:
+            raise ValueError("Es gibt keine App-Updates.")
+        if not self.nc.confirmed():
+            raise NextcloudError(CONFIRM_TEXT, 403, confirm=True)
+        self.updater.start(apps, self.actor())
+        log(f"{self.actor()}: App-Updates gestartet ({', '.join(apps)})")
+        return self.send_json(200, self.updater.get())
+
     def delete_user(self, user_id, body):
         if self.own_account(user_id):
             raise ValueError("Mit diesem Konto meldet sich Home-Net an. Es lässt sich hier nicht löschen.")
@@ -357,6 +423,7 @@ def main():
     os.makedirs(DATA, exist_ok=True)
     ApiHandler.settings = Settings(DATA)
     ApiHandler.nc = Nextcloud(ApiHandler.settings.get)
+    ApiHandler.updater = AppUpdater(ApiHandler.nc)
     threading.Thread(target=Watcher(DATA, Nextcloud(ApiHandler.settings.get)).run, args=(ApiHandler.settings,),
                      daemon=True).start()
     if API_PORT:

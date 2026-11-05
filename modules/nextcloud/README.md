@@ -5,8 +5,8 @@ verwaltet ihre Benutzer:
 
 - **Zustand:** Version, Wartungsmodus, freier Platz auf dem Datenträger, Dateien, Freigaben, aktive Benutzer
   (5 Minuten, Stunde, Tag), PHP und Datenbank
-- **Updates:** neue Version von Nextcloud und App-Updates (installiert werden sie weiter in Nextcloud bzw. über das
-  Docker-Image)
+- **Updates:** neue Version von Nextcloud (installiert über das Docker-Image bzw. den Updater) und App-Updates; Admins
+  spielen mit *Alle Apps aktualisieren* alle App-Updates nacheinander ein, Web und App zeigen den Fortschritt
 - **Benutzer:** anlegen (mit Passwort oder mit Link per E-Mail), Anzeigename, E-Mail, Speicherplatz und Passwort ändern,
   Gruppen an- und abwählen, sperren, entsperren, Willkommens-Mail schicken, löschen (nur nach Eintippen des
   Benutzernamens, weil die Dateien mit gelöscht werden)
@@ -44,7 +44,9 @@ stehen. Hat Nextcloud im Heimnetz nur ein eigenes Zertifikat, *Zertifikat nicht 
 Ab Nextcloud 32 verlangt die API für jede Änderung an Benutzern (anlegen, ändern, sperren, Gruppen, löschen) eine
 Bestätigung mit dem Passwort, die ein App-Passwort nicht geben kann. Das Modul fragt dann einmal nach dem normalen
 Passwort des Kontos, prüft es bei Nextcloud und nutzt es 30 Minuten lang für Änderungen (wie Nextcloud selbst). Es
-bleibt nur im Arbeitsspeicher des Dienstes, nie auf der Platte.
+bleibt nur im Arbeitsspeicher des Dienstes, nie auf der Platte. App-Updates verlangen das Passwort in neueren
+Versionen immer (strenge Bestätigung); ältere Nextcloud-Versionen ohne die Schnittstelle der App `appstore`
+aktualisiert das Modul über die Seite der App-Einstellungen.
 
 Hat das Konto eine Zwei-Faktor-Anmeldung, geht das nicht. Dann in der `config.php` von Nextcloud nur die Adressen
 eintragen, von denen Home-Net kommt:
@@ -83,6 +85,8 @@ zeigt das Modul nur Version und Benutzer.
 | `POST /api/users/<id>/welcome` | Admins | Willkommens-Mail |
 | `DELETE /api/users/<id>?confirm=<id>` | Admins | Löschen mit allen Dateien |
 | `POST /api/groups` | Admins | `{name}` |
+| `GET /api/apps/update` | Admins | Stand: `{running, current, done, failed: [{id, error}], total}` |
+| `POST /api/apps/update` | Admins | `{apps?}`, ohne Liste alle App-Updates; läuft im Hintergrund, braucht `/api/confirm` |
 | `POST /api/confirm` | Admins | `{password}`: Passwort des Kontos für 30 Minuten (nur im Speicher) |
 
 Verlangt Nextcloud die Bestätigung, antwortet eine Änderung mit 403 und `{"confirm": true}`.
