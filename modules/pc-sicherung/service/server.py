@@ -29,7 +29,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from proxydhcp import ProxyDHCP  # noqa: E402
 from tftp import TFTPServer  # noqa: E402
-from store import AFTER, OVERDUE_DAYS, Store, category_allowed, next_due, normal_mac, run_label  # noqa: E402
+from store import (AFTER, OVERDUE_DAYS, WHEN, Store, category_allowed, in_window, next_due, normal_mac,  # noqa: E402
+                   run_label, window_key, window_label)
 
 DATA = os.environ.get("DATA", "/data")
 BACKUPS = os.environ.get("BACKUPS", "/backups")
@@ -470,11 +471,22 @@ class Engine:
         self.services = services
         self.tidying = set()
 
-    def start(self, pc, action, origin="manual", after=None, run=None, parts=None, token=None, who=""):
+    def start(self, pc, action, origin="manual", after=None, run=None, parts=None, token=None, who="", when=None):
+        """`when` "window" lets the task wait for the PC's maintenance window; without a window it means "next"."""
         if action == "backup":
             self.archive.ensure(pc)
-        job = self.store.arm(pc["id"], action, origin, after or pc["after"], run=run, parts=parts, token=token, who=who)
-        if pc.get("wake", True) and not token:
+        when = "window" if (when or ("window" if pc.get("window") else "next")) == "window" and pc.get("window") \
+            and not token else "next"
+        job = self.store.arm(pc["id"], action, origin, after or pc["after"], run=run, parts=parts, token=token, who=who,
+                             when=when)
+        now = time.time()
+        if when == "window":
+            key = window_key(pc, now)
+            if key:
+                job = self.store.touch(pc["id"], woke=key)
+                if pc.get("wake", True):
+                    wake(pc["macs"])
+        elif pc.get("wake", True) and not token:
             wake(pc["macs"])
         return job
 
@@ -554,8 +566,31 @@ class Engine:
             except Exception as exc:
                 self.store.arm(pc["id"], "backup", "auto", pc["after"])
                 self.done(pc["id"], False, f"Sicherung nicht gestartet: {exc}")
+        self.check_windows(now)
         self.check_overdue(now)
         self.check_disk()
+
+    def check_windows(self, now):
+        """Wakes PCs whose task waits for the maintenance window when it opens. When it closes without the PC, a
+        scheduled task counts as missed and one given by hand waits for the next window (reported once)."""
+        for pc in self.store.all_pcs():
+            job = self.store.job(pc["id"])
+            if not job or job["state"] != "armed" or job.get("when") != "window":
+                continue
+            key = window_key(pc, now)
+            if key and job.get("woke") != key:
+                self.store.touch(pc["id"], woke=key)
+                if pc.get("wake", True):
+                    wake(pc["macs"])
+            elif not key and job.get("woke") and job.get("reported") != job["woke"]:
+                if job["origin"] == "auto":
+                    self.done(pc["id"], False, "Der PC hat im Wartungsfenster nicht über das Netz gestartet.",
+                              result="missed")
+                    continue
+                self.store.touch(pc["id"], reported=job["woke"])
+                spool_event("pc_not_reached", f"{pc['name']} im Wartungsfenster nicht gestartet",
+                            f"Der Auftrag wartet auf das nächste Wartungsfenster ({window_label(pc)}).", "default",
+                            pc["category"], f"pc/{pc['id']}")
 
     def check_overdue(self, now):
         for pc in self.store.all_pcs():
@@ -603,7 +638,8 @@ class Engine:
         return {"id": pc["id"], "name": pc["name"], "category": pc["category"], "schedule": pc["schedule"],
                 "job": public_job(job), "status": last["result"] if last else "", "message": last["message"] if last else "",
                 "ok_time": last_ok["end"] if last_ok else 0, "bytes": self.size_of(pc["id"]),
-                "next": next_due(pc, time.time())}
+                "next": next_due(pc, time.time()), "window": window_label(pc),
+                "window_open": in_window(pc, time.time()) if pc.get("window") else True}
 
 
     def size_of(self, pc_id):
@@ -791,6 +827,8 @@ class BootHandler(Base):
         job = self.store.job(pc["id"])
         if not job or job["state"] not in ("armed", "booting"):
             return local()
+        if job.get("when") == "window" and not in_window(pc, time.time()):
+            return local()
         self.store.touch(pc["id"], state="booting", mac=normal_mac(mac))
         return live(self.engine.services.server_ip(), job["token"])
 
@@ -877,6 +915,14 @@ class ApiHandler(Base):
             return base64.b64decode(self.headers.get("X-Home-Net-User", "")).decode() or "Besitzer"
         except ValueError:
             return ""
+
+    @staticmethod
+    def when(body):
+        """"next" or "window" from a request; None leaves it to the PC (its window if it has one)."""
+        value = body.get("when")
+        if value is not None and value not in WHEN:
+            raise ValueError("Ungültige Auswahl")
+        return value
 
     def route(self):
         path = urllib.parse.urlsplit(self.path).path
@@ -965,7 +1011,7 @@ class ApiHandler(Base):
             after = body.get("after", pc["after"])
             if after not in AFTER:
                 raise ValueError("Ungültige Auswahl")
-            engine.start(pc, "backup", after=after, who=self.who())
+            engine.start(pc, "backup", after=after, who=self.who(), when=self.when(body))
             return self.send_json(202, {"ok": True})
         if method == "POST" and action == "restore":
             self.need_manager()
@@ -975,7 +1021,7 @@ class ApiHandler(Base):
                 raise ValueError("Diese Sicherung gibt es nicht oder sie ist unvollständig.")
             parts = [str(p) for p in body.get("parts") or [] if re.fullmatch(r"d\d+p\d+", str(p))]
             engine.start(pc, "restore", after=body.get("after", "reboot") if body.get("after") in AFTER else "reboot",
-                         run=run, parts=parts, who=self.who())
+                         run=run, parts=parts, who=self.who(), when=self.when(body))
             return self.send_json(202, {"ok": True})
         if method == "POST" and action == "cancel":
             job = store.job(pc_id)
@@ -1005,6 +1051,7 @@ def public_job(job):
     if not job:
         return None
     return {k: job.get(k) for k in ("action", "state", "run", "after", "parts", "progress", "created", "origin", "cancel")} | \
+        {"when": job.get("when", "next")} | \
         {"run_label": run_label(job["run"])}
 
 

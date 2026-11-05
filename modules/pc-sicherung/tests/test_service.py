@@ -125,6 +125,22 @@ class Jobs(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.s.arm(self.pc["id"], "backup", "manual", "reboot")
 
+    def test_window(self):
+        pc = pc_from_form({"name": "A", "macs": MAC, "window": True, "window_from": 23, "window_to": 6})
+        self.assertTrue(store_mod.in_window(pc, at("2026-11-05 23:30")))
+        self.assertTrue(store_mod.in_window(pc, at("2026-11-06 05:59")))
+        self.assertFalse(store_mod.in_window(pc, at("2026-11-06 06:00")))
+        self.assertFalse(store_mod.in_window(pc, at("2026-11-06 15:00")))
+        self.assertEqual(store_mod.window_key(pc, at("2026-11-06 02:00")), "2026-11-05")
+        self.assertEqual(store_mod.window_key(pc, at("2026-11-05 23:10")), "2026-11-05")
+        self.assertIsNone(store_mod.window_key(pc, at("2026-11-05 12:00")))
+        day = pc_from_form({"name": "A", "macs": MAC, "window": True, "window_from": 12, "window_to": 14})
+        self.assertTrue(store_mod.in_window(day, at("2026-11-05 13:00")))
+        self.assertFalse(store_mod.in_window(day, at("2026-11-05 14:00")))
+        self.assertTrue(store_mod.in_window(pc_from_form({"name": "A", "macs": MAC}), at("2026-11-05 13:00")))
+        with self.assertRaises(ValueError):
+            pc_from_form({"name": "A", "macs": MAC, "window": True, "window_from": 5, "window_to": 5})
+
     def test_missed_and_silent(self):
         job = self.s.arm(self.pc["id"], "backup", "auto", "poweroff")
         self.assertEqual(self.s.expired(job["created"] + 60), [])
@@ -245,11 +261,82 @@ class Http(unittest.TestCase):
         self.assertEqual(self.engine.store.history(self.pc["id"])[0]["result"], "cancelled")
         self.assertEqual(list(self.events.glob("*.json")), [])
 
-    def test_missed_start_is_reported(self):
+    def test_task_by_hand_waits_for_the_next_start(self):
         self.call(self.api, "POST", f"/api/pcs/{self.pc['id']}/backup", {}, self.user())
+        self.engine.tick(time.time() + 3 * 86400)
+        self.assertEqual(self.engine.store.history(self.pc["id"]), [])
+        _, text = self.call(self.boot, "GET", f"/boot/grub/{MAC}")
+        self.assertIn(b"hn_token=", text)
+
+    def test_boot_entry_not_taken_waits_again(self):
+        self.call(self.api, "POST", f"/api/pcs/{self.pc['id']}/backup", {}, self.user())
+        self.call(self.boot, "GET", f"/boot/grub/{MAC}")
+        self.assertEqual(self.engine.store.job(self.pc["id"])["state"], "booting")
+        self.engine.tick(time.time() + store_mod.SILENT_SECONDS + 60)
+        self.assertEqual(self.engine.store.job(self.pc["id"])["state"], "armed")
+
+    def test_missed_scheduled_start_is_reported(self):
+        self.engine.start(self.pc, "backup", origin="auto")
         self.engine.tick(time.time() + 2 * 3600)
         self.assertEqual(self.engine.store.history(self.pc["id"])[0]["result"], "missed")
         self.assertEqual(json.loads(next(self.events.glob("*.json")).read_text())["type"], "pc_not_reached")
+
+    def window_pc(self, now):
+        """A window that is open at `now` (from one hour before to one after)."""
+        hour = datetime.fromtimestamp(now).hour
+        return self.engine.store.update(self.pc["id"], {"window": True, "window_from": (hour - 1) % 24,
+                                                        "window_to": (hour + 1) % 24})
+
+    def test_window_task_waits_outside_and_runs_inside(self):
+        now = time.time()
+        hour = datetime.fromtimestamp(now).hour
+        pc = self.engine.store.update(self.pc["id"], {"window": True, "window_from": (hour + 2) % 24,
+                                                      "window_to": (hour + 4) % 24})
+        code, _ = self.call(self.api, "POST", f"/api/pcs/{pc['id']}/backup", {"when": "window"}, self.user())
+        self.assertEqual(code, 202)
+        self.assertEqual(self.woken, [])
+        _, text = self.call(self.boot, "GET", f"/boot/grub/{MAC}")
+        self.assertNotIn(b"hn_token=", text)
+        _, d = self.call(self.api, "GET", f"/api/pcs/{pc['id']}", headers=self.user())
+        self.assertEqual((d["job"]["when"], d["window_open"]), ("window", False))
+        self.engine.tick(now + 2 * 3600 + 60)
+        self.assertEqual(self.woken, [MAC])
+        self.engine.tick(now + 2 * 3600 + 120)
+        self.assertEqual(self.woken, [MAC])
+        self.engine.tick(now + 5 * 3600)
+        self.assertEqual(self.engine.store.history(pc["id"]), [])
+        sent = [json.loads(p.read_text()) for p in self.events.glob("*.json")]
+        self.assertEqual([e["type"] for e in sent], ["pc_not_reached"])
+        self.engine.tick(now + 5 * 3600 + 60)
+        self.assertEqual(len(list(self.events.glob("*.json"))), 1)
+
+    def test_window_task_inside_the_window_wakes_at_once(self):
+        self.window_pc(time.time())
+        self.call(self.api, "POST", f"/api/pcs/{self.pc['id']}/backup", {}, self.user())
+        self.assertEqual(self.woken, [MAC])
+        self.assertEqual(self.engine.store.job(self.pc["id"])["when"], "window")
+        _, text = self.call(self.boot, "GET", f"/boot/grub/{MAC}")
+        self.assertIn(b"hn_token=", text)
+
+    def test_next_start_ignores_the_window(self):
+        now = time.time()
+        hour = datetime.fromtimestamp(now).hour
+        self.engine.store.update(self.pc["id"], {"window": True, "window_from": (hour + 2) % 24,
+                                                 "window_to": (hour + 4) % 24})
+        self.call(self.api, "POST", f"/api/pcs/{self.pc['id']}/backup", {"when": "next"}, self.user())
+        self.assertEqual(self.woken, [MAC])
+        _, text = self.call(self.boot, "GET", f"/boot/grub/{MAC}")
+        self.assertIn(b"hn_token=", text)
+        code, _ = self.call(self.api, "POST", f"/api/pcs/{self.pc['id']}/cancel", {}, self.user())
+        code, _ = self.call(self.api, "POST", f"/api/pcs/{self.pc['id']}/backup", {"when": "bald"}, self.user())
+        self.assertEqual(code, 400)
+
+    def test_scheduled_task_in_window_is_missed_when_it_closes(self):
+        now = time.time()
+        pc = self.window_pc(now)
+        self.engine.start(pc, "backup", origin="auto")
+        self.engine.tick(now + 3 * 3600)
+        self.assertEqual(self.engine.store.history(pc["id"])[0]["result"], "missed")
 
     def test_rights(self):
         code, _ = self.call(self.api, "GET", f"/api/pcs/{self.pc['id']}", headers=self.user(categories=["Familie"]))

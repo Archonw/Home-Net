@@ -10,8 +10,9 @@ from datetime import datetime, timedelta
 
 SCHEDULES = ("off", "daily", "weekly", "monthly")
 AFTER = ("poweroff", "reboot")
+WHEN = ("next", "window")
 OVERDUE_DAYS = {"daily": 2, "weekly": 9, "monthly": 35}
-ARM_SECONDS = {"auto": 20 * 60, "manual": 60 * 60}
+ARM_SECONDS = {"auto": 20 * 60}
 SILENT_SECONDS = 30 * 60
 WAITING_SECONDS = 2 * 3600
 MAC = re.compile(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$")
@@ -58,6 +59,28 @@ def due_key(pc, now):
     return when.strftime("%Y-%m")
 
 
+def in_window(pc, now):
+    """Whether tasks for the PC may run at this moment: always without a maintenance window."""
+    if not pc.get("window"):
+        return True
+    hour, start, end = datetime.fromtimestamp(now).hour, pc["window_from"], pc["window_to"]
+    return start <= hour < end if start < end else hour >= start or hour < end
+
+
+def window_key(pc, now):
+    """The day the maintenance window that `now` lies in began, or None outside a window."""
+    if not pc.get("window") or not in_window(pc, now):
+        return None
+    when = datetime.fromtimestamp(now)
+    if pc["window_from"] > pc["window_to"] and when.hour < pc["window_to"]:
+        when -= timedelta(days=1)
+    return when.strftime("%Y-%m-%d")
+
+
+def window_label(pc):
+    return f"{pc['window_from']}–{pc['window_to']} Uhr" if pc.get("window") else ""
+
+
 def next_due(pc, now):
     """Start of the next scheduled run, for display."""
     if pc["schedule"] == "off":
@@ -79,14 +102,14 @@ def pc_from_form(form, base=None):
     """A validated PC from form values; raises ValueError with a message for the user."""
     pc = copy.deepcopy(base) if base else {
         "id": secrets.token_hex(6), "name": "", "category": "", "macs": [], "schedule": "off", "hour": 3,
-        "weekday": 6, "keep": 3, "after": "poweroff", "wake": True, "skip_disks": [], "notes": "",
+        "weekday": 6, "keep": 3, "after": "poweroff", "wake": True, "window": False, "window_from": 23, "window_to": 6, "skip_disks": [], "notes": "",
         "repo_password": secrets.token_urlsafe(24), "rest_password": secrets.token_urlsafe(24),
         "created": int(time.time()),
     }
     for key in ("name", "category", "notes"):
         if key in form:
             pc[key] = str(form[key]).strip() if key != "notes" else str(form[key])
-    for key in ("hour", "weekday", "keep"):
+    for key in ("hour", "weekday", "keep", "window_from", "window_to"):
         if key in form:
             try:
                 pc[key] = int(form[key])
@@ -97,6 +120,11 @@ def pc_from_form(form, base=None):
             pc[key] = str(form[key])
     if "wake" in form:
         pc["wake"] = bool(form["wake"])
+    if "window" in form:
+        pc["window"] = bool(form["window"])
+    pc.setdefault("window", False)
+    pc.setdefault("window_from", 23)
+    pc.setdefault("window_to", 6)
     if "macs" in form:
         raw = form["macs"] if isinstance(form["macs"], list) else re.split(r"[\s,;]+", str(form["macs"]))
         pc["macs"] = [normal_mac(m) for m in raw if str(m).strip()]
@@ -116,6 +144,10 @@ def pc_from_form(form, base=None):
         raise ValueError("Ungültige Auswahl beim Zeitplan.")
     if not 0 <= pc["hour"] <= 23 or not 0 <= pc["weekday"] <= 6:
         raise ValueError("Die Uhrzeit muss zwischen 0 und 23 liegen.")
+    if not 0 <= pc["window_from"] <= 23 or not 0 <= pc["window_to"] <= 23:
+        raise ValueError("Das Wartungsfenster braucht Stunden zwischen 0 und 23.")
+    if pc["window"] and pc["window_from"] == pc["window_to"]:
+        raise ValueError("Beginn und Ende des Wartungsfensters dürfen nicht gleich sein.")
     if not 1 <= pc["keep"] <= 100:
         raise ValueError("Behalten: zwischen 1 und 100 Sicherungen.")
     return pc
@@ -252,16 +284,20 @@ class Store:
                     return pc_id, copy.deepcopy(job)
         return None, None
 
-    def arm(self, pc_id, action, origin, after, run=None, parts=None, token=None, who=""):
-        """A task for a PC; it waits until the PC starts over the network or from the stick."""
+    def arm(self, pc_id, action, origin, after, run=None, parts=None, token=None, who="", when="next"):
+        """A task for a PC; it waits until the PC starts over the network or from the stick.
+
+        A task given by hand waits for the next start (when "next") or the next start inside the PC's maintenance
+        window ("window") for as long as it takes. A scheduled one gives up after a while: without a window when the
+        PC has not come 20 minutes after waking, with one when the window is over."""
         with self.lock:
             if pc_id in self.state["jobs"]:
                 raise ValueError("Für diesen PC läuft schon ein Auftrag.")
             now = time.time()
             job = {"action": action, "origin": origin, "after": after, "token": token or secrets.token_urlsafe(24),
                    "run": run or new_run_id(now), "parts": parts or [], "state": "armed", "created": now,
-                   "expires": now + ARM_SECONDS["auto" if origin == "auto" else "manual"], "seen": now,
-                   "progress": None, "who": who}
+                   "expires": now + ARM_SECONDS["auto"] if origin == "auto" and when == "next" else None,
+                   "seen": now, "progress": None, "who": who, "when": when}
             self.state["jobs"][pc_id] = job
             self.save()
             return copy.deepcopy(job)
@@ -304,13 +340,17 @@ class Store:
         return None
 
     def expired(self, now=None):
-        """Tasks whose PC never came or fell silent."""
+        """Tasks whose PC never came or fell silent. A waiting task whose PC got the boot system but never reported
+        (another boot entry picked, stick pulled) waits again instead."""
         now = now or time.time()
         out = []
         with self.lock:
             for pc_id, job in self.state["jobs"].items():
-                if job["state"] == "armed" and now > job["expires"]:
+                if job["state"] == "armed" and job.get("expires") and now > job["expires"]:
                     out.append((pc_id, "missed"))
+                elif job["state"] == "booting" and not job.get("expires") and now - job["seen"] > SILENT_SECONDS:
+                    job.update(state="armed", seen=now)
+                    self.save()
                 elif job["state"] in ("booting", "running") and now - job["seen"] > SILENT_SECONDS:
                     out.append((pc_id, "silent"))
         return out

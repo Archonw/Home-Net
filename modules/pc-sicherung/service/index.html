@@ -80,14 +80,15 @@ async function api(path, method = "GET", body) {
 }
 const size = n => { const u = ["B","KB","MB","GB","TB"]; let i = 0; n = n || 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return `${i > 1 ? n.toFixed(1).replace(".", ",") : Math.round(n)} ${u[i]}`; };
 const when = s => s ? new Date(s * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "–";
-function jobText(j) {
+function jobText(j, p = {}) {
   const what = j.action === "restore" ? "Wiederherstellung" : "Sicherung";
   if (j.cancel) return [`${what} wird abgebrochen`, "warn"];
-  if (j.state === "armed") return [`${what} wartet auf den Start des PCs`, "run"];
+  if (j.state === "armed" && j.when === "window" && !p.window_open) return [`${what} wartet auf das Wartungsfenster (${p.window})`, "run"];
+  if (j.state === "armed") return [`${what} wartet auf den nächsten Start des PCs`, "run"];
   if (j.state === "booting") return [`${what}: PC startet das Sicherungssystem`, "run"];
   return [`${what} läuft${j.progress ? ` (${j.progress.percent} %)` : ""}`, "run"];
 }
-const status = p => p.job ? jobText(p.job) : RESULTS[p.status] || ["Nie gesichert", "quiet"];
+const status = p => p.job ? jobText(p.job, p) : RESULTS[p.status] || ["Nie gesichert", "quiet"];
 function schedule(fn, ms) { clearTimeout(timer); timer = setTimeout(fn, ms); }
 function fail(e) { app.replaceChildren($("div", { className: "err", textContent: e.message })); schedule(current ? showPc.bind(null, current) : overview, 15000); }
 function planText(p) {
@@ -155,7 +156,7 @@ async function showPc(id) {
     const buttons = [$("button", { textContent: "Zurück", onclick: overview })];
     if (d.job) buttons.push(act("Abbrechen", () => confirm("Auftrag abbrechen?") ? api(`api/pcs/${id}/cancel`, "POST") : null));
     else {
-      buttons.push($("button", { className: "main", textContent: "Jetzt sichern", onclick: () => backupDialog(d) }));
+      buttons.push($("button", { className: "main", textContent: "Sichern", onclick: () => backupDialog(d) }));
       if (d.manager) buttons.push($("button", { textContent: "Wiederherstellen", disabled: !d.runs.some(r => r.complete), onclick: () => restoreDialog(d) }));
     }
     buttons.push(act("Aufwecken", () => api(`api/pcs/${id}/wake`, "POST")));
@@ -163,11 +164,13 @@ async function showPc(id) {
     const parts = [$("div", { className: "actions" }, ...buttons),
       $("div", { className: "card" }, $("div", { className: "name", style: "font-size:20px", textContent: d.name }),
         $("div", { className: cls, textContent: text }),
-        $("div", { className: "quiet", textContent: `${d.category || "Ohne Kategorie"} · ${planText(d)} · behält ${d.keep} Sicherungen · ${d.macs.join(", ")}` }),
+        $("div", { className: "quiet", textContent: `${d.category || "Ohne Kategorie"} · ${planText(d)}${d.window ? " · Wartungsfenster " + d.window : ""} · behält ${d.keep} Sicherungen · ${d.macs.join(", ")}` }),
         !d.job && lastEntry && lastEntry.result !== "ok" ? $("div", { className: RESULTS[lastEntry.result]?.[1] || "", textContent: lastEntry.message }) : null)];
     if (d.job) {
       const j = d.job, p = j.progress;
-      const hint = j.state === "armed" ? "Der PC wurde per Wake-on-LAN geweckt. Läuft er schon, bitte neu starten: Er startet dann übers Netz. Ohne Netzwerkstart den Stick einstecken." : null;
+      const hint = j.state !== "armed" ? null : j.when === "window" && !d.window_open
+        ? `Der Auftrag läuft beim ersten Start des PCs im Wartungsfenster (${d.window}). Zu Beginn wird der PC geweckt; bis dahin startet er ganz normal.`
+        : "Der Auftrag wartet, bis der PC übers Netz startet; ist er aus, wurde er per Wake-on-LAN geweckt. Läuft er gerade, startet der Auftrag beim nächsten Neustart. Ohne Netzwerkstart den Stick einstecken.";
       parts.push($("div", { className: "card" }, $("div", { className: "name", textContent: p?.step || (j.action === "restore" ? `Wiederherstellung von ${j.run_label}` : "Sicherung") }),
         p ? $("progress", { max: 100, value: p.percent }) : null,
         p ? $("div", { className: "quiet", textContent: p.bytes ? `${p.percent} % · ${size(p.bytes)} gelesen` : `${p.percent} %` }) : null,
@@ -227,11 +230,15 @@ function pcFields(p) {
     $("div", { className: "two" }, choice("weekday", "Wochentag (bei wöchentlich)", p.weekday ?? 6, DAYS.map((d, i) => [i, d])), field("keep", "Behalten", p.keep ?? 3, "number", "So viele Sicherungen bleiben, ältere werden entfernt.")),
     choice("after", "Nach der geplanten Sicherung", p.after ?? "poweroff", AFTER),
     check("wake", "PC zum Sichern per Wake-on-LAN wecken", p.wake ?? true),
+    check("window", "Wartungsfenster: Aufträge nur in dieser Zeit ausführen", p.window ?? false),
+    $("div", { className: "two" }, field("window_from", "Wartungsfenster ab Uhr", p.window_from ?? 23, "number"), field("window_to", "bis Uhr", p.window_to ?? 6, "number")),
+    $("div", { className: "hint", textContent: "Ein Auftrag wartet dann, bis das Fenster beginnt. Zu Beginn wird der PC geweckt; startet er in der Zeit neu, läuft der Auftrag. Außerhalb startet der PC ganz normal. Beim Auftrag lässt sich trotzdem »beim nächsten Start« wählen." }),
     field("skip_disks", "Platten nicht sichern (Seriennummern)", (p.skip_disks || []).join(", "), "text", "Zum Beispiel eine große Datenplatte, die anders gesichert wird. Die Seriennummern stehen im Protokoll einer Sicherung."))];
 }
 function formValues(fd) {
   const out = Object.fromEntries(fd.entries());
   out.wake = fd.has("wake");
+  out.window = fd.has("window");
   return out;
 }
 function addPc(p = {}) {
@@ -256,11 +263,16 @@ async function editPc(id) {
     openDialog("Einstellungen", [...pcFields(p), setupHint()], "Speichern", async fd => { await api(`api/pcs/${id}`, "PUT", formValues(fd)); showPc(id); }, [del]);
   } catch (e) { alert(e.message); }
 }
+function whenChoice(d) {
+  if (!d.window) return null;
+  return choice("when", "Wann", "window", [["window", `Im Wartungsfenster (${d.window})`], ["next", "Beim nächsten Start, auch außerhalb des Fensters"]]);
+}
 function backupDialog(d) {
-  openDialog(`${d.name} jetzt sichern`, [
-    $("p", { textContent: "Der PC wird geweckt und startet übers Netz das Sicherungssystem. Läuft er gerade, bitte speichern und neu starten. Ohne Netzwerkstart: Stick einstecken und davon starten." }),
+  openDialog(`${d.name} sichern`, [
+    $("p", { textContent: "Der Auftrag wartet, bis der PC das nächste Mal übers Netz startet; ist er aus, wird er geweckt. Läuft er gerade, passiert nichts, bis er neu startet. Ohne Netzwerkstart: Stick einstecken und davon starten." }),
+    whenChoice(d),
     choice("after", "Wenn die Sicherung fertig ist", "reboot", AFTER)], "Sicherung starten", async fd => {
-    await api(`api/pcs/${d.id}/backup`, "POST", { after: fd.get("after") }); showPc(d.id);
+    await api(`api/pcs/${d.id}/backup`, "POST", { after: fd.get("after"), when: fd.get("when") || undefined }); showPc(d.id);
   });
 }
 async function partChooser(pcId, runId, box) {
@@ -291,13 +303,14 @@ function restoreDialog(d, runId) {
     sel,
     $("label", { className: "check" }, whole, "Ganzen PC: alle Platten, Partitionen und Systeme"),
     $("label", { className: "check" }, some, "Nur einzelne Partitionen, zum Beispiel nur Windows"), box,
+    whenChoice(d),
     choice("after", "Wenn die Wiederherstellung fertig ist", "reboot", AFTER),
-    $("p", { className: "quiet", textContent: "Der PC wird geweckt und startet übers Netz. Am PC erscheint vor dem Schreiben 30 Sekunden lang ein Hinweis, mit einer Taste lässt es sich dort noch abbrechen." })],
+    $("p", { className: "quiet", textContent: "Der Auftrag wartet auf den nächsten Start des PCs übers Netz. Am PC erscheint vor dem Schreiben 30 Sekunden lang ein Hinweis, mit einer Taste lässt es sich dort noch abbrechen." })],
     "Wiederherstellen", async fd => {
       const parts = fd.get("scope") === "some" ? fd.getAll("part") : [];
       if (fd.get("scope") === "some" && !parts.length) throw new Error("Bitte mindestens eine Partition wählen.");
       if (!confirm(parts.length ? `Wirklich die gewählten Partitionen von ${d.name} überschreiben?` : `Wirklich den ganzen PC ${d.name} überschreiben?`)) throw new Error("Nicht gestartet.");
-      await api(`api/pcs/${d.id}/restore`, "POST", { run: fd.get("run"), parts, after: fd.get("after") }); showPc(d.id);
+      await api(`api/pcs/${d.id}/restore`, "POST", { run: fd.get("run"), parts, after: fd.get("after"), when: fd.get("when") || undefined }); showPc(d.id);
     });
 }
 async function assignDialog(w) {
