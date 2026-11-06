@@ -307,6 +307,11 @@ class Store:
         self.invalidate()
         return {"started": started, "failed": failed}
 
+    def reboot(self, pi):
+        """Restarts the Pi; the engine refuses during a backup or an update."""
+        self.backend.host_call("reboot", self.pidir(pi))
+        self.invalidate()
+
     def find(self, pi_id, scopes=("*",)):
         self.refresh()
         with self.lock:
@@ -327,6 +332,15 @@ class Store:
         running = state.get("RUNNING") == "1"
         out = pi_row(pi, row, device)
         out["software"] = parse_updates(self.backend.host_call("updates", d))
+        try:
+            out["restart"] = parse_reboot(self.backend.host_call("reboot-info", d))
+        except BackendError:  # an engine from before restarts existed
+            out["restart"] = parse_reboot("")
+        with self.lock:
+            stale = out["restart"]["ended"] > self.devices_time
+        if out["restart"]["state"] == "ok" and stale:
+            # The facts shown are from before the restart (uptime); ask the Pis again.
+            self.check_devices(force=True)
         out.update(running=running, images_list=images, error=state.get("LAST_ERROR", ""),
                    warnings=state.get("LAST_WARNINGS", ""), notes=pi.notes, device=device or {},
                    progress=parse_progress(self.backend.host_call("progress", d)) if running else None,
@@ -475,6 +489,24 @@ def parse_updates(text):
         "error": values.get("UPD_ERROR", ""), "last_status": values.get("UPD_LAST_STATUS", ""),
         "last_time": num("UPD_LAST_TIME"), "last_error": values.get("UPD_LAST_ERROR", ""),
         "packages": packages, "log": log,
+    }
+
+
+def parse_reboot(text):
+    """Output of the engine's reboot-info: state is running, ok, failed or empty when never restarted from here."""
+    values = parse_shell_kv(text)
+
+    def num(key):
+        try:
+            return int(values.get(key, 0))
+        except ValueError:
+            return 0
+    running = values.get("REBOOT_RUNNING") == "1"
+    return {
+        "state": "running" if running else values.get("REBOOT_STATE", ""),
+        "phase": values.get("REBOOT_STATE", "") if running else "",
+        "started": num("REBOOT_TIME"), "ended": 0 if running else num("REBOOT_END"),
+        "error": "" if running else values.get("REBOOT_ERROR", ""),
     }
 
 
@@ -636,7 +668,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Welche Pis aktualisiert werden sollen, fehlt.")
             self.send_json(202, self.store.upgrade_all({str(i) for i in ids}, self.scopes()))
             return
-        match = re.fullmatch(r"/api/pis/([0-9a-f]{1,64})(/backup|/cancel|/upgrade|/check-updates)?", path)
+        match = re.fullmatch(r"/api/pis/([0-9a-f]{1,64})(/backup|/cancel|/upgrade|/check-updates|/reboot)?", path)
         if not match:
             self.send_json(404, {"detail": "Nicht gefunden"})
             return
@@ -658,6 +690,9 @@ class Handler(BaseHTTPRequestHandler):
         elif method == "POST" and action == "/upgrade":
             self.require_manager()
             self.store.upgrade(pi, str(self.body.get("confirm", "")))
+            self.send_json(202, {"ok": True})
+        elif method == "POST" and action == "/reboot":
+            self.store.reboot(pi)
             self.send_json(202, {"ok": True})
         elif method == "POST" and action == "/check-updates":
             self.store.backend.host_call("check-updates", self.store.pidir(pi))

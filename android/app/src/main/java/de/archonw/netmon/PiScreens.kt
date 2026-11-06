@@ -1,8 +1,10 @@
 package de.archonw.netmon
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -168,6 +170,18 @@ internal fun InfoRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Text(label, color = p.muted, fontSize = 14.sp, modifier = Modifier.weight(0.42f))
         Text(value, color = p.text, fontSize = 14.sp, modifier = Modifier.weight(0.58f))
+    }
+}
+
+@Composable
+private fun OutlineButton(label: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    val p = LocalPalette.current
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        modifier.height(48.dp).clip(shape).border(1.dp, p.line, shape).clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (enabled) p.accentText else p.muted, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -718,7 +732,8 @@ fun PiDetailScreen(api: PiApi, id: String, onBack: () -> Unit) {
             } catch (e: ApiException) {
                 error = e.message
             }
-            val active = data?.row?.running == true || data?.software?.state?.isNotEmpty() == true
+            val active = data?.row?.running == true || data?.software?.state?.isNotEmpty() == true ||
+                data?.restart?.state == "running"
             delay(if (active) RUNNING_REFRESH_MS else OVERVIEW_REFRESH_MS)
         }
     }
@@ -754,6 +769,21 @@ fun PiDetailScreen(api: PiApi, id: String, onBack: () -> Unit) {
                     Text(d.address, color = p.muted, fontSize = 13.sp)
                     if (d.row.status == "failed" && d.error.isNotBlank()) Text(d.error, color = p.blocked, fontSize = 14.sp)
                     if (d.warnings.isNotBlank()) Text(d.warnings, color = p.unknown, fontSize = 14.sp)
+                    d.restart?.let { rs ->
+                        val now = System.currentTimeMillis() / 1000
+                        when {
+                            rs.state == "running" -> Text(
+                                if (rs.phase == "down") "Neustart läuft, warte bis der Pi wieder erreichbar ist …" else "Neustart wird gestartet …",
+                                color = p.accentText, fontSize = 14.sp,
+                            )
+                            rs.state == "failed" && now - rs.ended < 86_400 ->
+                                Text(t("Neustart fehlgeschlagen: {0}", t(rs.error)), color = p.blocked, fontSize = 14.sp)
+                            rs.state == "ok" && now - rs.ended < 3_600 -> Text(
+                                t("Neu gestartet um {0}, nach {1} Sekunden wieder da", formatEpoch(rs.ended), (rs.ended - rs.started).toString()),
+                                color = p.allowed, fontSize = 14.sp,
+                            )
+                        }
+                    }
                 }
                 d.progress?.let { progress ->
                     HubCard {
@@ -776,6 +806,8 @@ fun PiDetailScreen(api: PiApi, id: String, onBack: () -> Unit) {
                         confirm = "backup"
                     }
                 }
+                val rebootBlocked = d.row.running || d.software?.state?.isNotEmpty() == true || d.restart?.state == "running"
+                OutlineButton("Neu starten", Modifier.fillMaxWidth(), enabled = !busy && !rebootBlocked) { confirm = "reboot" }
                 if (d.device.isNotEmpty()) {
                     SectionTitle("Zustand")
                     HubCard {
@@ -940,6 +972,22 @@ fun PiDetailScreen(api: PiApi, id: String, onBack: () -> Unit) {
                     val text = typed
                     act { api.upgrade(id, if (careful) text else "") }
                 }) { Text(if (careful) "Trotzdem aktualisieren" else "Aktualisieren") }
+            },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Abbrechen") } },
+        )
+    }
+
+    if (confirm == "reboot") {
+        val name = data?.row?.name.orEmpty()
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text(t("{0} neu starten?", name)) },
+            text = { Text("Der Pi ist dann ein bis zwei Minuten nicht erreichbar. Updates werden dabei nicht installiert.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirm = null
+                    act { api.reboot(id) }
+                }) { Text("Neu starten") }
             },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Abbrechen") } },
         )

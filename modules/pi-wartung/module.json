@@ -84,6 +84,15 @@
       "id": "update_ok",
       "label": "Update eines Pi fertig",
       "default": false
+    },
+    {
+      "id": "reboot_failed",
+      "label": "Neustart eines Pi fehlgeschlagen"
+    },
+    {
+      "id": "reboot_ok",
+      "label": "Pi neu gestartet",
+      "default": false
     }
   ]
 }
