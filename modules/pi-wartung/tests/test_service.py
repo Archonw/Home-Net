@@ -26,6 +26,7 @@ class FakeBackend:
         self.calls = []
         self.inventory = INVENTORY
         self.summary = SUMMARY
+        self.reboot_info = "REBOOT_RUNNING=0\n"
 
     def admin(self, timeout=120, **request):
         self.calls.append(("admin", request.get("verb"), request.get("path")))
@@ -41,7 +42,8 @@ class FakeBackend:
             "images": "Fenster_1.img.xz\t300\t40\tos=Debian\x1e\n",
             "state": "RUNNING=1\nLAST_ERROR=Fehler\\ X\n",
             "progress": "@@STEP 2 6 Abgleich\n@@PROGRESS 40 1,000 2MB/s\n12:00 Zeile\n",
-            "start": "/log", "cancel": "ok",
+            "start": "/log", "cancel": "ok", "reboot": "Neustart gestartet",
+            "reboot-info": self.reboot_info,
         }[verb]
 
 
@@ -236,6 +238,34 @@ class Service(unittest.TestCase):
         code, data = self.scoped("/api/pis/def456", ["*"], "PUT", body={"updates": "all"})
         self.assertEqual(code, 403)
         self.assertFalse([c for c in self.backend.calls if c[0].startswith("upgrade") or c[0] == "admin"])
+
+    def test_reboot_for_users_of_the_category_and_its_state(self):
+        self.set_password("geheim")
+        code, data = self.call(f"/api/pis/{ID}")
+        self.assertEqual(data["restart"], {"state": "", "phase": "", "started": 0, "ended": 0, "error": ""})
+        self.assertEqual(self.scoped(f"/api/pis/{ID}/reboot", ["Firma"], "POST")[0], 404)
+        self.assertNotIn(("reboot", "/r/Familie/Fenster"), self.backend.calls)
+        self.assertEqual(self.scoped(f"/api/pis/{ID}/reboot", ["Familie"], "POST")[0], 202)
+        self.assertIn(("reboot", "/r/Familie/Fenster"), self.backend.calls)
+        self.backend.reboot_info = "REBOOT_RUNNING=1\nREBOOT_STATE=down\nREBOOT_TIME=100\nREBOOT_END=0\nREBOOT_ERROR=''\n"
+        restart = self.call(f"/api/pis/{ID}")[1]["restart"]
+        self.assertEqual((restart["state"], restart["phase"], restart["started"]), ("running", "down", 100))
+        self.backend.reboot_info = ("REBOOT_RUNNING=0\nREBOOT_STATE=failed\nREBOOT_TIME=100\nREBOOT_END=200\n"
+                                    "REBOOT_ERROR=Der\\ Pi\\ hat\\ nicht\\ neu\\ gestartet\n")
+        restart = self.call(f"/api/pis/{ID}")[1]["restart"]
+        self.assertEqual((restart["state"], restart["ended"], restart["error"]), ("failed", 200, "Der Pi hat nicht neu gestartet"))
+
+    def test_reboot_refused_by_engine_is_shown(self):
+        self.set_password("geheim")
+
+        def refuse(verb, arg=None, timeout=60):
+            raise server.BackendError("Gerade läuft eine Sicherung, bitte danach neu starten")
+        self.backend.host_call, original = refuse, self.backend.host_call
+        server.Handler.store.find = lambda pi_id, scopes=("*",): server.Pi(id=ID, name="Fenster", category="Familie", host="h")
+        code, data = self.call(f"/api/pis/{ID}/reboot", "POST")
+        self.backend.host_call = original
+        self.assertEqual(code, 502)
+        self.assertIn("Sicherung", data["detail"])
 
     def test_unknown_and_wrong_method(self):
         self.set_password("geheim")

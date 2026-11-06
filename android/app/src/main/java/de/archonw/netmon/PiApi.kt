@@ -163,6 +163,9 @@ data class PiSoftware(
     val log: List<String>,
 )
 
+/** Letzter Neustart über Pi-Wartung: [state] ist "running", "ok", "failed" oder leer. */
+data class PiRestart(val state: String, val phase: String, val started: Long, val ended: Long, val error: String)
+
 data class PiDetail(
     val row: PiRow,
     val error: String,
@@ -173,6 +176,7 @@ data class PiDetail(
     val imagesList: List<PiImage>,
     val progress: PiProgress?,
     val software: PiSoftware?,
+    val restart: PiRestart? = null,
 )
 
 /** Spricht mit dem Pi-Wartung-Dienst auf dem Unraid (Basic Auth, Benutzername beliebig). */
@@ -238,6 +242,9 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
                     log = s.optJSONArray("log")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty(),
                 )
             },
+            restart = o.optJSONObject("restart")?.let {
+                PiRestart(it.optString("state"), it.optString("phase"), it.optLong("started"), it.optLong("ended"), it.optString("error"))
+            },
         )
     }
 
@@ -265,6 +272,9 @@ class PiApi(homeUrl: String, private val password: String, externalUrl: String =
     }
 
     suspend fun backup(id: String) { request("POST", "api/pis/$id/backup") }
+
+    /** Startet den Pi neu; während einer Sicherung oder eines Updates lehnt der Server ab. */
+    suspend fun reboot(id: String) { request("POST", "api/pis/$id/reboot") }
 
     suspend fun cancel(id: String) { request("POST", "api/pis/$id/cancel") }
 

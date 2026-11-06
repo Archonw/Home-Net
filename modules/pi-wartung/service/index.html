@@ -137,6 +137,17 @@ async function upgradePi(d) {
   if (!confirm(`${d.name} jetzt aktualisieren? ${sw.count} Pakete werden installiert. Ein Neustart erfolgt nicht.`)) return;
   return api(`api/pis/${d.id}/upgrade`, "POST", {});
 }
+async function rebootPi(d) {
+  if (!confirm(tr(`${d.name} jetzt neu starten?\n\nDer Pi ist dann ein bis zwei Minuten nicht erreichbar. Updates werden dabei nicht installiert.`))) return;
+  return api(`api/pis/${d.id}/reboot`, "POST");
+}
+function restartLine(rs) {
+  const now = Date.now() / 1000;
+  if (rs.state === "running") return $("div", { className: "run", textContent: rs.phase === "down" ? "Neustart läuft, warte bis der Pi wieder erreichbar ist …" : "Neustart wird gestartet …" });
+  if (rs.state === "failed" && now - rs.ended < 86400) return $("div", { className: "bad", textContent: `Neustart fehlgeschlagen: ${rs.error}` });
+  if (rs.state === "ok" && now - rs.ended < 3600) return $("div", { className: "ok", textContent: `Neu gestartet um ${when(rs.ended)}, nach ${rs.ended - rs.started} Sekunden wieder da` });
+  return null;
+}
 function softwareCard(d) {
   const sw = d.software, dev = d.device || {}, dl = $("dl");
   const status = sw.state === "upgrading" ? "Update läuft …" : sw.state === "checking" ? "Wird geprüft …"
@@ -160,18 +171,21 @@ async function showPi(id) {
     const d = await api(`api/pis/${id}`);
     if (current !== id) return;
     const [text, cls] = state(d);
-    const act = (label, fn, cn) => $("button", { textContent: label, className: cn || "", onclick: async ev => { ev.target.disabled = true; try { await fn(); } catch (e) { alert(e.message); } await showPi(id); } });
+    const rs = d.restart || {}, busy = d.running || !!d.software.state || rs.state === "running";
+    const act = (label, fn, cn, off) => $("button", { textContent: label, className: cn || "", disabled: !!off, onclick: async ev => { ev.target.disabled = true; try { await fn(); } catch (e) { alert(e.message); } await showPi(id); } });
     const parts = [$("div", { className: "actions" },
       $("button", { textContent: "Zurück", onclick: overview }),
       d.running ? act("Abbrechen", () => confirm("Sicherung abbrechen? Vorhandene Images bleiben.") ? api(`api/pis/${id}/cancel`, "POST") : null)
                 : act("Jetzt sichern", () => api(`api/pis/${id}/backup`, "POST"), "main"),
       d.software.count > 0 && !d.software.state && !d.running ? act("Aktualisieren", () => upgradePi(d), d.update_mode === "careful" ? "danger" : "") : null,
+      act("Neu starten", () => rebootPi(d), "", busy),
       $("button", { textContent: "Konfiguration", onclick: () => editPi(id) }),
       $("button", { textContent: "Neuer Schlüssel", onclick: () => keyDialog(id, d) })),
       $("div", { className: "card" }, $("div", { className: "name", style: "font-size:20px", textContent: d.name }),
         $("div", { className: cls, textContent: text }), $("div", { className: "quiet", textContent: `${d.category || "Ohne Kategorie"} · ${d.user}@${d.host}:${d.port}` }),
         d.status === "failed" && d.error ? $("div", { className: "bad", textContent: d.error }) : null,
-        d.warnings ? $("div", { className: "warn", textContent: d.warnings }) : null)];
+        d.warnings ? $("div", { className: "warn", textContent: d.warnings }) : null,
+        restartLine(rs))];
     if (d.progress) parts.push($("div", { className: "card" }, $("div", { className: "name", textContent: d.progress.step || "Startet …" }), $("progress", { max: 100, value: d.progress.percent }), $("div", { className: "quiet", textContent: `${d.progress.percent} % ${d.progress.detail}` }), $("pre", { textContent: d.progress.log.join("\n") })));
     const dev = d.device || {};
     if (Object.keys(dev).length) {
@@ -185,7 +199,7 @@ async function showPi(id) {
       $("button", { className: "danger", textContent: "Löschen", onclick: async () => { if (confirm(`${i.file} wirklich löschen?`)) { await api(`api/pis/${id}/images/${encodeURIComponent(i.file)}`, "DELETE"); showPi(id); } } }))) : [$("div", { className: "quiet", textContent: "Noch keine Images" })])));
     if (d.notes) parts.push($("h2", { textContent: "Notizen" }), $("div", { className: "card", textContent: d.notes }));
     app.replaceChildren(...parts);
-    schedule(() => showPi(id), d.running || d.software.state ? 5000 : 30000);
+    schedule(() => showPi(id), d.running || d.software.state || rs.state === "running" ? 5000 : 30000);
   } catch (e) { fail(e); }
 }
 

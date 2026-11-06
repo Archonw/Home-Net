@@ -15,6 +15,8 @@
 #   pi-backup.sh check-updates <pi-dir>  ask apt on the Pi which updates are waiting
 #   pi-backup.sh updates <pi-dir>   result of the last check and update as key=value
 #   pi-backup.sh upgrade-run <pi-dir>  install the waiting updates (full-upgrade)
+#   pi-backup.sh reboot <pi-dir>    restart the Pi and wait until it answers again
+#   pi-backup.sh reboot-info <pi-dir>  whether a restart runs and how the last one went, as key=value
 #   pi-backup.sh updates-due <root> check every Pi whose last check is older than 12 hours
 #   pi-backup.sh api                forced ssh command of the phone service, see cmd_api
 #
@@ -625,6 +627,7 @@ cmd_start() {
   logfile="$PIDIR/logs/$(date +%Y-%m-%d_%H%M%S).log"
   ( flock -n 9 ) 9>"$LOCK" || { echo "Für diesen Pi läuft schon eine Sicherung" >&2; exit 3; }
   upgrading && { echo "Gerade läuft ein Update, bitte danach sichern" >&2; exit 3; }
+  rebooting && { echo "Der Pi startet gerade neu, bitte danach sichern" >&2; exit 3; }
   setsid nohup bash "$SCRIPT" backup "$PIDIR" >"$logfile" 2>&1 </dev/null &
   echo "$logfile"
 }
@@ -795,6 +798,7 @@ cmd_upgrade_start() {
   fi
   ( flock -n 9 ) 9>"$LOCK" || { echo "Gerade läuft eine Sicherung, bitte danach aktualisieren" >&2; exit 3; }
   ( flock -n 7 ) 7>"$STATE/update.lock" || { echo "Für diesen Pi läuft schon eine Prüfung oder ein Update" >&2; exit 3; }
+  rebooting && { echo "Der Pi startet gerade neu, bitte danach aktualisieren" >&2; exit 3; }
   mkdir -p "$PIDIR/logs/updates"
   logfile="$PIDIR/logs/updates/$(date +%Y-%m-%d_%H%M%S).log"
   setsid nohup bash "$SCRIPT" upgrade-run "$PIDIR" >"$logfile" 2>&1 </dev/null &
@@ -888,6 +892,88 @@ cmd_updates() {
   return 0
 }
 
+# ---------------------------------------------------------------- reboot
+# A reboot holds reboot.lock until the Pi answers again with a new boot id, so backups and updates wait
+# for it. The state file reboot says how the last one went.
+rebooting() { ! ( flock -n 6 ) 6>"$STATE/reboot.lock"; }
+
+cmd_reboot_start() {
+  load_conf "$1"
+  rebooting && { echo "Der Pi startet gerade schon neu" >&2; exit 3; }
+  ( flock -n 9 ) 9>"$LOCK" || { echo "Gerade läuft eine Sicherung, bitte danach neu starten" >&2; exit 3; }
+  upgrading && { echo "Gerade läuft ein Update, bitte danach neu starten" >&2; exit 3; }
+  mkdir -p "$PIDIR/logs/reboots"
+  setsid nohup bash "$SCRIPT" reboot-run "$PIDIR" >"$PIDIR/logs/reboots/$(date +%Y-%m-%d_%H%M%S).log" 2>&1 </dev/null &
+  # The run takes the lock itself; wait for it so that the next state call already says rebooting.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do rebooting && break; sleep 0.2; done
+  echo "Neustart gestartet"
+}
+
+reboot_state() {
+  {
+    echo "REBOOT_STATE=$1"
+    echo "REBOOT_TIME=$REBOOT_TIME"
+    echo "REBOOT_END=${3:-0}"
+    printf 'REBOOT_ERROR=%q\n' "${2:-}"
+  } > "$STATE/reboot.new"
+  mv "$STATE/reboot.new" "$STATE/reboot"
+}
+
+cmd_reboot_run() {
+  load_conf "$1"
+  exec 6>"$STATE/reboot.lock"
+  flock -n 6 || { log "Der Pi startet gerade schon neu"; exit 3; }
+  make_ssh_wrapper
+  trap 'rm -f "$SSHW"' EXIT
+  REBOOT_TIME=$(date +%s)
+  local old new error="" now seen_down=0
+  reboot_state sending
+  log "Neustart von $NAME ($TARGET)"
+  old=$(on_pi 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null)
+  if [ -z "$old" ]; then
+    error="Der Pi ist nicht erreichbar"
+  elif ! on_pi 'sudo -n true' 2>/dev/null; then
+    error="Neustart nicht möglich: sudo ohne Passwort fehlt auf dem Pi"
+  else
+    # Detached and with a short delay, so that this ssh call ends cleanly before the Pi goes down.
+    on_pi 'sudo -n nohup sh -c "sleep 2; systemctl reboot || reboot" >/dev/null 2>&1 </dev/null &' 2>/dev/null
+    reboot_state down
+    log "Befehl gesendet, warte auf den Pi"
+    sleep 15
+    while :; do
+      now=$(date +%s)
+      new=$(timeout 40 "$SSHW" "$TARGET" 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null)
+      if [ -z "$new" ]; then
+        [ "$seen_down" = 1 ] || { log "Pi ist weg"; seen_down=1; }
+      elif [ "$new" != "$old" ]; then
+        break
+      elif [ $((now - REBOOT_TIME)) -ge 300 ]; then
+        error="Der Pi hat nicht neu gestartet"; break
+      fi
+      [ $((now - REBOOT_TIME)) -lt 900 ] || { error="Der Pi ist nach 15 Minuten noch nicht wieder erreichbar"; break; }
+      sleep 5
+    done
+  fi
+  if [ -n "$error" ]; then
+    log "FEHLER: $error"
+    reboot_state failed "$error" "$(date +%s)"
+    event_send reboot_failed "Neustart von $NAME fehlgeschlagen" "$error" high
+  else
+    log "Pi ist wieder da nach $(( $(date +%s) - REBOOT_TIME )) Sekunden"
+    reboot_state ok "" "$(date +%s)"
+    event_send reboot_ok "$NAME ist neu gestartet" "Der Pi ist wieder erreichbar."
+  fi
+  ls -1t "$PIDIR"/logs/reboots/*.log 2>/dev/null | tail -n +11 | xargs -r -d '\n' rm -f
+  log "Ende"
+}
+
+cmd_reboot_info() {
+  load_conf "$1"
+  if rebooting; then echo "REBOOT_RUNNING=1"; else echo "REBOOT_RUNNING=0"; fi
+  [ -f "$STATE/reboot" ] && cat "$STATE/reboot"
+  return 0
+}
+
 cmd_updates_due() {
   local root=${1%/} conf now
   now=$(date +%s)
@@ -898,6 +984,7 @@ cmd_updates_due() {
       [ -f "$STATE/updates" ] && . "$STATE/updates"
       [ $((now - ${UPD_TIME:-0})) -ge $((12 * 3600)) ] || exit 0
       ( flock -n 9 ) 9>"$LOCK" || exit 0
+      rebooting && exit 0
       bash "$SCRIPT" check-updates "$PIDIR" >/dev/null 2>&1
     )
   done < <(find "$root" -mindepth 2 -name pi.conf -not -path '*/.state/*' -not -path '*/.engine/*')
@@ -952,7 +1039,7 @@ cmd_api() {
   case "$verb" in
     inventory) cat "$root/inventory.json" 2>/dev/null; return 0 ;;
     summary) cmd_summary "$root"; return ;;
-    state|status|images|start|cancel|progress|updates|check-updates|upgrade|upgrade-confirmed) ;;
+    state|status|images|start|cancel|progress|updates|check-updates|upgrade|upgrade-confirmed|reboot|reboot-info) ;;
     *) echo "Nicht erlaubt" >&2; exit 2 ;;
   esac
   dir=$(printf '%s' "$arg" | base64 -d 2>/dev/null)
@@ -968,6 +1055,8 @@ cmd_api() {
     check-updates) setsid nohup bash "$SCRIPT" check-updates "$dir" >/dev/null 2>&1 </dev/null & echo "Prüfung gestartet"; return 0 ;;
     upgrade) cmd_upgrade_start "$dir" 0; return ;;
     upgrade-confirmed) cmd_upgrade_start "$dir" 1; return ;;
+    reboot) cmd_reboot_start "$dir"; return ;;
+    reboot-info) cmd_reboot_info "$dir"; return ;;
   esac
   if [ "$verb" = progress ]; then
     log=$(ls -1t "$dir"/logs/*.log 2>/dev/null | head -1)
@@ -994,6 +1083,7 @@ cmd_due() {
       esac
       [ "$hour" -ge "$HOUR" ] || exit 0
       upgrading && exit 0
+      rebooting && exit 0
       LAST_OK_TIME=0
       [ -f "$STATE/last" ] && . "$STATE/last"
       age=$((now - ${LAST_OK_TIME:-0}))
@@ -1011,6 +1101,9 @@ case "${1:-}" in
   check-updates) shift; cmd_check_updates "$@" ;;
   updates) shift; cmd_updates "$@" ;;
   upgrade-run) shift; cmd_upgrade_run "$@" ;;
+  reboot) shift; cmd_reboot_start "$@" ;;
+  reboot-run) shift; cmd_reboot_run "$@" ;;
+  reboot-info) shift; cmd_reboot_info "$@" ;;
   updates-due) shift; exec 8>/tmp/pi-wartung-updates-due.lock; flock -n 8 || exit 0; cmd_updates_due "$@" ;;
   api) cmd_api ;;
   ntfy-test) ntfy_send "Pi-Wartung" "Testnachricht: Benachrichtigungen kommen hier an." default white_check_mark ;;
