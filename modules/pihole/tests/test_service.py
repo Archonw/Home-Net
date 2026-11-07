@@ -274,7 +274,8 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(d["name"], "Erster")
         self.assertEqual(d["queries"]["total"], 1000)
         self.assertEqual(d["percent"], 20.0)
-        self.assertEqual(d["versions"], [{"part": "Core", "installed": "v6.1.4"}, {"part": "FTL", "installed": "v6.2.3"}])
+        self.assertEqual(d["versions"], [{"part": "Core", "installed": "v6.1.4", "available": "v6.1.4"},
+                                         {"part": "FTL", "installed": "v6.2.3", "available": "v6.2.3"}])
         self.assertEqual(d["device"]["model"], "Raspberry Pi 3 Model B Rev 1.2")
         self.assertEqual(d["device"]["temp"], 47.2)
         self.assertEqual(d["device"]["ram_total"], 948304 * 1024)
@@ -482,6 +483,8 @@ class VersionTest(unittest.TestCase):
     def test_updates(self):
         self.assertEqual(pihole.updates({}), [])
         self.assertEqual(pihole.local_version({"core": {"local": {"version": "null"}}}, "core"), "")
+        self.assertEqual(pihole.remote_version({"core": {"remote": {"version": "null"}}}, "core"), "")
+        self.assertEqual(pihole.remote_version({"docker": {"remote": "2025.12.1"}}, "docker"), "2025.12.1")
         self.assertEqual(pihole.updates({"ftl": {"local": {"version": "v6.8"}, "remote": {"version": "v6.10"}},
                                          "core": {"local": {"version": None}, "remote": {"version": "v6.3"}},
                                          "web": {"local": {"version": "v6.6.1"}, "remote": {"version": "v6.6"}},

@@ -234,7 +234,10 @@ fun PiholeDetailScreen(api: PiholeApi, index: Int, onBack: () -> Unit) {
             }
             SectionTitle("Version")
             HubCard {
-                d.versions.forEach { (part, v) -> InfoRow(part, v) }
+                InfoRow("Teil", "installiert / neueste")
+                d.versions.forEach { (part, have, newest) ->
+                    InfoRow(part, if (newest.isNotBlank() && newest != have) "$have → $newest" else "$have / ${newest.ifBlank { "?" }}")
+                }
                 if (d.updates.isNotEmpty()) {
                     Text("Update verfügbar: ${d.updates.joinToString(", ")}", color = p.unknown, fontSize = 13.sp)
                 } else {

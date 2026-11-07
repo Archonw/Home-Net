@@ -185,7 +185,7 @@ class Watcher:
                         changed = True
                         spool_event("pihole_update", f"Update für {row['name']}",
                                     f"Pi-hole {u['part']} {u['available']} ist erschienen, installiert ist "
-                                    f"{u['installed']}. Einspielen auf dem Gerät mit „pihole -up“.")
+                                    f"{u['installed']}. Einspielen in Home-Net mit „Pi-hole aktualisieren“.")
         if changed:
             self.save()
 
