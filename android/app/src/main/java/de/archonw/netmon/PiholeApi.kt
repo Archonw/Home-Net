@@ -57,7 +57,8 @@ data class PhDetail(
     val url: String,
     val blocking: String,
     val timer: Int?,
-    val versions: List<Pair<String, String>>,
+    /** Teil, installiert, neueste (leer: unbekannt) */
+    val versions: List<Triple<String, String, String>>,
     val updates: List<String>,
     val total: Long,
     val blocked: Long,
@@ -143,7 +144,7 @@ class PiholeApi(private val http: PiApi) {
             url = o.optString("url"),
             blocking = o.optString("blocking", "unknown"),
             timer = if (o.isNull("timer")) null else o.optDouble("timer").toInt(),
-            versions = o.optJSONArray("versions").objects().map { it.optString("part") to it.optString("installed") },
+            versions = o.optJSONArray("versions").objects().map { Triple(it.optString("part"), it.optString("installed"), it.optString("available")) },
             updates = o.optJSONArray("updates").objects().map { "${it.optString("part")} ${it.optString("available")}" },
             total = q.optLong("total"),
             blocked = q.optLong("blocked"),

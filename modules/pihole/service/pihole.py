@@ -134,7 +134,8 @@ class Instance:
                          if x and x != "Default string")
         return {
             "blocking": blocking.get("blocking", "unknown"), "timer": blocking.get("timer"),
-            "versions": [{"part": label, "installed": local_version(version, key)} for key, label in COMPONENTS
+            "versions": [{"part": label, "installed": local_version(version, key),
+                          "available": remote_version(version, key)} for key, label in COMPONENTS
                          if local_version(version, key)],
             "updates": updates(version),
             "queries": {k: int(q.get(k) or 0) for k in ("total", "blocked", "cached", "forwarded", "unique_domains")},
@@ -248,6 +249,13 @@ def local_version(version, key):
     """Installed version of a part; Pi-hole reports missing ones as null or even as the text "null"."""
     local = (version.get(key) or {}).get("local")
     value = local if isinstance(local, str) else (local or {}).get("version") if isinstance(local, dict) else ""
+    return "" if not value or str(value).lower() in ("null", "none", "n/a") else str(value)
+
+
+def remote_version(version, key):
+    """Newest release of a part as Pi-hole last looked it up (daily), "" when unknown."""
+    remote = (version.get(key) or {}).get("remote")
+    value = remote if isinstance(remote, str) else (remote or {}).get("version") if isinstance(remote, dict) else ""
     return "" if not value or str(value).lower() in ("null", "none", "n/a") else str(value)
 
 
