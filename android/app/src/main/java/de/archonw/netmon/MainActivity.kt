@@ -64,6 +64,7 @@ sealed interface Screen {
     data object Pihole : Screen
     data object PiholeStats : Screen
     data class PiholeInstance(val index: Int) : Screen
+    data object Preisalarm : Screen
     data object HubSetup : Screen
     data object Notifications : Screen
 }
@@ -199,6 +200,7 @@ class MainActivity : FragmentActivity() {
                         onWireGuard = { screen = Screen.WireGuard },
                         onPihole = { screen = Screen.Pihole },
                         onNextcloud = { screen = Screen.Nextcloud },
+                        onPreisalarm = { screen = Screen.Preisalarm },
                     )
                     Screen.UnraidOverview -> UnraidOverviewScreen(
                         api = settings.unraidApi(),
@@ -252,6 +254,7 @@ class MainActivity : FragmentActivity() {
                     )
                     Screen.PiholeStats -> PiholeStatsScreen(settings.piholeApi()) { screen = Screen.Pihole }
                     is Screen.PiholeInstance -> PiholeDetailScreen(settings.piholeApi(), s.index) { screen = Screen.Pihole }
+                    Screen.Preisalarm -> PreisalarmScreen(settings.preisalarmApi()) { screen = Screen.Home }
                     Screen.PcOverview -> PcOverviewScreen(
                         api = settings.pcApi(),
                         onOpen = { screen = Screen.PcDetail(it) },

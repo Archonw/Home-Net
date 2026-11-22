@@ -27,6 +27,7 @@ API_PORT = int(os.environ.get("PORT", "0"))  # only for tests without the gatewa
 EVENTS_DIR = os.environ.get("EVENTS_DIR", "")
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
 MAX_PRODUCTS = 50
+MAX_SOURCES = 8  # product pages per product; the cheapest counts
 MAX_HISTORY = 2000  # measurements kept per product
 DEFAULTS = {"interval_hours": 6, "feed": "https://www.mydealz.de/rss/neu", "feed_on": True}
 
@@ -61,6 +62,18 @@ def clean_url(value, required=False):
     if not re.fullmatch(r"https?://[^\s/]+(/\S*)?", url):
         raise ValueError(f"Die Adresse „{url[:80]}“ sieht nicht richtig aus, z. B. https://geizhals.de/…")
     return url[:500]
+
+
+def host(url):
+    name = urllib.parse.urlsplit(url).hostname or url
+    return name[4:] if name.startswith("www.") else name
+
+
+def urls_of(item):
+    """Product pages of a product; state from before several sources had only "url"."""
+    if item.get("urls"):
+        return list(item["urls"])
+    return [item["url"]] if item.get("url") else []
 
 
 def clean_price(value):
@@ -109,12 +122,28 @@ class Store:
         name = str(body.get("name", old.get("name", ""))).strip()[:120]
         if not name:
             raise ValueError("Bitte einen Namen angeben.")
-        url = clean_url(body.get("url", old.get("url", "")))
+        if "urls" in body:
+            raw = body["urls"]
+        elif "url" in body:
+            raw = [body["url"]]
+        else:
+            raw = urls_of(old)
+        if isinstance(raw, str):
+            raw = re.split(r"[\s;]+", raw)
+        if not isinstance(raw, list):
+            raise ValueError("Die Produktseiten fehlen.")
+        urls = []
+        for value in raw:
+            url = clean_url(value)
+            if url and url not in urls:
+                urls.append(url)
+        if len(urls) > MAX_SOURCES:
+            raise ValueError(f"Bitte bis zu {MAX_SOURCES} Produktseiten angeben.")
         terms = body.get("terms", old.get("terms", []))
         if isinstance(terms, str):
             terms = [t for t in re.split(r"[\n;]", terms)]
         terms = [str(t).strip()[:80] for t in terms if str(t).strip()][:10]
-        if not url and not terms:
+        if not urls and not terms:
             raise ValueError("Bitte eine Produktseite oder mindestens einen Suchbegriff angeben.")
         try:
             below = int(body.get("below_pct", old.get("below_pct", 15)) or 0)
@@ -122,7 +151,7 @@ class Store:
             raise ValueError("„Unter Durchschnitt“ muss eine ganze Zahl sein.")
         if not 0 <= below <= 90:
             raise ValueError("„Unter Durchschnitt“ muss zwischen 0 und 90 Prozent liegen.")
-        return {"name": name, "url": url, "terms": terms, "target": clean_price(body.get("target", old.get("target"))),
+        return {"name": name, "urls": urls, "url": urls[0] if urls else "", "terms": terms, "target": clean_price(body.get("target", old.get("target"))),
                 "below_pct": below}
 
     def add(self, body):
@@ -138,8 +167,11 @@ class Store:
         with self.lock:
             item = self.product(pid)
             new = self.clean(body, item)
-            if new["url"] != item["url"]:  # another page: its prices do not compare with the old ones
-                item.update(history=[], reported=None, error="")
+            if not set(new["urls"]) & set(urls_of(item)):  # all pages new: old prices do not compare
+                item.update(history=[], reported=None, error="", sources=[])
+            else:
+                kept = set(new["urls"])
+                item["sources"] = [x for x in item.get("sources", []) if x.get("url") in kept]
             if new["target"] != item.get("target"):
                 item["reported"] = None
             item.update(new)
@@ -173,6 +205,11 @@ class Store:
 
 def view(item):
     out = {k: item.get(k) for k in ("id", "name", "url", "terms", "target", "below_pct", "error")}
+    out["urls"] = urls_of(item)
+    out["url"] = out["urls"][0] if out["urls"] else ""
+    out["sources"] = [dict(s, host=host(s["url"])) for s in item.get("sources", [])]
+    out["source"] = item.get("source", "")
+    out["source_host"] = host(out["source"]) if out["source"] else ""
     history = item.get("history", [])
     out["history"] = history[-200:]
     out["price"] = history[-1][1] if history else None
@@ -192,14 +229,24 @@ class Checker:
         self.running = threading.Lock()
 
     def check_product(self, item, now):
-        if not item.get("url"):
+        urls = urls_of(item)
+        if not urls:
             return
-        try:
-            price = preise.parse_price(self.fetch(item["url"]))
-        except preise.PriceError as exc:
-            item["error"] = str(exc)
+        sources = []
+        for url in urls:
+            try:
+                sources.append({"url": url, "price": preise.parse_price(self.fetch(url)), "error": ""})
+            except preise.PriceError as exc:
+                sources.append({"url": url, "price": None, "error": str(exc)})
+        item["sources"] = sources
+        found = [s for s in sources if s["price"] is not None]
+        if not found:
+            item["error"] = sources[0]["error"] if len(sources) == 1 else "Keine der Produktseiten hat einen Preis geliefert."
             return
         item["error"] = ""
+        best = min(found, key=lambda s: s["price"])
+        price = best["price"]
+        item["source"] = best["url"]
         history = item.setdefault("history", [])
         good = preise.reasons(price, history, item.get("target"), item.get("below_pct", 15))
         history.append([int(now), price])
@@ -207,10 +254,10 @@ class Checker:
         report, item["reported"] = preise.should_report(price, good, item.get("reported"))
         if report:
             info = preise.summary(history[:-1])
-            text = f"{euro(price)}: " + ", ".join(good) + "."
+            text = f"{euro(price)} bei {host(best['url'])}: " + ", ".join(good) + "."
             if info["average"]:
                 text += f" Durchschnitt {euro(info['average'])}, bisher günstigster {euro(info['lowest'])}."
-            spool_event("preisalarm_preis", f"Guter Preis: {item['name']}", text, item["url"], "high")
+            spool_event("preisalarm_preis", f"Guter Preis: {item['name']}", text, best["url"], "high")
 
     def check_feed(self):
         s = self.store.data["settings"]

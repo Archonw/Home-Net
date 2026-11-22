@@ -44,6 +44,27 @@ class Parsing(unittest.TestCase):
         self.assertFalse(preise.matches(items[1]["title"], ["einhell 4,0 ah"]))
 
 
+class Fetching(unittest.TestCase):
+    def test_blocked_page_says_so(self):
+        from http.server import BaseHTTPRequestHandler
+
+        class Forbidden(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                self.send_response(403)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), Forbidden)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        with self.assertRaises(preise.PriceError) as ctx:
+            preise.fetch(f"http://127.0.0.1:{httpd.server_port}/")
+        self.assertIn("keine automatische Abfrage", str(ctx.exception))
+
+
 class Rules(unittest.TestCase):
     hist = [[i, p] for i, p in enumerate([80, 82, 78, 81, 79])]
 
@@ -121,6 +142,40 @@ class Service(unittest.TestCase):
         self.assertEqual(tile, {"text": "1 von 1 gerade günstig", "alert": True})
         self.call(f"/api/products/{p['id']}", "PUT", {"target": ""})
         self.assertEqual(self.call("/api/tile")[1], {"text": "1 Produkt im Blick", "alert": False})
+
+    def test_several_sources_cheapest_counts(self):
+        self.pages["https://shop.example.de/kit"] = SHOP.replace("1.299,00", "59,90")
+        self.pages["https://blocked.example.de/kit"] = None  # raises below
+        fetch = self.pages.__getitem__
+
+        def fetching(url):
+            if self.pages.get(url) is None:
+                raise preise.PriceError("Die Seite lässt keine automatische Abfrage zu (HTTP 403).")
+            return fetch(url)
+        self.httpd.RequestHandlerClass.checker.fetch = staticmethod(fetching)
+        code, p = self.call("/api/products", "POST", {
+            "name": "Einhell Kit", "target": "50",
+            "urls": "https://geizhals.example.de/kit\nhttps://shop.example.de/kit\nhttps://blocked.example.de/kit"})
+        self.assertEqual((code, len(p["urls"]), p["url"]), (201, 3, "https://geizhals.example.de/kit"))
+        item = self.call("/api/check", "POST")[1]["products"][0]
+        self.assertEqual((item["price"], item["source_host"], item["error"]), (59.9, "shop.example.de", ""))
+        self.assertEqual([s["price"] for s in item["sources"]], [64.99, 59.9, None])
+        self.assertIn("HTTP 403", item["sources"][2]["error"])
+        # Removing one page keeps the history, replacing all pages starts over
+        item = self.call(f"/api/products/{p['id']}", "PUT", {"urls": ["https://geizhals.example.de/kit"]})[1]
+        self.assertEqual((item["count"], len(item["sources"])), (1, 1))
+        item = self.call(f"/api/products/{p['id']}", "PUT", {"urls": ["https://shop.example.de/kit"]})[1]
+        self.assertEqual(item["count"], 0)
+        self.assertEqual(self.call(f"/api/products/{p['id']}", "PUT", {"urls": ["https://a.de/%d" % n for n in range(9)]})[0], 400)
+
+    def test_old_state_with_one_url(self):
+        Path(self.tmp.name, "state.json").write_text(json.dumps({"products": [
+            {"id": "a1b2c3d4e5f6", "name": "Alt", "url": "https://geizhals.example.de/kit", "terms": [], "target": None,
+             "below_pct": 15, "history": [[1, 70.0]], "error": "", "reported": None}]}))
+        store = server.Store(self.tmp.name)
+        self.assertEqual(server.view(store.data["products"][0])["urls"], ["https://geizhals.example.de/kit"])
+        server.Checker(store, fetch=self.pages.__getitem__).run(now=100)
+        self.assertEqual(store.data["products"][0]["history"], [[1, 70.0], [100, 64.99]])
 
     def test_errors_are_shown_and_validation(self):
         self.pages["https://shop.example.de/x"] = "<html></html>"

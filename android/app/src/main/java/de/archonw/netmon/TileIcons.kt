@@ -119,6 +119,11 @@ private val GLYPHS: Map<String, ModuleGlyph> by lazy {
             glyph("nextcloud", "M7,18.5h10a4,4 0 0,0 0.6,-7.96A5.6,5.6 0 0,0 6.6,10.9A3.8,3.8 0 0,0 7,18.5z", "M12,16v-4.5M10,13.5l2,-2l2,2"),
             0xFF38BDF8, 0xFF0EA5E9, 0xFF0369A1,
         ),
+        "preisalarm" to ModuleGlyph(
+            R.drawable.ic_tile_preisalarm,
+            glyph("preisalarm", "M4,4h7.2l8.3,8.3a1.6,1.6 0 0,1 0,2.3l-4.9,4.9a1.6,1.6 0 0,1 -2.3,0L4,11.2z", circle(8f, 8f, 1.3f)),
+            0xFF4ADE80, 0xFF22C55E, 0xFF15803D,
+        ),
         // Module, die die App nicht selbst kennt
         "module" to ModuleGlyph(
             R.drawable.ic_tile_module,
