@@ -139,7 +139,7 @@ fun PreisalarmScreen(api: PreisalarmApi, onBack: () -> Unit) {
                                 item.target?.let { t("Ziel {0}", euro(it)) },
                                 item.average?.let { "Ø ${euro(it)}" },
                                 item.lowest?.let { t("Tiefst {0}", euro(it)) },
-                                if (item.count > 0) t("{0} Messungen", item.count) else null,
+                                when (item.count) { 0 -> null; 1 -> t("1 Messung"); else -> t("{0} Messungen", item.count) },
                             )
                             if (facts.isNotEmpty()) Text(facts.joinToString(" · "), color = p.muted, fontSize = 13.sp)
                             if (item.url.isEmpty()) Text("Nur Deal-Suche", color = p.muted, fontSize = 13.sp)

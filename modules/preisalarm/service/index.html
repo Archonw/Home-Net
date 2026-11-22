@@ -106,7 +106,7 @@ function card(p) {
   if (p.target) facts.push(`${tr("Ziel")} ${euro(p.target)}`);
   if (p.average != null) facts.push(`Ø ${euro(p.average)}`);
   if (p.lowest != null) facts.push(`${tr("Tiefst")} ${euro(p.lowest)}`);
-  if (p.count) facts.push(`${p.count} ${tr("Messungen")}`);
+  if (p.count) facts.push(p.count === 1 ? tr("1 Messung") : `${p.count} ${tr("Messungen")}`);
   const pills = (p.terms || []).map(t => $("span", { className: "pill", textContent: t }));
   return $("div", { className: "card" },
     $("div", { className: "head" },

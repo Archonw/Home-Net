@@ -64,5 +64,6 @@
  "Die Seite lässt keine automatische Abfrage zu (HTTP {0}). Bitte die Produktseite bei geizhals.de oder direkt beim Shop nehmen.": "The page does not allow automatic requests (HTTP {0}). Please use the product page on geizhals.de or directly at the shop.",
  "Seite nicht erreichbar: HTTP {0}": "Page not reachable: HTTP {0}",
  "Am besten die Seite des Produkts bei geizhals.de, dort steht der günstigste Preis aller Shops. Eine Shopseite geht auch. idealo lässt keine automatische Abfrage zu.": "Best use the product's page on geizhals.de, which shows the lowest price of all shops. A shop page works too. idealo does not allow automatic requests.",
- "Mit „Hinzufügen“ oben rechts ein Produkt eintragen, am besten mit seiner Seite bei geizhals.de.": "Add a product with “Add” at the top right, best with its page on geizhals.de."
+ "Mit „Hinzufügen“ oben rechts ein Produkt eintragen, am besten mit seiner Seite bei geizhals.de.": "Add a product with “Add” at the top right, best with its page on geizhals.de.",
+ "1 Messung": "1 measurement"
 }
