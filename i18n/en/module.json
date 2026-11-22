@@ -37,5 +37,8 @@
  "Zeigt Zustand, Speicher und Updates einer Nextcloud und verwaltet ihre Benutzer und Gruppen": "Shows state, storage and updates of a Nextcloud and manages its users and groups",
  "Nextcloud nicht erreichbar": "Nextcloud unreachable",
  "Speicher der Nextcloud wird knapp": "Nextcloud storage running low",
- "Update für Nextcloud oder ihre Apps": "Update for Nextcloud or its apps"
+ "Update für Nextcloud oder ihre Apps": "Update for Nextcloud or its apps",
+ "Beobachtet Preise von Produkten und meldet gute Angebote": "Watches product prices and reports good offers",
+ "Ein Produkt hat einen guten Preis": "A product has a good price",
+ "Ein Deal passt zu einem Produkt": "A deal matches a product"
 }

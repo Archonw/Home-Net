@@ -1,0 +1,49 @@
+{
+  "id": "preisalarm",
+  "name": "Preisalarm",
+  "description": "Beobachtet Preise von Produkten und meldet gute Angebote",
+  "icon": "assets/icons/preisalarm.png",
+  "api": {
+    "socket": "/run/preisalarm/api.sock",
+    "health": "/health",
+    "public": [
+      "/health"
+    ],
+    "web": true,
+    "tile": "/api/tile"
+  },
+  "services": {
+    "preisalarm": {
+      "build": "modules/preisalarm",
+      "environment": [
+        "TZ=${TZ}",
+        "DATA=/data",
+        "LISTEN_SOCKET=/run/preisalarm/api.sock",
+        "EVENTS_DIR=/run/home-net-events"
+      ],
+      "volumes": [
+        "${DATA_DIR}/preisalarm/config:/data",
+        "${DATA_DIR}/preisalarm/run:/run/preisalarm",
+        "${DATA_DIR}/events/preisalarm:/run/home-net-events"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python3",
+          "-c",
+          "import socket;s=socket.socket(socket.AF_UNIX);s.connect('/run/preisalarm/api.sock');s.send(b'GET /health HTTP/1.0\\r\\n\\r\\n');assert b' 200 ' in s.recv(64)"
+        ]
+      }
+    }
+  },
+  "events": [
+    {
+      "id": "preisalarm_preis",
+      "label": "Ein Produkt hat einen guten Preis"
+    },
+    {
+      "id": "preisalarm_deal",
+      "label": "Ein Deal passt zu einem Produkt"
+    }
+  ]
+}

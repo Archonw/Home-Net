@@ -111,6 +111,7 @@ Der Port von Home-Net darf nicht direkt ins Internet weitergeleitet werden, sond
 | `modules/wireguard/` | Verwaltet die VPN-Zugänge von WireGuard-Easy: anlegen, sperren, QR-Code fürs Handy in der App, siehe [README](modules/wireguard/README.md) |
 | `modules/wireguard-server/` | Installiert WireGuard-Easy selbst, falls noch keins läuft (`home-net add wireguard --with-server`) |
 | `modules/pihole/` | Pausiert den Werbefilter aller Pi-holes gleichzeitig und zeigt ihre Statistik zusammen, siehe [README](modules/pihole/README.md) |
+| `modules/preisalarm/` | Beobachtet Preise von Produkten (z. B. bei geizhals.de) und einen Deal-Feed und meldet Zielpreis, Preise deutlich unter Durchschnitt und neue Tiefstpreise, siehe [README](modules/preisalarm/README.md) |
 | `modules/ntfy/` | Eigener Server für Benachrichtigungen |
 | `tools/` | Hilfsprogramme, zum Beispiel die Sicherung der Einstellungen |
 | `assets/icons/` | Logos |
