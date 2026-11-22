@@ -144,11 +144,31 @@ fun PreisalarmScreen(api: PreisalarmApi, onBack: () -> Unit) {
                             if (facts.isNotEmpty()) Text(facts.joinToString(" · "), color = p.muted, fontSize = 13.sp)
                             if (item.url.isEmpty()) Text("Nur Deal-Suche", color = p.muted, fontSize = 13.sp)
                             PriceLine(item.history, item.target)
+                            if (item.sourceHost.isNotEmpty()) Text(t("Am günstigsten bei {0}", item.sourceHost), color = p.muted, fontSize = 13.sp)
                             if (item.error.isNotEmpty()) Text(item.error, color = p.blocked, fontSize = 13.sp)
+                            if (item.sources.size > 1) {
+                                item.sources.forEach { src ->
+                                    Row(
+                                        Modifier.fillMaxWidth().clickable { runCatching { uriHandler.openUri(src.url) } }.padding(vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(src.host, color = p.accentText, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                        Text(
+                                            src.price?.let { euro(it) } ?: "gesperrt oder kein Preis",
+                                            color = when {
+                                                src.price == null -> p.blocked
+                                                src.url == item.source -> p.allowed
+                                                else -> p.muted
+                                            },
+                                            fontSize = 13.sp, fontWeight = if (src.url == item.source) FontWeight.SemiBold else FontWeight.Normal,
+                                        )
+                                    }
+                                }
+                            }
                             if (item.terms.isNotEmpty() || item.url.isNotEmpty()) {
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     item.terms.forEach { Chip(it) }
-                                    if (item.url.isNotEmpty()) {
+                                    if (item.url.isNotEmpty() && item.sources.size <= 1) {
                                         Pill(item.url.substringAfter("://").substringBefore('/').removePrefix("www."), small = true) {
                                             runCatching { uriHandler.openUri(item.url) }
                                         }
@@ -166,7 +186,7 @@ fun PreisalarmScreen(api: PreisalarmApi, onBack: () -> Unit) {
     if (adding || editing != null) {
         val item = editing
         var name by remember(item) { mutableStateOf(item?.name.orEmpty()) }
-        var url by remember(item) { mutableStateOf(item?.url.orEmpty()) }
+        var urls by remember(item) { mutableStateOf(item?.urls?.joinToString("\n").orEmpty()) }
         var target by remember(item) { mutableStateOf(item?.target?.let { plain(it) }.orEmpty()) }
         var below by remember(item) { mutableStateOf((item?.belowPct ?: 15).toString()) }
         var terms by remember(item) { mutableStateOf(item?.terms?.joinToString("\n").orEmpty()) }
@@ -175,16 +195,16 @@ fun PreisalarmScreen(api: PreisalarmApi, onBack: () -> Unit) {
             title = if (item == null) "Produkt hinzufügen" else "Produkt bearbeiten",
             confirm = "Speichern",
             onDismiss = close,
-            onConfirm = { api.save(item?.id, name, url, target, below, terms) },
+            onConfirm = { api.save(item?.id, name, urls, target, below, terms) },
             onDone = { close(); reload++ },
         ) {
             val muted = LocalPalette.current.muted
             OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(
-                url, { url = it }, label = { Text("Produktseite") }, singleLine = true,
+                urls, { urls = it }, label = { Text("Produktseiten") }, minLines = 2,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth(),
             )
-            Text("Am besten die Seite des Produkts bei geizhals.de, dort steht der günstigste Preis aller Shops. Eine Shopseite geht auch. idealo lässt keine automatische Abfrage zu.", color = muted, fontSize = 12.sp)
+            Text("Eine je Zeile, z. B. die Seite bei geizhals.de und die Produktseiten einzelner Shops. Der günstigste Preis zählt. idealo lässt keine automatische Abfrage zu.", color = muted, fontSize = 12.sp)
             OutlinedTextField(
                 target, { target = it }, label = { Text("Zielpreis in €") }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth(),

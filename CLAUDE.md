@@ -48,8 +48,9 @@ Home-Net ist ein Baukasten: `android/` ist die App, `modules/` enthält die Dien
   Pi-holes neu eingetragen werden.
 - `modules/preisalarm`: Dienst aus `service/server.py`, Preis lesen, Regeln und Feed in `service/preise.py`, genutzt in
   `android/.../PreisalarmApi.kt` und `PreisalarmScreens.kt` (Produkte, Verlauf, Hinzufügen/Bearbeiten, Jetzt prüfen; die
-  Einstellungen bleiben in der Weboberfläche). Den Preis liest es aus JSON-LD/Microdata der
-  Produktseite; Verlauf, zuletzt gemeldeter Preis und gesehene Deals liegen in `state.json`, damit nichts doppelt gemeldet wird.
+  Einstellungen bleiben in der Weboberfläche). Den Preis liest es aus JSON-LD/Microdata jeder
+  Produktseite (`urls`, bis zu 8, der günstigste zählt; alte Stände mit nur `url` liest `urls_of`); Seiten, die
+  automatische Abfragen sperren (idealo), werden nicht umgangen; Verlauf, zuletzt gemeldeter Preis und gesehene Deals liegen in `state.json`, damit nichts doppelt gemeldet wird.
 
 Ändert sich eine Schnittstelle, wird die App im selben Commit mit angepasst.
 

@@ -51,6 +51,8 @@ svg.spark polyline { fill:none; stroke:var(--accent); stroke-width:1.6; vector-e
 svg.spark line { stroke:var(--muted); stroke-dasharray:3 3; stroke-width:1; vector-effect:non-scaling-stroke; }
 textarea { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; min-height:60px; }
 a { color:var(--accent); }
+.sources { margin-top:6px; font-size:13px; border-top:1px solid var(--line); padding-top:4px; }
+.row { display:flex; justify-content:space-between; gap:10px; padding:2px 0; }
 </style>
 </head>
 <body>
@@ -111,12 +113,17 @@ function card(p) {
   return $("div", { className: "card" },
     $("div", { className: "head" },
       $("div", {}, $("div", { className: "name", textContent: p.name }),
-        p.url ? $("a", { href: p.url, target: "_blank", rel: "noopener", className: "quiet", textContent: new URL(p.url).hostname }) : $("span", { className: "quiet", textContent: "Nur Deal-Suche" })),
+        p.source ? $("a", { href: p.source, target: "_blank", rel: "noopener", className: "quiet", textContent: p.source_host })
+          : p.url ? $("span", { className: "quiet", textContent: (p.urls || []).length > 1 ? `${p.urls.length} ${tr("Produktseiten")}` : new URL(p.url).hostname })
+          : $("span", { className: "quiet", textContent: "Nur Deal-Suche" })),
       $("div", { className: "price", textContent: p.url ? euro(p.price) : "" })),
     p.good && p.good.length ? $("div", { className: "good", textContent: p.good.map(tr).join(", ") }) : null,
     $("div", { className: "quiet", textContent: facts.join(" · ") }),
     spark(p.history || [], p.target),
     p.error ? err(p.error) : null,
+    (p.sources || []).length > 1 ? $("div", { className: "sources" }, ...p.sources.map(s => $("div", { className: "row" },
+      $("a", { href: s.url, target: "_blank", rel: "noopener", textContent: s.host }),
+      $("span", { className: s.error ? "bad" : s.url === p.source ? "good" : "quiet", textContent: s.error ? tr("gesperrt oder kein Preis") : euro(s.price), title: s.error || "" })))) : null,
     pills.length ? $("div", { className: "pills" }, ...pills) : null,
     data.manager ? $("div", { className: "actions" },
       $("button", { textContent: "Bearbeiten", onclick: () => edit(p) }),
@@ -132,7 +139,7 @@ function edit(p) {
   const msg = $("div");
   dlg.replaceChildren($("h2", { textContent: p ? "Produkt bearbeiten" : "Produkt hinzufügen" }),
     field("name", "Name", p && p.name),
-    field("url", "Produktseite", p && p.url, "Am besten die Seite des Produkts bei geizhals.de, dort steht der günstigste Preis aller Shops. Eine Shopseite geht auch. idealo lässt keine automatische Abfrage zu."),
+    field("urls", "Produktseiten", p ? (p.urls || []).join("\n") : "", "Eine je Zeile, z. B. die Seite bei geizhals.de und die Produktseiten einzelner Shops. Der günstigste Preis zählt. idealo lässt keine automatische Abfrage zu.", "area"),
     $("div", { className: "two" },
       field("target", "Zielpreis in €", p && p.target != null ? String(p.target).replace(".", ",") : "", "Leer lassen für nur Durchschnitt und Tiefstpreis"),
       field("below_pct", "Alarm ab % unter Durchschnitt", p ? p.below_pct : 15, "0 schaltet das aus", "number")),
@@ -141,7 +148,7 @@ function edit(p) {
     $("div", { className: "foot" },
       $("button", { textContent: "Abbrechen", onclick: () => dlg.close() }),
       $("button", { className: "main", textContent: "Speichern", onclick: async () => {
-        const body = { name: f.name.value, url: f.url.value, target: f.target.value, below_pct: f.below_pct.value, terms: f.terms.value };
+        const body = { name: f.name.value, urls: f.urls.value, target: f.target.value, below_pct: f.below_pct.value, terms: f.terms.value };
         try { await api(p ? `api/products/${p.id}` : "api/products", p ? "PUT" : "POST", body); dlg.close(); show(); }
         catch (e) { msg.replaceChildren(err(e.message)); }
       } })));

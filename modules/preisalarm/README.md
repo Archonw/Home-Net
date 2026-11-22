@@ -18,7 +18,10 @@ Deals zählen nicht in den Durchschnitt.
 
 1. Auf dem Server: `./home-net add preisalarm`
 2. In Home-Net das Modul **Preisalarm** öffnen und mit **Produkt hinzufügen** ein Produkt eintragen:
-   - **Produktseite:** am besten die Seite des genauen Produkts bei geizhals.de, denn dort steht der günstigste
+   - **Produktseiten** (eine je Zeile, bis zu 8): zum Beispiel die Seite bei geizhals.de und dazu die Produktseiten
+     einzelner Shops. Geprüft werden alle, es zählt der günstigste Preis; beim Produkt steht, wo es ihn gibt. Eine Seite,
+     die gesperrt ist oder keinen Preis zeigt, steht mit Hinweis dabei, die anderen laufen weiter.
+   - Gute Wahl als erste Seite: am besten die Seite des genauen Produkts bei geizhals.de, denn dort steht der günstigste
      Preis aller Shops. idealo lässt keine automatischen Abfragen zu (HTTP 403). Eine Shopseite geht auch. Wichtig ist das genaue Produkt (mit Artikelnummer), nicht
      eine Suche, sonst mischen sich verschiedene Varianten im Durchschnitt.
    - **Zielpreis** (optional), **Alarm ab % unter Durchschnitt** und **Suchbegriffe für Deals**, z. B. `Einhell 4,0 Ah`.

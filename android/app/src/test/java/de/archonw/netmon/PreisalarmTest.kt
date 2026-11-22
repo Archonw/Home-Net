@@ -7,7 +7,7 @@ import org.junit.Test
 
 class PreisalarmTest {
     private fun product(good: List<String> = emptyList()) = PaProduct(
-        id = "a1b2c3d4e5f6", name = "Einhell Kit", url = "https://geizhals.example.de/kit", terms = listOf("Einhell 4,0 Ah"),
+        id = "a1b2c3d4e5f6", name = "Einhell Kit", url = "https://geizhals.example.de/kit", urls = listOf("https://geizhals.example.de/kit"), terms = listOf("Einhell 4,0 Ah"),
         target = 50.0, belowPct = 15, error = "", history = listOf(1700000000L to 69.9, 1700021600L to 49.99),
         price = 49.99, checked = 1700021600L, count = 2, average = 69.9, lowest = 69.9, good = good,
     )
