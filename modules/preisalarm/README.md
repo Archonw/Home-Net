@@ -18,14 +18,17 @@ Deals zählen nicht in den Durchschnitt.
 
 1. Auf dem Server: `./home-net add preisalarm`
 2. In Home-Net das Modul **Preisalarm** öffnen und mit **Produkt hinzufügen** ein Produkt eintragen:
-   - **Produktseite:** am besten die Seite des genauen Produkts bei geizhals.de oder idealo.de, denn dort steht der
-     günstigste Preis aller Shops. Eine Shopseite geht auch. Wichtig ist das genaue Produkt (mit Artikelnummer), nicht
+   - **Produktseite:** am besten die Seite des genauen Produkts bei geizhals.de, denn dort steht der günstigste
+     Preis aller Shops. idealo lässt keine automatischen Abfragen zu (HTTP 403). Eine Shopseite geht auch. Wichtig ist das genaue Produkt (mit Artikelnummer), nicht
      eine Suche, sonst mischen sich verschiedene Varianten im Durchschnitt.
    - **Zielpreis** (optional), **Alarm ab % unter Durchschnitt** und **Suchbegriffe für Deals**, z. B. `Einhell 4,0 Ah`.
      Ein Deal passt, wenn alle Wörter eines Begriffs im Titel stehen.
 3. **Jetzt prüfen** liest sofort alle Preise. Danach prüft das Modul alle 6 Stunden (unter **Einstellungen** änderbar).
 4. In der App unter **Einstellungen → Benachrichtigungen** die Meldungen „Ein Produkt hat einen guten Preis“ und „Ein
    Deal passt zu einem Produkt“ wählen.
+
+In der App hat der Preisalarm eigene Seiten: alle Produkte mit Preis, Durchschnitt, Tiefstpreis und Verlauf, dazu
+Hinzufügen, Bearbeiten, Entfernen und „Jetzt prüfen“. Prüfabstand und Deal-Feed stehen in der Weboberfläche.
 
 Ansehen darf jeder mit Zugriff auf das Modul, Produkte und Einstellungen ändern nur Eigentümer und Admins.
 

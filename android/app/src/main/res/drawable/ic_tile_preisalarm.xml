@@ -1,0 +1,7 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="512" android:viewportHeight="512">
+    <!-- assets/icons/preisalarm.svg -->
+    <path android:fillColor="#0F8A5F" android:pathData="M0,0 H512 V512 H0 Z" />
+    <path android:fillColor="#FFFFFF" android:fillType="evenOdd" android:pathData="M120,112 H262 L410,260 C422,272 422,292 410,304 L304,410 C292,422 272,422 260,410 L112,262 V120 C112,116 116,112 120,112 Z M190,160 A30,30 0 1,0 190.01,160 Z" />
+</vector>

@@ -6,6 +6,7 @@ import html as htmllib
 import json
 import re
 import statistics
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 
@@ -23,6 +24,11 @@ def fetch(url, timeout=30):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read(4 * 1024 * 1024).decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        if exc.code in (403, 429):
+            raise PriceError(f"Die Seite lässt keine automatische Abfrage zu (HTTP {exc.code}). "
+                             "Bitte die Produktseite bei geizhals.de oder direkt beim Shop nehmen.") from exc
+        raise PriceError(f"Seite nicht erreichbar: HTTP {exc.code}") from exc
     except OSError as exc:
         raise PriceError(f"Seite nicht erreichbar: {exc}") from exc
 

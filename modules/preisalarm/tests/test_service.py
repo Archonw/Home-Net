@@ -44,6 +44,27 @@ class Parsing(unittest.TestCase):
         self.assertFalse(preise.matches(items[1]["title"], ["einhell 4,0 ah"]))
 
 
+class Fetching(unittest.TestCase):
+    def test_blocked_page_says_so(self):
+        from http.server import BaseHTTPRequestHandler
+
+        class Forbidden(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                self.send_response(403)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), Forbidden)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        with self.assertRaises(preise.PriceError) as ctx:
+            preise.fetch(f"http://127.0.0.1:{httpd.server_port}/")
+        self.assertIn("keine automatische Abfrage", str(ctx.exception))
+
+
 class Rules(unittest.TestCase):
     hist = [[i, p] for i, p in enumerate([80, 82, 78, 81, 79])]
 

@@ -199,7 +199,7 @@ internal fun TextAction(label: String, onClick: () -> Unit) {
 fun HomeScreen(
     settings: Settings, api: Api, onNetwork: () -> Unit, onPi: () -> Unit, onPc: () -> Unit, onUnraid: () -> Unit,
     onPocketId: () -> Unit, onWireGuard: () -> Unit, onPihole: () -> Unit, onProxy: () -> Unit,
-    onNextcloud: () -> Unit,
+    onNextcloud: () -> Unit, onPreisalarm: () -> Unit = {},
 ) {
     val p = LocalPalette.current
     var network by remember { mutableStateOf("Wird geladen …") }
@@ -222,6 +222,8 @@ fun HomeScreen(
     var nextcloudAlert by remember { mutableStateOf(false) }
     var pihole by remember { mutableStateOf("Wird geladen …") }
     var piholeAlert by remember { mutableStateOf(false) }
+    var preisalarm by remember { mutableStateOf("Wird geladen …") }
+    var preisalarmAlert by remember { mutableStateOf(false) }
     var installed by remember { mutableStateOf<Set<String>?>(null) }
     // Module, die die App nicht kennt, mit eigener Kachel: Schlüssel „m:<id>“
     var others by remember { mutableStateOf<List<HubModule>>(emptyList()) }
@@ -357,6 +359,18 @@ fun HomeScreen(
                 }
             }
         }
+        if (installed?.contains("preisalarm") == true) {
+            launch {
+                try {
+                    val o = settings.preisalarmApi().overview()
+                    preisalarm = preisalarmTileText(o)
+                    preisalarmAlert = preisalarmTileAlert(o)
+                } catch (e: ApiException) {
+                    preisalarm = e.message ?: "Nicht erreichbar"
+                    preisalarmAlert = true
+                }
+            }
+        }
         if (installed?.contains("pihole") == true) {
             launch {
                 try {
@@ -388,6 +402,7 @@ fun HomeScreen(
                 "wireguard" -> installed?.contains("wireguard") == true
                 "pihole" -> installed?.contains("pihole") == true
                 "nextcloud" -> installed?.contains("nextcloud") == true
+                "preisalarm" -> installed?.contains("preisalarm") == true
                 else -> it in otherKeys
             }
         } + otherKeys.filter { it !in order }
@@ -419,6 +434,7 @@ fun HomeScreen(
                         "wireguard" -> ServiceTile("WireGuard", wireGuard, wireGuardAlert, "wireguard", onWireGuard)
                         "pihole" -> ServiceTile("Pi-hole", pihole, piholeAlert, "pihole", onPihole)
                         "nextcloud" -> ServiceTile("Nextcloud", nextcloud, nextcloudAlert, "nextcloud", onNextcloud)
+                        "preisalarm" -> ServiceTile("Preisalarm", preisalarm, preisalarmAlert, "preisalarm", onPreisalarm)
                         else -> others.firstOrNull { MODULE_TILE + it.id == tile }?.let { module ->
                             val state = otherTiles[module.id]
                             ServiceTile(
@@ -442,15 +458,15 @@ fun HomeScreen(
 /** Module mit eigenen Seiten in der App; alle anderen bekommen eine Kachel, die das Modul selbst beschreibt. */
 val APP_MODULES = setOf(
     "netzwerkmonitor", "pi-wartung", "pc-sicherung", "unraid", "pocket-id", "proxy-manager", "wireguard", "pihole",
-    "nextcloud",
+    "nextcloud", "preisalarm",
 )
 const val MODULE_TILE = "m:"
 
-val HOME_TILES = listOf("network", "pi", "pc", "unraid", "pocketid", "wireguard", "pihole", "proxy", "nextcloud")
+val HOME_TILES = listOf("network", "pi", "pc", "unraid", "pocketid", "wireguard", "pihole", "proxy", "nextcloud", "preisalarm")
 private val HOME_TILE_LABELS = mapOf(
     "network" to "Netzwerk", "pi" to "Pi-Wartung", "pc" to "PC-Sicherung", "unraid" to "Unraid", "pocketid" to "Pocket ID",
     "wireguard" to "WireGuard", "pihole" to "Pi-hole", "proxy" to "Proxy Manager",
-    "nextcloud" to "Nextcloud",
+    "nextcloud" to "Nextcloud", "preisalarm" to "Preisalarm",
 )
 
 /** Eine Adresse und ein Passwort für alle Module. */

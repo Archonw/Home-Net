@@ -668,7 +668,7 @@ def cmd_add(args):
               "deiner Pi-holes eintragen (Pi-hole 6 nötig).")
     if args.module == "preisalarm":
         print("Preisalarm: In Home-Net im Browser beim Modul Preisalarm die Produkte eintragen, am besten mit der "
-              "Produktseite bei geizhals.de oder idealo.de.")
+              "Produktseite bei geizhals.de.")
 
 
 def cmd_remove(args):

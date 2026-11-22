@@ -12,7 +12,6 @@
  "Produkt hinzufügen": "Add product",
  "Name": "Name",
  "Produktseite": "Product page",
- "Am besten die Seite des Produkts bei geizhals.de oder idealo.de, dort steht der günstigste Preis aller Shops. Eine Shopseite geht auch.": "Best use the product's page on geizhals.de or idealo.de, which shows the lowest price of all shops. A shop page works too.",
  "Zielpreis in €": "Target price in €",
  "Leer lassen für nur Durchschnitt und Tiefstpreis": "Leave empty for average and lowest price only",
  "Alarm ab % unter Durchschnitt": "Alert at % below average",
@@ -54,5 +53,16 @@
  "Bitte alle 1 bis 48 Stunden angeben.": "Please enter every 1 to 48 hours.",
  "Die Adresse „{0}“ sieht nicht richtig aus, z. B. https://geizhals.de/…": "The address “{0}” does not look right, e.g. https://geizhals.de/…",
  "Auf der Seite steht kein lesbarer Preis.": "The page has no readable price.",
- "Seite nicht erreichbar: {0}": "Page not reachable: {0}"
+ "Seite nicht erreichbar: {0}": "Page not reachable: {0}",
+ "Zuletzt geprüft: {0}": "Last checked: {0}",
+ "Ziel {0}": "Target {0}",
+ "Tiefst {0}": "Lowest {0}",
+ "{0} Messungen": "{0} measurements",
+ "Produkte eintragen können Eigentümer und Admins von Home-Net.": "Owners and admins of Home-Net can add products.",
+ "Produkte ändern können Eigentümer und Admins von Home-Net.": "Owners and admins of Home-Net can change products.",
+ "Noch kein Produkt eingetragen.": "No product yet.",
+ "Die Seite lässt keine automatische Abfrage zu (HTTP {0}). Bitte die Produktseite bei geizhals.de oder direkt beim Shop nehmen.": "The page does not allow automatic requests (HTTP {0}). Please use the product page on geizhals.de or directly at the shop.",
+ "Seite nicht erreichbar: HTTP {0}": "Page not reachable: HTTP {0}",
+ "Am besten die Seite des Produkts bei geizhals.de, dort steht der günstigste Preis aller Shops. Eine Shopseite geht auch. idealo lässt keine automatische Abfrage zu.": "Best use the product's page on geizhals.de, which shows the lowest price of all shops. A shop page works too. idealo does not allow automatic requests.",
+ "Mit „Hinzufügen“ oben rechts ein Produkt eintragen, am besten mit seiner Seite bei geizhals.de.": "Add a product with “Add” at the top right, best with its page on geizhals.de."
 }

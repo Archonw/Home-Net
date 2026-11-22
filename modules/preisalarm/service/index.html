@@ -132,7 +132,7 @@ function edit(p) {
   const msg = $("div");
   dlg.replaceChildren($("h2", { textContent: p ? "Produkt bearbeiten" : "Produkt hinzufügen" }),
     field("name", "Name", p && p.name),
-    field("url", "Produktseite", p && p.url, "Am besten die Seite des Produkts bei geizhals.de oder idealo.de, dort steht der günstigste Preis aller Shops. Eine Shopseite geht auch."),
+    field("url", "Produktseite", p && p.url, "Am besten die Seite des Produkts bei geizhals.de, dort steht der günstigste Preis aller Shops. Eine Shopseite geht auch. idealo lässt keine automatische Abfrage zu."),
     $("div", { className: "two" },
       field("target", "Zielpreis in €", p && p.target != null ? String(p.target).replace(".", ",") : "", "Leer lassen für nur Durchschnitt und Tiefstpreis"),
       field("below_pct", "Alarm ab % unter Durchschnitt", p ? p.below_pct : 15, "0 schaltet das aus", "number")),
