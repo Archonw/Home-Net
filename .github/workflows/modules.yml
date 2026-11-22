@@ -177,6 +177,21 @@ jobs:
       - run: python -m unittest discover tests
       - run: docker build -q -t pihole-verwaltung:test .
 
+  preisalarm:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.modules), 'preisalarm')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modules/preisalarm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover tests
+      - run: docker build -q -t preisalarm:test .
+
   proxy-manager:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.modules), 'proxy-manager')

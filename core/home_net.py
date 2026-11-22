@@ -327,7 +327,7 @@ class Install:
         if "pc-sicherung" in state["modules"]:
             Path(pc_dir(state)).mkdir(parents=True, exist_ok=True)
             (self.data / "pc-sicherung" / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
-        for module_id in ("unraid", "pocket-id", "wireguard", "pihole", "proxy-manager", "nextcloud"):
+        for module_id in ("unraid", "pocket-id", "wireguard", "pihole", "proxy-manager", "nextcloud", "preisalarm"):
             if module_id in state["modules"]:
                 (self.data / module_id / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
         if "pocket-id-server" in state["modules"]:
@@ -666,6 +666,9 @@ def cmd_add(args):
     if args.module == "pihole":
         print("Pi-hole: In Home-Net im Browser beim Modul Pi-hole unter Einstellungen die Adressen und Passwörter "
               "deiner Pi-holes eintragen (Pi-hole 6 nötig).")
+    if args.module == "preisalarm":
+        print("Preisalarm: In Home-Net im Browser beim Modul Preisalarm die Produkte eintragen, am besten mit der "
+              "Produktseite bei geizhals.de oder idealo.de.")
 
 
 def cmd_remove(args):

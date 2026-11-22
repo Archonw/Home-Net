@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preisalarm</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --text:#1c1f26; --muted:#666e7a; --line:#e2e5ea; --accent:#0f8a5f; --ok:#1a7f37; --bad:#c93a3a; --warn:#b35a0a; --soft:#0f8a5f1a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme=light]) { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#3fc48f; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#3fc48f26; } }
+:root[data-theme=dark] { --bg:#15171c; --card:#1f2229; --text:#eceef2; --muted:#9aa2ad; --line:#30343c; --accent:#3fc48f; --ok:#44b866; --bad:#ec6a6a; --warn:#dd9140; --soft:#3fc48f26; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
+header { padding:18px 16px 0; max-width:900px; margin:auto; }
+h1 { font-size:24px; margin:0 0 10px; }
+nav { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); }
+nav button { border:0; border-bottom:2px solid transparent; border-radius:0; background:none; padding:8px 10px; color:var(--muted); }
+nav button.on { color:var(--text); border-color:var(--accent); font-weight:620; }
+main { max-width:900px; margin:auto; padding:8px 16px 48px; }
+h2 { font-size:13px; color:var(--muted); margin:20px 0 8px; font-weight:650; }
+button { font:inherit; border:1px solid var(--line); background:var(--card); color:inherit; border-radius:9px; padding:7px 13px; cursor:pointer; }
+button.main { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+button.danger { color:var(--bad); }
+button:disabled { opacity:.55; cursor:default; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:8px; }
+.click { cursor:pointer; }
+.name { font-weight:620; }
+.quiet { color:var(--muted); font-size:13px; }
+.bad { color:var(--bad); } .warn { color:var(--warn); } .ok { color:var(--ok); }
+.note { background:var(--soft); border-color:transparent; }
+.pills { display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
+.pill { font-size:12px; border-radius:20px; padding:1px 8px; background:var(--soft); white-space:nowrap; }
+.actions { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; align-items:center; }
+dialog { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:14px; width:min(560px,94vw); padding:18px; }
+dialog::backdrop { background:#0007; }
+label { display:block; margin:9px 0 3px; font-size:13px; color:var(--muted); }
+label.check { color:inherit; font-size:15px; margin:6px 0; display:flex; align-items:center; gap:8px; }
+input { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; }
+input[type=checkbox] { width:auto; margin:0; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+.err { color:var(--bad); margin:8px 0; white-space:pre-wrap; }
+.hint { font-size:12.5px; color:var(--muted); margin:3px 0 0; }
+.foot { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; flex-wrap:wrap; }
+.link { overflow-wrap:anywhere; font-family:ui-monospace,monospace; font-size:13px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; }
+@media (max-width:560px) { .two { grid-template-columns:1fr; } }
+.big { font-size:22px; font-weight:680; }
+.price { font-size:22px; font-weight:680; }
+.head { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+.good { color:var(--ok); font-weight:620; }
+svg.spark { width:100%; height:46px; margin-top:6px; display:block; }
+svg.spark polyline { fill:none; stroke:var(--accent); stroke-width:1.6; vector-effect:non-scaling-stroke; }
+svg.spark line { stroke:var(--muted); stroke-dasharray:3 3; stroke-width:1; vector-effect:non-scaling-stroke; }
+textarea { width:100%; font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px; min-height:60px; }
+a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Preisalarm</h1>
+  <nav id="nav"></nav>
+</header>
+<main id="app">Wird geladen …</main>
+<dialog id="dlg"></dialog>
+
+<script>
+const $ = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids.filter(k => k != null)); return e; };
+const app = document.getElementById("app"), nav = document.getElementById("nav"), dlg = document.getElementById("dlg");
+const tr = text => (window.hnT ? window.hnT(text) : text);
+let tab = "products", data = null;
+const euro = n => n == null ? "–" : Number(n).toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+const time = t => t ? new Date(t * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "–";
+const err = text => $("p", { className: "err", textContent: text });
+
+async function api(path, method = "GET", body) {
+  const r = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.detail || `Fehler ${r.status}`);
+  return out;
+}
+
+function drawNav() {
+  const tabs = [["products", "Produkte"], ...(data && data.manager ? [["settings", "Einstellungen"]] : [])];
+  nav.replaceChildren(...tabs.map(([id, label]) => $("button", { textContent: label, className: id === tab ? "on" : "", onclick: () => { tab = id; show(); } })));
+}
+
+function spark(history, target) {
+  if (history.length < 2) return null;
+  const ns = "http://www.w3.org/2000/svg";
+  const prices = history.map(h => h[1]).concat(target ? [target] : []);
+  const lo = Math.min(...prices), hi = Math.max(...prices), span = hi - lo || 1;
+  const y = p => 44 - (p - lo) / span * 40;
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("class", "spark"); svg.setAttribute("viewBox", "0 0 100 46"); svg.setAttribute("preserveAspectRatio", "none");
+  const line = document.createElementNS(ns, "polyline");
+  line.setAttribute("points", history.map((h, i) => `${i / (history.length - 1) * 100},${y(h[1])}`).join(" "));
+  svg.append(line);
+  if (target) {
+    const t = document.createElementNS(ns, "line");
+    t.setAttribute("x1", 0); t.setAttribute("x2", 100); t.setAttribute("y1", y(target)); t.setAttribute("y2", y(target));
+    svg.append(t);
+  }
+  return svg;
+}
+
+function card(p) {
+  const facts = [];
+  if (p.target) facts.push(`${tr("Ziel")} ${euro(p.target)}`);
+  if (p.average != null) facts.push(`Ø ${euro(p.average)}`);
+  if (p.lowest != null) facts.push(`${tr("Tiefst")} ${euro(p.lowest)}`);
+  if (p.count) facts.push(`${p.count} ${tr("Messungen")}`);
+  const pills = (p.terms || []).map(t => $("span", { className: "pill", textContent: t }));
+  return $("div", { className: "card" },
+    $("div", { className: "head" },
+      $("div", {}, $("div", { className: "name", textContent: p.name }),
+        p.url ? $("a", { href: p.url, target: "_blank", rel: "noopener", className: "quiet", textContent: new URL(p.url).hostname }) : $("span", { className: "quiet", textContent: "Nur Deal-Suche" })),
+      $("div", { className: "price", textContent: p.url ? euro(p.price) : "" })),
+    p.good && p.good.length ? $("div", { className: "good", textContent: p.good.map(tr).join(", ") }) : null,
+    $("div", { className: "quiet", textContent: facts.join(" · ") }),
+    spark(p.history || [], p.target),
+    p.error ? err(p.error) : null,
+    pills.length ? $("div", { className: "pills" }, ...pills) : null,
+    data.manager ? $("div", { className: "actions" },
+      $("button", { textContent: "Bearbeiten", onclick: () => edit(p) }),
+      $("button", { className: "danger", textContent: "Entfernen", onclick: () => remove(p) })) : null);
+}
+
+function edit(p) {
+  const f = {};
+  const field = (key, label, value, hint, type = "text") => {
+    f[key] = type === "area" ? $("textarea", { value: value || "" }) : $("input", { type, value: value ?? "" });
+    return $("div", {}, $("label", { textContent: label }), f[key], hint ? $("p", { className: "hint", textContent: hint }) : null);
+  };
+  const msg = $("div");
+  dlg.replaceChildren($("h2", { textContent: p ? "Produkt bearbeiten" : "Produkt hinzufügen" }),
+    field("name", "Name", p && p.name),
+    field("url", "Produktseite", p && p.url, "Am besten die Seite des Produkts bei geizhals.de oder idealo.de, dort steht der günstigste Preis aller Shops. Eine Shopseite geht auch."),
+    $("div", { className: "two" },
+      field("target", "Zielpreis in €", p && p.target != null ? String(p.target).replace(".", ",") : "", "Leer lassen für nur Durchschnitt und Tiefstpreis"),
+      field("below_pct", "Alarm ab % unter Durchschnitt", p ? p.below_pct : 15, "0 schaltet das aus", "number")),
+    field("terms", "Suchbegriffe für Deals", p ? (p.terms || []).join("\n") : "", "Einer je Zeile, z. B. „Einhell 4,0 Ah“. Ein Deal passt, wenn alle Wörter eines Begriffs im Titel stehen.", "area"),
+    msg,
+    $("div", { className: "foot" },
+      $("button", { textContent: "Abbrechen", onclick: () => dlg.close() }),
+      $("button", { className: "main", textContent: "Speichern", onclick: async () => {
+        const body = { name: f.name.value, url: f.url.value, target: f.target.value, below_pct: f.below_pct.value, terms: f.terms.value };
+        try { await api(p ? `api/products/${p.id}` : "api/products", p ? "PUT" : "POST", body); dlg.close(); show(); }
+        catch (e) { msg.replaceChildren(err(e.message)); }
+      } })));
+  dlg.showModal();
+}
+
+async function remove(p) {
+  if (!confirm(tr("Produkt und seinen Preisverlauf entfernen?"))) return;
+  try { await api(`api/products/${p.id}`, "DELETE"); show(); } catch (e) { app.prepend(err(e.message)); }
+}
+
+function products() {
+  const msg = $("span", { className: "quiet", textContent: `${tr("Zuletzt geprüft")}: ${time(data.last_run)}` });
+  const bar = $("div", { className: "actions" }, msg);
+  if (data.manager) {
+    bar.prepend($("button", { className: "main", textContent: "Produkt hinzufügen", onclick: () => edit(null) }),
+      $("button", { textContent: "Jetzt prüfen", onclick: async e => {
+        e.target.disabled = true; msg.textContent = tr("Wird geprüft …");
+        try { data = await api("api/check", "POST"); show(false); } catch (x) { msg.replaceChildren(err(x.message)); e.target.disabled = false; }
+      } }));
+  }
+  const list = data.products.length ? data.products.map(card)
+    : [$("div", { className: "card note", textContent: "Noch kein Produkt eingetragen. Ein Produkt braucht einen Namen und eine Produktseite oder Suchbegriffe." })];
+  app.replaceChildren(bar, ...list);
+}
+
+function settings() {
+  const s = data.settings;
+  const hours = $("input", { type: "number", min: 1, max: 48, value: s.interval_hours });
+  const feedOn = $("input", { type: "checkbox", checked: s.feed_on });
+  const feed = $("input", { value: s.feed || "" });
+  const msg = $("div");
+  app.replaceChildren($("div", { className: "card" },
+    $("label", { textContent: "Prüfen alle … Stunden" }), hours,
+    $("label", { className: "check" }, feedOn, "Deal-Feed nach Suchbegriffen durchsuchen"),
+    $("label", { textContent: "Deal-Feed (RSS)" }), feed,
+    $("p", { className: "hint", textContent: "Standard ist der Feed der neuen Deals von mydealz. Beim ersten Lesen merkt sich das Modul nur, was schon da ist; gemeldet werden danach neue Deals." }),
+    msg,
+    $("div", { className: "foot" }, $("button", { className: "main", textContent: "Speichern", onclick: async () => {
+      try { data = await api("api/settings", "PUT", { interval_hours: Number(hours.value), feed_on: feedOn.checked, feed: feed.value }); msg.replaceChildren($("p", { className: "ok", textContent: "Gespeichert" })); }
+      catch (e) { msg.replaceChildren(err(e.message)); }
+    } }))));
+}
+
+async function show(reload = true) {
+  if (reload) {
+    try { data = await api("api/overview"); } catch (e) { app.replaceChildren(err(e.message)); return; }
+  }
+  if (!data.manager && tab === "settings") tab = "products";
+  drawNav();
+  tab === "settings" ? settings() : products();
+}
+show();
+</script>
+</body>
+</html>

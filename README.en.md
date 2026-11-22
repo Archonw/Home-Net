@@ -55,6 +55,7 @@ A fork installs from itself: updates, containers and the app then come from your
 | `nextcloud` | Shows state, storage and updates of a Nextcloud and manages its users and groups ([README](modules/nextcloud/README.md)) |
 | `wireguard` | Manages WireGuard-Easy VPN clients, QR code in the app ([README](modules/wireguard/README.md)); `wireguard-server` installs WireGuard-Easy itself |
 | `pihole` | Pauses ad blocking on all Pi-holes at once and shows combined statistics ([README](modules/pihole/README.md)) |
+| `preisalarm` | Watches product prices (e.g. on geizhals.de) and a deal feed, and reports target prices, prices well below average and new lows ([README](modules/preisalarm/README.md)) |
 
 Screenshots of the app are in [README.md](README.md#so-sieht-die-app-aus) (example data only).
 
