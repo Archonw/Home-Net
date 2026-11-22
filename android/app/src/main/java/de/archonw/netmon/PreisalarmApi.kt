@@ -44,7 +44,9 @@ class PreisalarmApi(private val http: PiApi) {
 
     /** [target] und [terms] wie eingetippt; der Dienst prüft sie und antwortet mit einer Fehlermeldung. */
     suspend fun save(id: String?, name: String, urls: String, target: String, belowPct: String, terms: String) {
-        val body = JSONObject().put("name", name).put("urls", urls).put("target", target)
+        // "url" mit der ersten Seite für Dienste vor v1.3.0, die nur eine Seite kennen
+        val first = urls.lines().map { it.trim() }.firstOrNull { it.isNotEmpty() }.orEmpty()
+        val body = JSONObject().put("name", name).put("urls", urls).put("url", first).put("target", target)
             .put("below_pct", belowPct.trim().ifBlank { "0" }).put("terms", terms).toString()
         if (id == null) http.postJson("api/products", body) else http.putJson("api/products/$id", body)
     }
